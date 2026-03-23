@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -70,5 +71,57 @@ test("TelegramApi surfaces curl transport failures before JSON parsing", async (
     );
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TelegramApi sends pin and unpin requests with the expected payload", async () => {
+  const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+  const server = createServer(async (req, res) => {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+
+    const bodyText = Buffer.concat(chunks).toString("utf8");
+    requests.push({
+      method: req.url?.split("/").pop() ?? "",
+      body: JSON.parse(bodyText)
+    });
+
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, result: true }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  try {
+    const api = new TelegramApi("test-token", `http://127.0.0.1:${address.port}`);
+
+    await api.pinChatMessage("chat-1", 123, { disableNotification: true });
+    await api.unpinChatMessage("chat-1", 123);
+
+    assert.deepEqual(requests, [
+      {
+        method: "pinChatMessage",
+        body: {
+          chat_id: "chat-1",
+          message_id: 123,
+          disable_notification: true
+        }
+      },
+      {
+        method: "unpinChatMessage",
+        body: {
+          chat_id: "chat-1",
+          message_id: 123
+        }
+      }
+    ]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
   }
 });

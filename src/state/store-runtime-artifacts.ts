@@ -4,6 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 import { DEFAULT_RUNTIME_STATUS_FIELDS } from "../types.js";
 import type {
+  CurrentSessionCardRow,
   FinalAnswerViewRow,
   ReadinessSnapshot,
   RuntimeCardPreferencesRow,
@@ -46,6 +47,13 @@ interface FinalAnswerViewRecord {
   pages_json: string;
   primary_action_consumed: number;
   created_at: string;
+}
+
+interface CurrentSessionCardRecord {
+  telegram_chat_id: string;
+  telegram_message_id: number | null;
+  session_id: string;
+  updated_at: string;
 }
 
 interface RuntimeCardPreferencesRecord {
@@ -112,6 +120,15 @@ function mapFinalAnswerView(record: FinalAnswerViewRecord): FinalAnswerViewRow {
   };
 }
 
+function mapCurrentSessionCard(record: CurrentSessionCardRecord): CurrentSessionCardRow {
+  return {
+    telegramChatId: record.telegram_chat_id,
+    telegramMessageId: record.telegram_message_id,
+    sessionId: record.session_id,
+    updatedAt: record.updated_at
+  };
+}
+
 function mapRuntimeCardPreferences(record: RuntimeCardPreferencesRecord): RuntimeCardPreferencesRow {
   const fields = shouldMigrateRuntimeStatusFields(record.updated_at)
     ? migrateRuntimeStatusFields(record.fields_json) ?? parseRuntimeStatusFields(record.fields_json)
@@ -159,6 +176,15 @@ export interface StoreRuntimeArtifacts {
   setRuntimeCardPreferences(fields: RuntimeStatusField[]): RuntimeCardPreferencesRow;
   getUiLanguage(): UiLanguage;
   setUiLanguage(language: UiLanguage): UiLanguage;
+  getCurrentSessionCard(telegramChatId: string): CurrentSessionCardRow | null;
+  upsertCurrentSessionCard(options: {
+    telegramChatId: string;
+    telegramMessageId: number | null;
+    sessionId: string;
+  }): CurrentSessionCardRow;
+  deleteCurrentSessionCard(telegramChatId: string): void;
+  rebindCurrentSessionCardsChatIds(telegramChatId: string, previousChatIds: string[]): void;
+  clearAllCurrentSessionCards(): void;
   saveFinalAnswerView(options: {
     answerId?: string;
     telegramChatId: string;
@@ -192,6 +218,20 @@ export interface StoreRuntimeArtifacts {
 }
 
 export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtifacts {
+  const getCurrentSessionCard = (telegramChatId: string): CurrentSessionCardRow | null => {
+    const row = db
+      .prepare(
+        `
+          SELECT *
+          FROM current_session_card
+          WHERE telegram_chat_id = ?
+        `
+      )
+      .get(telegramChatId) as CurrentSessionCardRecord | undefined;
+
+    return row ? mapCurrentSessionCard(row) : null;
+  };
+
   const getFinalAnswerView = (answerId: string, telegramChatId: string): FinalAnswerViewRow | null => {
     const row = db
       .prepare(
@@ -415,6 +455,62 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .run(next, updatedAt);
 
       return next;
+    },
+
+    getCurrentSessionCard,
+
+    upsertCurrentSessionCard(options) {
+      const updatedAt = nowIso();
+      db
+        .prepare(
+          `
+            INSERT OR REPLACE INTO current_session_card (
+              telegram_chat_id,
+              telegram_message_id,
+              session_id,
+              updated_at
+            )
+            VALUES (?, ?, ?, ?)
+          `
+        )
+        .run(
+          options.telegramChatId,
+          options.telegramMessageId,
+          options.sessionId,
+          updatedAt
+        );
+
+      const saved = getCurrentSessionCard(options.telegramChatId);
+      if (!saved) {
+        throw new Error(`persisted current session card missing after save: ${options.telegramChatId}`);
+      }
+
+      return saved;
+    },
+
+    deleteCurrentSessionCard(telegramChatId) {
+      db.prepare("DELETE FROM current_session_card WHERE telegram_chat_id = ?").run(telegramChatId);
+    },
+
+    rebindCurrentSessionCardsChatIds(telegramChatId, previousChatIds) {
+      if (previousChatIds.length === 0) {
+        return;
+      }
+
+      const placeholders = buildInClausePlaceholders(previousChatIds.length);
+      db
+        .prepare(
+          `
+            UPDATE current_session_card
+            SET telegram_chat_id = ?
+            WHERE telegram_chat_id IN (${placeholders})
+          `
+        )
+        .run(telegramChatId, ...previousChatIds);
+    },
+
+    clearAllCurrentSessionCards() {
+      db.prepare("DELETE FROM current_session_card").run();
     },
 
     saveFinalAnswerView(options) {

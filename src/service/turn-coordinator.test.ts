@@ -93,6 +93,7 @@ async function createCoordinatorContext(options: {
   const acceptedTurnStartReanchors: Array<{ chatId: string; sessionId: string; kind: "text" | "structured" }> = [];
   const reanchorReasons: string[] = [];
   const finalizedHandoffs: Array<{ chatId: string; sessionId: string }> = [];
+  const currentSessionCardSyncs: Array<{ sessionId: string; reason: string }> = [];
   let nextMessageId = 1;
 
   const coordinator = new TurnCoordinator({
@@ -139,6 +140,9 @@ async function createCoordinatorContext(options: {
     reanchorAcceptedTurnStart: async (chatId, sessionId, kind) => {
       acceptedTurnStartReanchors.push({ chatId, sessionId, kind });
     },
+    syncCurrentSessionCardForSession: async (sessionId, reason) => {
+      currentSessionCardSyncs.push({ sessionId, reason });
+    },
     reanchorRuntimeAfterBridgeReply: async (_chatId, reason, _sessionId) => {
       reanchorReasons.push(reason);
     },
@@ -175,6 +179,7 @@ async function createCoordinatorContext(options: {
     sentHtmlMessages,
     interactionResolutions,
     acceptedTurnStartReanchors,
+    currentSessionCardSyncs,
     reanchorReasons,
     finalizedHandoffs,
     cleanup: async () => {
@@ -435,7 +440,7 @@ test("TurnCoordinator auto-syncs session names from thread title updates but kee
 
 test("TurnCoordinator refreshes auto session names from remote thread metadata after a normal turn completes", async () => {
   let readThreadCalls = 0;
-  const { coordinator, store, sentHtmlMessages, cleanup } = await createCoordinatorContext({
+  const { coordinator, store, sentHtmlMessages, currentSessionCardSyncs, cleanup } = await createCoordinatorContext({
     appServer: {
       startThread: async () => ({
         thread: {
@@ -492,6 +497,10 @@ test("TurnCoordinator refreshes auto session names from remote thread metadata a
     assert.equal(readThreadCalls, 1);
     assert.equal(store.getSessionById(session.sessionId)?.displayName, "Fix laggy session title refresh");
     assert.equal(store.getSessionById(session.sessionId)?.displayNameSource, "auto");
+    assert.deepEqual(currentSessionCardSyncs, [{
+      sessionId: session.sessionId,
+      reason: "turn_completed"
+    }]);
     assert.match(sentHtmlMessages[0]?.html ?? "", /Fix laggy session title refresh \/ Project One/u);
   } finally {
     await cleanup();
@@ -499,7 +508,7 @@ test("TurnCoordinator refreshes auto session names from remote thread metadata a
 });
 
 test("TurnCoordinator forces runtime refresh when thread title notifications update the active auto session name", async () => {
-  const { coordinator, store, syncCalls, cleanup } = await createCoordinatorContext();
+  const { coordinator, store, syncCalls, currentSessionCardSyncs, cleanup } = await createCoordinatorContext();
 
   try {
     const session = store.createSession({
@@ -518,6 +527,10 @@ test("TurnCoordinator forces runtime refresh when thread title notifications upd
     assert.equal(store.getSessionById(session.sessionId)?.displayName, "Runtime title updated in place");
     assert.equal(syncCalls.at(-1)?.reason, "thread_name_updated");
     assert.equal(syncCalls.at(-1)?.force, true);
+    assert.deepEqual(currentSessionCardSyncs, [{
+      sessionId: session.sessionId,
+      reason: "thread_name_updated"
+    }]);
   } finally {
     await cleanup();
   }

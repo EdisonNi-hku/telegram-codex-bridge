@@ -9,6 +9,7 @@ import { recordServiceShutdownContext } from "./service-audit.js";
 import { routeBridgeCallback } from "./service/callback-router.js";
 import { CodexCommandCoordinator } from "./service/codex-command-coordinator.js";
 import { routeBridgeCommand } from "./service/command-router.js";
+import { CurrentSessionCardController } from "./service/current-session-card-controller.js";
 import {
   InteractionBroker,
   type InteractionResolutionSource,
@@ -166,6 +167,7 @@ export class BridgeService {
   private readonly runtimeNoticeBroadcaster: RuntimeNoticeBroadcaster;
   private readonly runtimeSurfaceController: RuntimeSurfaceController;
   private readonly runtimeSurfaceTraceSink: RuntimeSurfaceTraceSink;
+  private readonly currentSessionCardController: CurrentSessionCardController;
   private readonly sessionProjectCoordinator: SessionProjectCoordinator;
   private readonly subagentIdentityBackfiller: SubagentIdentityBackfiller;
   private readonly threadArchiveReconciler: ThreadArchiveReconciler;
@@ -224,6 +226,18 @@ export class BridgeService {
       appendInteractionCreatedJournal: async (row) => this.appendInteractionCreatedJournal(row),
       appendInteractionResolvedJournal: async (row, resolution) => this.appendInteractionResolvedJournal(row, resolution)
     });
+    this.currentSessionCardController = new CurrentSessionCardController({
+      logger: {
+        warn: async (message, meta) => this.logger.warn(message, meta)
+      },
+      getStore: () => this.store,
+      getUiLanguage: () => this.getUiLanguage(),
+      safeSendHtmlMessageResult: async (chatId, html) => this.safeSendHtmlMessageResult(chatId, html),
+      safeEditHtmlMessageText: async (chatId, messageId, html) => this.safeEditHtmlMessageText(chatId, messageId, html),
+      safeDeleteMessage: async (chatId, messageId) => this.safeDeleteMessageResult(chatId, messageId),
+      safePinChatMessage: async (chatId, messageId) => this.safePinChatMessage(chatId, messageId),
+      safeUnpinChatMessage: async (chatId, messageId) => this.safeUnpinChatMessage(chatId, messageId)
+    });
     this.sessionProjectCoordinator = new SessionProjectCoordinator({
       logger: {
         warn: async (message, meta) => this.logger.warn(message, meta)
@@ -252,6 +266,8 @@ export class BridgeService {
       getActiveRuntimeStatusText: (chatId) => this.buildActiveRuntimeStatusText(chatId),
       reanchorRuntimeAfterBridgeReply: async (chatId, sessionId, reason) =>
         this.reanchorRuntimeAfterBridgeReply(chatId, reason, sessionId),
+      syncCurrentSessionCard: async (chatId, reason) =>
+        this.currentSessionCardController.syncForChat(chatId, reason),
       handleSessionArchived: async (chatId, sessionId, reason) =>
         this.runtimeSurfaceController.handleSessionArchived(chatId, sessionId, reason),
       handleSessionUnarchived: async (chatId, sessionId, reason) =>
@@ -336,6 +352,8 @@ export class BridgeService {
           kind === "text" ? "accepted_user_work" : "accepted_structured_work",
           sessionId
         ),
+      syncCurrentSessionCardForSession: async (sessionId, reason) =>
+        this.syncCurrentSessionCardForSession(sessionId, reason),
       reanchorRuntimeAfterBridgeReply: async (chatId, reason, sessionId) =>
         this.reanchorRuntimeAfterBridgeReply(chatId, reason, sessionId),
       finalizeTerminalRuntimeHandoff: async (chatId, sessionId) =>
@@ -524,6 +542,7 @@ export class BridgeService {
     );
 
     await this.syncTelegramCommands();
+    await this.restoreCurrentSessionCardsAtStartup();
     await this.logger.info("bridge service started", { readiness: snapshot.state });
     if (recoverySessions.length > 0) {
       const recoveryChatId = recoverySessions[0]?.telegramChatId;
@@ -2076,10 +2095,13 @@ export class BridgeService {
           const result = await appServer.readThread(session.threadId, false, {
             terminateOnTimeout: false
           });
-          store.syncSessionTitleFromThread(session.threadId, {
+          const updated = store.syncSessionTitleFromThread(session.threadId, {
             name: result.thread.name,
             preview: result.thread.preview
           });
+          if (updated) {
+            await this.syncCurrentSessionCardForSession(session.sessionId, "startup_title_sync");
+          }
         } catch (error) {
           await this.logger.warn("session title sync from remote thread failed", {
             sessionId: session.sessionId,
@@ -2714,6 +2736,7 @@ export class BridgeService {
     await this.replaceBridgeOwnedMessage(chatId, messageId, this.buildLanguageClosedMessage(nextLanguage), {
       html: true
     });
+    await this.currentSessionCardController.syncForChat(chatId, "language_changed");
   }
 
   private async handleLanguageCloseCallback(
@@ -2773,6 +2796,57 @@ export class BridgeService {
 
   private async safeDeleteMessage(chatId: string, messageId: number): Promise<boolean> {
     return isTelegramDeleteCommitted(await this.safeDeleteMessageResult(chatId, messageId));
+  }
+
+  private async safePinChatMessage(chatId: string, messageId: number): Promise<boolean> {
+    if (!this.api?.pinChatMessage) {
+      return false;
+    }
+
+    try {
+      await this.api.pinChatMessage(chatId, messageId, { disableNotification: true });
+      await this.logger.info("telegram message pinned", { chatId, messageId });
+      return true;
+    } catch (error) {
+      await this.logger.warn("telegram message pin failed", { chatId, messageId, error: `${error}` });
+      return false;
+    }
+  }
+
+  private async safeUnpinChatMessage(chatId: string, messageId: number): Promise<boolean> {
+    if (!this.api?.unpinChatMessage) {
+      return false;
+    }
+
+    try {
+      await this.api.unpinChatMessage(chatId, messageId);
+      await this.logger.info("telegram message unpinned", { chatId, messageId });
+      return true;
+    } catch (error) {
+      await this.logger.warn("telegram message unpin failed", { chatId, messageId, error: `${error}` });
+      return false;
+    }
+  }
+
+  private async syncCurrentSessionCardForSession(sessionId: string, reason: string): Promise<void> {
+    const session = this.store?.getSessionById(sessionId);
+    if (!session) {
+      return;
+    }
+
+    const activeSession = this.store?.getActiveSession(session.telegramChatId);
+    if (!activeSession || activeSession.sessionId !== sessionId) {
+      return;
+    }
+
+    await this.currentSessionCardController.syncForChat(session.telegramChatId, reason);
+  }
+
+  private async restoreCurrentSessionCardsAtStartup(): Promise<void> {
+    const bindings = this.store?.listChatBindings() ?? [];
+    for (const binding of bindings) {
+      await this.currentSessionCardController.syncForChat(binding.telegramChatId, "startup_restore");
+    }
   }
 
   private async syncTelegramCommands(): Promise<void> {
