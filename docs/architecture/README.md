@@ -12,5 +12,8 @@ Read this directory when you need to answer:
 - how runtime delivery differs from final-answer delivery
 - how the current codebase is split after the current service/UI/store extraction waves
 
+This directory describes the current Telegram-first runtime shape.
+Future repository direction for a broader Core belongs in `docs/future/multi-platform-core-prd.md`.
+
 If you need to confirm actual implementation, verify against the relevant `src/` files.
 For many Telegram-facing runtime behaviors, the narrow owner now lives under `src/service/` rather than only under `src/telegram/`.

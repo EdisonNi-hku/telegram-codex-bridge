@@ -75,6 +75,7 @@ Use this tier only for future direction, engineering sequencing, or historical r
 
 Use Tier 3 for questions like:
 
+- what a future multi-platform Core should look like
 - what comes next
 - what was planned for later phases
 - why an implementation sequence was chosen
@@ -112,6 +113,12 @@ Rule:
 
 1. the smallest relevant file in `docs/roadmap/`, `docs/future/`, `docs/plans/`, or `docs/archive/`
 2. then Tier 1 or code if you need to compare past intent with current truth
+
+### I want the future multi-platform Core direction
+
+1. `docs/future/multi-platform-core-prd.md`
+2. then `docs/research/codex-app-server-authoritative-reference.md` if protocol breadth matters
+3. then current code only to compare the target direction with today's Telegram-first implementation
 
 ## Local Directory Maps
 

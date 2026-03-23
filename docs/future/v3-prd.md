@@ -5,6 +5,7 @@ Owner: Product
 Last updated: 2026-03-15
 Related docs:
 - `docs/future/v2-prd.md`
+- `docs/future/multi-platform-core-prd.md`
 - `docs/plans/2026-03-14-codex-cli-capability-alignment-design.md`
 - `docs/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
 
@@ -13,6 +14,7 @@ Related docs:
 > - Use for: future product direction plus a dated partial-implementation snapshot
 > - Verified current behavior here? No
 > - Some slices mentioned here have since landed or shifted; verify shipped behavior in current docs and code
+> - Repository-level future direction beyond Telegram now lives in `docs/future/multi-platform-core-prd.md`; this file remains the Telegram-facing future track
 
 ---
 

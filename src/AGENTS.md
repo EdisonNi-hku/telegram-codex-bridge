@@ -9,6 +9,9 @@ The goal is to reach the **narrow owner** quickly.
 
 Prefer the narrow owner file over broad glue code.
 
+If the question is about a **future platform-neutral Core** rather than today's code ownership, read `docs/future/multi-platform-core-prd.md` first.
+Then return here only when you need to compare that target with the current implementation.
+
 Do **not** start with `src/service.ts` unless the question is specifically about bootstrap wiring, top-level startup flow, or a cross-cutting service boundary.
 
 If you need a prose map of ownership before reading code, use:
@@ -27,6 +30,7 @@ Then return here and choose a narrow file.
 | paths for config/state/log/runtime files | `src/paths.ts` |
 | startup gating, readiness floors, degraded states | `src/readiness.ts` |
 | top-level bridge bootstrap and wiring | `src/service.ts` |
+| compare the future Core direction against today's Telegram-first shell | `docs/future/multi-platform-core-prd.md` then `src/service.ts` |
 | Telegram command registry and help-surface truth | `src/telegram/commands.ts` |
 | Telegram polling ingress | `src/telegram/poller.ts` |
 | Telegram Bot API wrapper | `src/telegram/api.ts` |

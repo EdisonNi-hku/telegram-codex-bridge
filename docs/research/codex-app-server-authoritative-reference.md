@@ -1,6 +1,6 @@
 # Codex App-Server Authoritative Reference
 
-Last refreshed: 2026-03-21
+Last refreshed: 2026-03-23
 
 Primary audience:
 - in-repo Codex/LLM agents
@@ -41,7 +41,7 @@ For raw protocol-only questions, use this order:
 4. Repository docs
 5. Historical verification docs and planning docs
 
-For this host on 2026-03-21:
+For this host on 2026-03-23:
 - `codex --version` returned `codex-cli 0.116.0`
 - `codex app-server --help` confirmed:
   - `--listen stdio://` default transport
@@ -58,6 +58,7 @@ Important implication:
 Primary official docs:
 - App Server: <https://developers.openai.com/codex/app-server>
 - CLI reference: <https://developers.openai.com/codex/cli/reference>
+- Skills: <https://developers.openai.com/codex/skills>
 
 Official guidance that matters for this repository:
 - the CLI reference still marks `codex app-server` as `Experimental`, so treat it as a powerful but evolving integration surface rather than a fully stable platform contract
@@ -171,7 +172,7 @@ Commentary rule for integrations:
 
 ## Current Host Baseline
 
-Current host runtime facts captured on 2026-03-21:
+Current host runtime facts captured on 2026-03-23:
 
 - CLI version: `codex-cli 0.116.0`
 - app-server help confirms:
@@ -179,6 +180,10 @@ Current host runtime facts captured on 2026-03-21:
   - `--listen ws://IP:PORT`
   - `generate-ts`
   - `generate-json-schema`
+- generated schema inventory:
+  - `67` client requests
+  - `48` server notifications
+  - `9` server requests
 - schema generation command used:
 
 ```bash
@@ -513,6 +518,11 @@ Current implementation note:
 Current-host note for `codex-cli 0.116.0`:
 - `thread/status/changed` carries a structured `status` object such as `active` plus nested `activeFlags`, not only a flat status string
 - the bridge starts app-server with the experimental API capability enabled, so experimental methods such as `collaborationMode/list` remain protocol-visible even though the current Telegram UX still does not ship collaboration-mode discovery or preset selection
+
+Future-direction note:
+- this broader schema surface is important input for a future multi-platform Core
+- it still does **not** mean the current repository has already extracted a platform-neutral Core
+- future repository direction is tracked in `docs/future/multi-platform-core-prd.md`
 
 Still not used today by the bridge, including:
 - `item/tool/call`

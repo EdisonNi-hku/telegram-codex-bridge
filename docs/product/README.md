@@ -15,6 +15,9 @@ Read this directory when you need to answer:
 - what v1 includes or excludes
 - how user-facing Telegram behavior should work
 
+This directory is about **current Telegram-first behavior**.
+Future repository direction beyond Telegram belongs in `docs/future/multi-platform-core-prd.md`.
+
 Suggested reading order for Telegram UX work:
 1. `chat-and-project-flow.md` if you need the high-level router first
 2. then exactly one narrow product doc from the split set above

@@ -1,6 +1,6 @@
 # Codex App-Server API Quick Reference
 
-Last refreshed: 2026-03-21
+Last refreshed: 2026-03-23
 
 Version basis:
 - local host `codex-cli 0.116.0`
@@ -749,6 +749,26 @@ Important distinction:
 - schema-level remote URL `image` is available in the protocol, but not yet surfaced as a direct Telegram command in this bridge
 - `item/tool/call` and `account/chatgptAuthTokens/refresh` remain intentionally unimplemented; the bridge now rejects them explicitly instead of pretending they map cleanly to Telegram
 - `serverRequest/resolved.requestId` is `string | integer`, so bridge storage and matching must preserve numeric ids exactly
+
+## Future Core Watchlist
+
+These current-schema surfaces are especially relevant for a future multi-platform Core, even though the current Telegram-first bridge does not ship them as product features today:
+
+- `collaborationMode/list`
+- `experimentalFeature/list`
+- `plugin/read`
+- `skills/remote/list`
+- `skills/remote/export`
+- filesystem RPCs under `fs/*`
+- config surfaces such as `config/read`, `config/value/write`, and `config/batchWrite`
+- terminal-style control surfaces under `command/exec*`
+- `externalAgentConfig/*`
+- `fuzzyFileSearch*`
+
+Repository rule:
+- treat these as future-facing protocol inputs
+- do not describe them as current Telegram UX
+- if a future design question is about platform-neutral Core direction, also read `docs/future/multi-platform-core-prd.md`
 
 ## LLM Gotchas
 
