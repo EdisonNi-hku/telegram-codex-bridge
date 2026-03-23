@@ -6,6 +6,7 @@ import type {
   ProjectScanCacheRow,
   ReasoningEffort,
   RecentProjectRow,
+  SessionDisplayNameSource,
   SessionProjectStatsRow,
   SessionRow,
   SessionStatus
@@ -41,6 +42,7 @@ export interface StoreSessions {
     projectName: string;
     projectPath: string;
     displayName?: string;
+    displayNameSource?: SessionDisplayNameSource;
     selectedModel?: string | null;
     selectedReasoningEffort?: ReasoningEffort | null;
     planMode?: boolean;
@@ -54,6 +56,7 @@ export interface StoreSessions {
   archiveSession(sessionId: string): SessionRow | null;
   unarchiveSession(sessionId: string): SessionRow | null;
   renameSession(sessionId: string, displayName: string): void;
+  autoRenameSession(sessionId: string, displayName: string): boolean;
   pinProject(options: {
     projectPath: string;
     projectName: string;
@@ -237,6 +240,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
         planMode: options.planMode ?? false,
         needsDefaultCollaborationModeReset: options.needsDefaultCollaborationModeReset ?? false,
         displayName: options.displayName ?? options.projectName,
+        displayNameSource: options.displayNameSource ?? "auto",
         projectName: options.projectName,
         projectAlias: null,
         projectPath: options.projectPath,
@@ -265,6 +269,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
                 plan_mode,
                 pending_default_collaboration_mode_reset,
                 display_name,
+                display_name_source,
                 project_name,
                 project_path,
                 status,
@@ -276,7 +281,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
                 last_turn_id,
                 last_turn_status
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
           )
           .run(
@@ -288,6 +293,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
             session.planMode ? 1 : 0,
             session.needsDefaultCollaborationModeReset ? 1 : 0,
             session.displayName,
+            session.displayNameSource,
             session.projectName,
             session.projectPath,
             session.status,
@@ -428,11 +434,30 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
         .prepare(
           `
             UPDATE session
-            SET display_name = ?, last_used_at = ?
+            SET display_name = ?, display_name_source = 'manual', last_used_at = ?
             WHERE session_id = ?
           `
         )
         .run(displayName, nowIso(), sessionId);
+    },
+
+    autoRenameSession(sessionId, displayName) {
+      const session = getSessionById(sessionId);
+      if (!session || session.displayNameSource !== "auto" || session.displayName === displayName) {
+        return false;
+      }
+
+      const result = db
+        .prepare(
+          `
+            UPDATE session
+            SET display_name = ?, display_name_source = 'auto'
+            WHERE session_id = ? AND display_name_source = 'auto'
+          `
+        )
+        .run(displayName, sessionId);
+
+      return Number(result.changes ?? 0) > 0;
     },
 
     pinProject(options) {

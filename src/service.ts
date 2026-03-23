@@ -5,6 +5,7 @@ import { TurnDebugJournal, type DebugJournalWriter } from "./activity/debug-jour
 import { ensureBridgeDirectories, getBridgePaths, getDebugRuntimeDir, type BridgePaths } from "./paths.js";
 import { loadConfig, type BridgeConfig } from "./config.js";
 import { probeReadiness } from "./readiness.js";
+import { recordServiceShutdownContext } from "./service-audit.js";
 import { routeBridgeCallback } from "./service/callback-router.js";
 import { CodexCommandCoordinator } from "./service/codex-command-coordinator.js";
 import { routeBridgeCommand } from "./service/command-router.js";
@@ -174,6 +175,7 @@ export class BridgeService {
   private store: BridgeStateStore | null = null;
   private snapshot: ReadinessSnapshot | null = null;
   private appServer: CodexAppServerClient | null = null;
+  private autoSessionTitleSyncPromise: Promise<void> | null = null;
   private readonly unauthorizedReplyAt = new Map<string, number>();
   private stopping = false;
 
@@ -500,6 +502,7 @@ export class BridgeService {
     this.appServer = appServer;
     this.richInputAdapter.resetRuntimeCaches();
     this.attachAppServerListeners();
+    this.scheduleAutoSessionTitleSyncFromRemoteThreads();
 
     if (!isOperationalReadinessState(snapshot.state)) {
       if (this.appServer) {
@@ -535,7 +538,27 @@ export class BridgeService {
     await this.poller.run();
   }
 
-  async stop(): Promise<void> {
+  async stop(context: {
+    source?: string;
+    signal?: string | null;
+  } = {}): Promise<void> {
+    const activeTurns = this.listActiveTurns().length;
+    const alreadyStopping = this.stopping;
+    if (!alreadyStopping) {
+      await recordServiceShutdownContext(this.paths, {
+        source: context.source ?? "internal",
+        signal: context.signal ?? null,
+        activeTurns,
+        alreadyStopping
+      }).catch(() => {});
+      await this.logger.info("bridge service stopping", {
+        source: context.source ?? "internal",
+        signal: context.signal ?? null,
+        activeTurns,
+        alreadyStopping
+      }).catch(() => {});
+    }
+
     this.stopping = true;
     this.poller?.stop();
     this.threadArchiveReconciler.clear();
@@ -1960,6 +1983,7 @@ export class BridgeService {
       this.appServer = client;
       this.richInputAdapter.resetRuntimeCaches();
       this.attachAppServerListeners();
+      this.scheduleAutoSessionTitleSyncFromRemoteThreads();
       if (this.snapshot) {
         this.snapshot = {
           ...this.snapshot,
@@ -2011,6 +2035,60 @@ export class BridgeService {
     this.appServer = client;
     this.richInputAdapter.resetRuntimeCaches();
     this.attachAppServerListeners();
+    this.scheduleAutoSessionTitleSyncFromRemoteThreads();
+  }
+
+  private scheduleAutoSessionTitleSyncFromRemoteThreads(): void {
+    if (this.autoSessionTitleSyncPromise) {
+      return;
+    }
+
+    // Slow or stale thread reads should not delay readiness or app-server recovery.
+    this.autoSessionTitleSyncPromise = this.syncAutoSessionTitlesFromRemoteThreads()
+      .catch(async (error) => {
+        await this.logger.warn("session title sync from remote threads failed", {
+          error: `${error}`
+        });
+      })
+      .finally(() => {
+        this.autoSessionTitleSyncPromise = null;
+      });
+  }
+
+  private async syncAutoSessionTitlesFromRemoteThreads(): Promise<void> {
+    const store = this.store;
+    const appServer = this.appServer;
+    if (!store || !appServer) {
+      return;
+    }
+
+    const autoSessions = store
+      .listSessionsWithThreads()
+      .filter((session) => session.threadId && session.displayNameSource === "auto");
+
+    await Promise.all(
+      autoSessions.map(async (session) => {
+        if (!session.threadId) {
+          return;
+        }
+
+        try {
+          const result = await appServer.readThread(session.threadId, false, {
+            terminateOnTimeout: false
+          });
+          store.syncSessionTitleFromThread(session.threadId, {
+            name: result.thread.name,
+            preview: result.thread.preview
+          });
+        } catch (error) {
+          await this.logger.warn("session title sync from remote thread failed", {
+            sessionId: session.sessionId,
+            threadId: session.threadId,
+            error: `${error}`
+          });
+        }
+      })
+    );
   }
 
   private async appendInteractionCreatedJournal(row: PendingInteractionRow): Promise<void> {
@@ -2727,16 +2805,22 @@ export async function runBridgeService(importMetaUrl: string): Promise<void> {
   const config = await loadConfig(paths);
   const service = new BridgeService(paths, config);
 
-  const shutdown = async () => {
-    await service.stop();
+  const shutdown = async (context: { source: string; signal?: string | null }) => {
+    await service.stop(context);
     process.exit(0);
   };
 
   process.on("SIGINT", () => {
-    void shutdown();
+    void shutdown({
+      source: "signal",
+      signal: "SIGINT"
+    });
   });
   process.on("SIGTERM", () => {
-    void shutdown();
+    void shutdown({
+      source: "signal",
+      signal: "SIGTERM"
+    });
   });
 
   await service.run();

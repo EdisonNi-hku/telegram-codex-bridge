@@ -269,6 +269,8 @@ export interface PendingInteractionSummary {
   awaitingText: boolean;
 }
 
+export type SessionDisplayNameSource = "auto" | "manual";
+
 export interface SessionRow {
   sessionId: string;
   telegramChatId: string;
@@ -278,6 +280,7 @@ export interface SessionRow {
   planMode: boolean;
   needsDefaultCollaborationModeReset: boolean;
   displayName: string;
+  displayNameSource: SessionDisplayNameSource;
   projectName: string;
   projectAlias: string | null;
   projectPath: string;

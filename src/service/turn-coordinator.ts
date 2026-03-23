@@ -497,6 +497,10 @@ export class TurnCoordinator {
         ...(session.selectedModel ? { model: session.selectedModel } : {})
       });
       store.updateSessionThreadId(session.sessionId, started.thread.id);
+      store.syncSessionTitleFromThread(started.thread.id, {
+        name: started.thread.name,
+        preview: started.thread.preview
+      });
       return {
         threadId: started.thread.id,
         model: started.model ?? null,
@@ -506,6 +510,10 @@ export class TurnCoordinator {
 
     try {
       const resumed = await appServer.resumeThread(session.threadId);
+      store.syncSessionTitleFromThread(session.threadId, {
+        name: resumed.thread.name,
+        preview: resumed.thread.preview
+      });
       return {
         threadId: session.threadId,
         model: resumed.model ?? null,
@@ -525,6 +533,10 @@ export class TurnCoordinator {
         ...(session.selectedModel ? { model: session.selectedModel } : {})
       });
       store.updateSessionThreadId(session.sessionId, started.thread.id);
+      store.syncSessionTitleFromThread(started.thread.id, {
+        name: started.thread.name,
+        preview: started.thread.preview
+      });
       return {
         threadId: started.thread.id,
         model: started.model ?? null,
@@ -610,6 +622,8 @@ export class TurnCoordinator {
     params: unknown,
     classified: ReturnType<typeof classifyNotification>
   ): Promise<void> {
+    this.syncSessionTitleFromNotification(classified);
+
     if (this.shouldIgnoreTerminalNotification(classified)) {
       await this.deps.logger.info("ignored terminal turn notification", {
         method,
@@ -1456,6 +1470,27 @@ export class TurnCoordinator {
         error: `${error}`
       });
       return false;
+    }
+  }
+
+  private syncSessionTitleFromNotification(classified: ReturnType<typeof classifyNotification>): void {
+    const store = this.deps.getStore();
+    if (!store || !classified.threadId) {
+      return;
+    }
+
+    if (classified.kind === "thread_started") {
+      store.syncSessionTitleFromThread(classified.threadId, {
+        name: classified.threadName,
+        preview: classified.threadPreview
+      });
+      return;
+    }
+
+    if (classified.kind === "thread_name_updated") {
+      store.syncSessionTitleFromThread(classified.threadId, {
+        name: classified.threadName
+      });
     }
   }
 }

@@ -77,6 +77,7 @@ function createSession(overrides: Partial<SessionRow>): SessionRow {
     planMode: overrides.planMode ?? false,
     needsDefaultCollaborationModeReset: overrides.needsDefaultCollaborationModeReset ?? false,
     displayName: overrides.displayName ?? "Session Alpha",
+    displayNameSource: overrides.displayNameSource ?? "manual",
     projectName: overrides.projectName ?? "Project One",
     projectAlias: "projectAlias" in overrides ? overrides.projectAlias ?? null : null,
     projectPath: overrides.projectPath ?? "/tmp/project-one",
@@ -789,6 +790,60 @@ test("buildRuntimeHubMessage renders slot-based live sections with stable slot n
   assert.doesNotMatch(text, /<i>\(状态: Running · 查看中\)<\/i>/u);
   assert.doesNotMatch(text, /<b>\[当前输入会话\]<\/b>/u);
   assert.match(text, /💡 <i>\/status \| \/inspect \| \/interrupt<\/i>/u);
+});
+
+test("buildRuntimeHubMessage renders redesigned in-hub plan and agent detail modules", () => {
+  const text = buildRuntimeHubMessage({
+    language: "zh",
+    windowIndex: 0,
+    totalWindows: 1,
+    currentViewedSession: {
+      sessionId: "session-3",
+      sessionName: "telegram-codex-bridge",
+      projectName: "telegram-codex-bridge",
+      state: "Running",
+      progressText: "准备整理 hub 的详情层。",
+      slot: 3,
+      isFocused: true,
+      isActiveInputTarget: false
+    },
+    otherSessions: [],
+    recentEndedSessions: [],
+    planEntries: [
+      "Collect protocol evidence (inProgress)",
+      "Wire inspect renderer (completed)",
+      "Ship docs refresh (pending)",
+      "Plain text step without parsed state"
+    ],
+    planExpanded: true,
+    agentEntries: [
+      {
+        threadId: "thread-agent-1",
+        label: "Pauli",
+        labelSource: "nickname",
+        status: "running",
+        progress: "正在整理 runtime docs"
+      },
+      {
+        threadId: "thread-agent-2",
+        label: "Fermat",
+        labelSource: "nickname",
+        status: "pendingInit",
+        progress: null
+      }
+    ],
+    agentsExpanded: true,
+    completed: false
+  });
+
+  assert.match(text, /<b>\[计划详情\]<\/b>/u);
+  assert.match(text, /1\. <b>进行中<\/b> · Collect protocol evidence/u);
+  assert.match(text, /2\. <b>已完成<\/b> · Wire inspect renderer/u);
+  assert.match(text, /3\. <b>待处理<\/b> · Ship docs refresh/u);
+  assert.match(text, /4\. Plain text step without parsed state/u);
+  assert.match(text, /<b>\[协作 Agent\]<\/b>/u);
+  assert.match(text, /🟢 <b>Pauli<\/b> · 运行中 · 正在整理 runtime docs/u);
+  assert.match(text, /🟡 <b>Fermat<\/b> · 等待初始化 · 等待状态更新/u);
 });
 
 test("buildRuntimeHubMessage hides empty slot sections and marks completed hubs", () => {

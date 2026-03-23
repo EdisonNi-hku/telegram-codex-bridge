@@ -2996,6 +2996,7 @@ test("RuntimeSurfaceController keeps expanded hub plan sections when the slimmer
     const compactEdit = editCalls[editCountBeforeRefresh];
     assert.ok(compactEdit);
     assert.match(compactEdit?.html ?? "", /🎯 <b>Active Hub<\/b> \[目录：1\/1\]/u);
+    assert.match(compactEdit?.html ?? "", /<b>\[计划详情\]<\/b>/u);
     assert.deepEqual(compactEdit?.replyMarkup?.inline_keyboard?.[0]?.map((button) => button.text), ["1", "·", "·", "·", "·"]);
     assert.equal(compactEdit?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "收起计划清单");
     assert.match(compactEdit?.replyMarkup?.inline_keyboard?.[1]?.[0]?.callback_data ?? "", /plan:collapse/u);

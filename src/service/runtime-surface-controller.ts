@@ -61,6 +61,11 @@ const RUNTIME_HUB_SLOT_COUNT = 5;
 const RUNTIME_HUB_TEXT_SOFT_LIMIT = 3200;
 const RUNTIME_HUB_SESSION_PROGRESS_TEXT_LIMIT = 120;
 const RUNTIME_HUB_COMPACT_SESSION_PROGRESS_TEXT_LIMIT = 80;
+const RUNTIME_HUB_TIGHT_OTHER_SESSION_PROGRESS_TEXT_LIMIT = 48;
+const RUNTIME_HUB_TIGHT_PLAN_ENTRY_LIMIT = 4;
+const RUNTIME_HUB_TIGHT_PLAN_ENTRY_TEXT_LIMIT = 90;
+const RUNTIME_HUB_TIGHT_AGENT_ENTRY_LIMIT = 3;
+const RUNTIME_HUB_TIGHT_AGENT_PROGRESS_TEXT_LIMIT = 72;
 const RECOVERY_HUB_COMPACT_SESSION_NAME_LIMIT = 32;
 const RECOVERY_HUB_TIGHT_SESSION_NAME_LIMIT = 24;
 const HUB_AUTO_REFRESH_START_DELAY_MS = 1500;
@@ -1227,7 +1232,13 @@ export class RuntimeSurfaceController {
       visibleState: RuntimeHubVisibleState,
       options?: {
         compactFocused?: boolean;
-        sessionProgressTextLimit?: number;
+        currentViewedSessionProgressTextLimit?: number;
+        otherSessionProgressTextLimit?: number;
+        recentEndedSessionProgressTextLimit?: number;
+        hubPlanEntryLimit?: number;
+        hubPlanEntryTextLimit?: number;
+        hubAgentEntryLimit?: number;
+        hubAgentProgressTextLimit?: number;
       }
     ): {
       text: string;
@@ -1299,7 +1310,18 @@ export class RuntimeSurfaceController {
         agentEntries: focused.agentEntries,
         agentsExpanded: !options?.compactFocused && visibleState.agentsExpanded,
         completed: this.isLiveHubCompleted(hubState, runningSessionIds),
-        sessionProgressTextLimit: options?.sessionProgressTextLimit ?? RUNTIME_HUB_SESSION_PROGRESS_TEXT_LIMIT,
+        currentViewedSessionProgressTextLimit:
+          options?.currentViewedSessionProgressTextLimit ?? RUNTIME_HUB_SESSION_PROGRESS_TEXT_LIMIT,
+        otherSessionProgressTextLimit:
+          options?.otherSessionProgressTextLimit ?? RUNTIME_HUB_SESSION_PROGRESS_TEXT_LIMIT,
+        recentEndedSessionProgressTextLimit:
+          options?.recentEndedSessionProgressTextLimit ?? 0,
+        ...(options?.hubPlanEntryLimit !== undefined ? { hubPlanEntryLimit: options.hubPlanEntryLimit } : {}),
+        ...(options?.hubPlanEntryTextLimit !== undefined ? { hubPlanEntryTextLimit: options.hubPlanEntryTextLimit } : {}),
+        ...(options?.hubAgentEntryLimit !== undefined ? { hubAgentEntryLimit: options.hubAgentEntryLimit } : {}),
+        ...(options?.hubAgentProgressTextLimit !== undefined
+          ? { hubAgentProgressTextLimit: options.hubAgentProgressTextLimit }
+          : {}),
         ...(reminderText !== undefined ? { reminderText } : {})
       });
 
@@ -1325,6 +1347,34 @@ export class RuntimeSurfaceController {
       return rendered;
     }
 
+    rendered = render(desiredVisibleState, {
+      currentViewedSessionProgressTextLimit: RUNTIME_HUB_SESSION_PROGRESS_TEXT_LIMIT,
+      otherSessionProgressTextLimit: RUNTIME_HUB_TIGHT_OTHER_SESSION_PROGRESS_TEXT_LIMIT
+    });
+    if (rendered.text.length <= RUNTIME_HUB_TEXT_SOFT_LIMIT) {
+      return rendered;
+    }
+
+    rendered = render(desiredVisibleState, {
+      currentViewedSessionProgressTextLimit: RUNTIME_HUB_SESSION_PROGRESS_TEXT_LIMIT,
+      otherSessionProgressTextLimit: 0
+    });
+    if (rendered.text.length <= RUNTIME_HUB_TEXT_SOFT_LIMIT) {
+      return rendered;
+    }
+
+    rendered = render(desiredVisibleState, {
+      currentViewedSessionProgressTextLimit: RUNTIME_HUB_COMPACT_SESSION_PROGRESS_TEXT_LIMIT,
+      otherSessionProgressTextLimit: 0,
+      hubPlanEntryLimit: RUNTIME_HUB_TIGHT_PLAN_ENTRY_LIMIT,
+      hubPlanEntryTextLimit: RUNTIME_HUB_TIGHT_PLAN_ENTRY_TEXT_LIMIT,
+      hubAgentEntryLimit: RUNTIME_HUB_TIGHT_AGENT_ENTRY_LIMIT,
+      hubAgentProgressTextLimit: RUNTIME_HUB_TIGHT_AGENT_PROGRESS_TEXT_LIMIT
+    });
+    if (rendered.text.length <= RUNTIME_HUB_TEXT_SOFT_LIMIT) {
+      return rendered;
+    }
+
     const compactedVisibleState = desiredVisibleState.planExpanded || desiredVisibleState.agentsExpanded
       ? {
         ...desiredVisibleState,
@@ -1336,7 +1386,8 @@ export class RuntimeSurfaceController {
 
     if (compactedVisibleState !== desiredVisibleState) {
       rendered = render(compactedVisibleState, {
-        sessionProgressTextLimit: RUNTIME_HUB_COMPACT_SESSION_PROGRESS_TEXT_LIMIT
+        currentViewedSessionProgressTextLimit: RUNTIME_HUB_COMPACT_SESSION_PROGRESS_TEXT_LIMIT,
+        otherSessionProgressTextLimit: 0
       });
       if (rendered.text.length <= RUNTIME_HUB_TEXT_SOFT_LIMIT) {
         return rendered;
@@ -1345,7 +1396,8 @@ export class RuntimeSurfaceController {
 
     rendered = render(compactedVisibleState, {
       compactFocused: true,
-      sessionProgressTextLimit: RUNTIME_HUB_COMPACT_SESSION_PROGRESS_TEXT_LIMIT
+      currentViewedSessionProgressTextLimit: RUNTIME_HUB_COMPACT_SESSION_PROGRESS_TEXT_LIMIT,
+      otherSessionProgressTextLimit: 0
     });
     if (rendered.text.length <= RUNTIME_HUB_TEXT_SOFT_LIMIT) {
       return rendered;
@@ -1353,7 +1405,8 @@ export class RuntimeSurfaceController {
 
     return render(compactedVisibleState, {
       compactFocused: true,
-      sessionProgressTextLimit: 0
+      currentViewedSessionProgressTextLimit: 0,
+      otherSessionProgressTextLimit: 0
     });
   }
 

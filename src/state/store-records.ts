@@ -7,6 +7,7 @@ import type {
   RecentProjectRow,
   RecentProjectSource,
   ReasoningEffort,
+  SessionDisplayNameSource,
   SessionProjectStatsRow,
   SessionRow,
   SessionStatus
@@ -48,6 +49,7 @@ export interface SessionRecord {
   plan_mode?: number;
   pending_default_collaboration_mode_reset?: number;
   display_name: string;
+  display_name_source?: SessionDisplayNameSource;
   project_name: string;
   project_alias?: string | null;
   project_path: string;
@@ -135,6 +137,7 @@ export function mapSession(record: SessionRecord): SessionRow {
     planMode: record.plan_mode === 1,
     needsDefaultCollaborationModeReset: record.pending_default_collaboration_mode_reset === 1,
     displayName: record.display_name,
+    displayNameSource: record.display_name_source === "manual" ? "manual" : "auto",
     projectName: record.project_name,
     projectAlias: record.project_alias ?? null,
     projectPath: record.project_path,
@@ -193,6 +196,7 @@ export function sessionSelectColumns(sessionAlias: string, recentAlias: string):
     `${sessionAlias}.plan_mode AS plan_mode`,
     `${sessionAlias}.pending_default_collaboration_mode_reset AS pending_default_collaboration_mode_reset`,
     `${sessionAlias}.display_name AS display_name`,
+    `${sessionAlias}.display_name_source AS display_name_source`,
     `${sessionAlias}.project_name AS project_name`,
     `${recentAlias}.project_alias AS project_alias`,
     `${sessionAlias}.project_path AS project_path`,

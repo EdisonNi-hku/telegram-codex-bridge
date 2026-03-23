@@ -755,6 +755,59 @@ test("getSessionByThreadId returns archived and visible sessions for diagnostics
   }
 });
 
+test("session naming source defaults to auto and manual rename locks the session name", async () => {
+  const { store, cleanup } = await openStore();
+
+  try {
+    const session = store.createSession({
+      telegramChatId: "chat-title-source",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+
+    assert.equal(store.getSessionById(session.sessionId)?.displayNameSource, "auto");
+
+    store.autoRenameSession(session.sessionId, "Task: add title sync");
+    assert.equal(store.getSessionById(session.sessionId)?.displayName, "Task: add title sync");
+    assert.equal(store.getSessionById(session.sessionId)?.displayNameSource, "auto");
+
+    store.renameSession(session.sessionId, "Manual Session Name");
+    assert.equal(store.getSessionById(session.sessionId)?.displayName, "Manual Session Name");
+    assert.equal(store.getSessionById(session.sessionId)?.displayNameSource, "manual");
+
+    const updated = store.autoRenameSession(session.sessionId, "Task: should not override manual");
+    assert.equal(updated, false);
+    assert.equal(store.getSessionById(session.sessionId)?.displayName, "Manual Session Name");
+    assert.equal(store.getSessionById(session.sessionId)?.displayNameSource, "manual");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("syncSessionTitleFromThread falls back to a cleaned preview when the thread name is missing", async () => {
+  const { store, cleanup } = await openStore();
+
+  try {
+    const session = store.createSession({
+      telegramChatId: "chat-title-preview",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      threadId: "thread-title-preview"
+    });
+
+    const updated = store.syncSessionTitleFromThread("thread-title-preview", {
+      name: "   ",
+      preview: "  :::   Fix runtime hub naming for multi-task sessions   \n\n "
+    });
+
+    assert.equal(updated, true);
+    assert.equal(store.getSessionById(session.sessionId)?.displayName, "Fix runtime hub naming for multi-task sessions");
+    assert.equal(store.getSessionById(session.sessionId)?.displayNameSource, "auto");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("saveFinalAnswerView keeps only the 50 most recent answers per chat", async () => {
   const { store, cleanup } = await openStore();
 
@@ -1333,6 +1386,330 @@ test("open migrates legacy recent projects to include project aliases", async ()
   } finally {
     store?.close();
     await cleanup();
+  }
+});
+
+test("migration keeps legacy project-name session titles auto even when project alias exists", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-store-migration16-test-"));
+  const paths = createTestPaths(root);
+  await Promise.all([
+    mkdir(paths.stateRoot, { recursive: true }),
+    mkdir(paths.logsDir, { recursive: true }),
+    mkdir(paths.configRoot, { recursive: true })
+  ]);
+  const db = new DatabaseSync(paths.dbPath);
+  let store: BridgeStateStore | null = null;
+
+  try {
+    db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
+
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+
+      CREATE TABLE authorized_user (
+        telegram_user_id TEXT PRIMARY KEY,
+        telegram_username TEXT NULL,
+        display_name TEXT NULL,
+        first_seen_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE pending_authorization (
+        telegram_user_id TEXT PRIMARY KEY,
+        telegram_chat_id TEXT NOT NULL,
+        telegram_username TEXT NULL,
+        display_name TEXT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+      );
+
+      CREATE TABLE chat_binding (
+        telegram_chat_id TEXT PRIMARY KEY,
+        telegram_user_id TEXT NOT NULL,
+        active_session_id TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE session (
+        session_id TEXT PRIMARY KEY,
+        telegram_chat_id TEXT NOT NULL,
+        thread_id TEXT NULL,
+        selected_model TEXT NULL,
+        selected_reasoning_effort TEXT NULL,
+        plan_mode INTEGER NOT NULL DEFAULT 0,
+        pending_default_collaboration_mode_reset INTEGER NOT NULL DEFAULT 0,
+        display_name TEXT NOT NULL,
+        project_name TEXT NOT NULL,
+        project_path TEXT NOT NULL,
+        status TEXT NOT NULL,
+        failure_reason TEXT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        archived_at TEXT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT NOT NULL,
+        last_turn_id TEXT NULL,
+        last_turn_status TEXT NULL
+      );
+
+      CREATE TABLE recent_project (
+        project_path TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        project_alias TEXT NULL,
+        last_used_at TEXT NOT NULL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        last_session_id TEXT NULL,
+        last_success_at TEXT NULL,
+        source TEXT NOT NULL
+      );
+
+      CREATE TABLE project_scan_cache (
+        project_path TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        scan_root TEXT NOT NULL,
+        confidence INTEGER NOT NULL,
+        detected_markers TEXT NOT NULL,
+        last_scanned_at TEXT NOT NULL,
+        exists_now INTEGER NOT NULL
+      );
+
+      CREATE TABLE bootstrap_state (
+        key TEXT PRIMARY KEY,
+        readiness_state TEXT NOT NULL,
+        details_json TEXT NOT NULL,
+        checked_at TEXT NOT NULL,
+        app_server_pid TEXT NULL
+      );
+
+      CREATE TABLE runtime_notice (
+        key TEXT PRIMARY KEY,
+        telegram_chat_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        message TEXT NOT NULL,
+        parse_mode TEXT NULL,
+        reply_markup_json TEXT NULL,
+        session_id TEXT NULL,
+        turn_id TEXT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE final_answer_view (
+        answer_id TEXT PRIMARY KEY,
+        telegram_chat_id TEXT NOT NULL,
+        telegram_message_id INTEGER NULL,
+        session_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'final_answer',
+        delivery_state TEXT NOT NULL DEFAULT 'pending',
+        preview_html TEXT NOT NULL,
+        pages_json TEXT NOT NULL,
+        primary_action_consumed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE runtime_card_preferences (
+        key TEXT PRIMARY KEY,
+        fields_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE bridge_settings (
+        key TEXT PRIMARY KEY,
+        ui_language TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE pending_interaction (
+        interaction_id TEXT PRIMARY KEY,
+        telegram_chat_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        request_method TEXT NOT NULL,
+        interaction_kind TEXT NOT NULL,
+        state TEXT NOT NULL,
+        prompt_json TEXT NOT NULL,
+        response_json TEXT NULL,
+        telegram_message_id INTEGER NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        resolved_at TEXT NULL,
+        error_reason TEXT NULL
+      );
+
+      CREATE TABLE turn_input_source (
+        thread_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        transcript TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (thread_id, turn_id)
+      );
+    `);
+
+    for (let version = 1; version <= 15; version += 1) {
+      db.prepare(
+        `
+          INSERT INTO schema_migrations (version, applied_at)
+          VALUES (?, ?)
+        `
+      ).run(version, "2026-03-10T10:00:00.000Z");
+    }
+
+    db.prepare(
+      `
+        INSERT INTO session (
+          session_id,
+          telegram_chat_id,
+          thread_id,
+          selected_model,
+          selected_reasoning_effort,
+          plan_mode,
+          pending_default_collaboration_mode_reset,
+          display_name,
+          project_name,
+          project_path,
+          status,
+          failure_reason,
+          archived,
+          archived_at,
+          created_at,
+          last_used_at,
+          last_turn_id,
+          last_turn_status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      "session-legacy-alias",
+      "chat-legacy-alias",
+      "thread-legacy-alias",
+      null,
+      null,
+      0,
+      0,
+      "Legacy Project",
+      "Legacy Project",
+      "/tmp/legacy-alias-project",
+      "idle",
+      null,
+      0,
+      null,
+      "2026-03-10T10:00:00.000Z",
+      "2026-03-10T10:00:00.000Z",
+      null,
+      null
+    );
+
+    db.prepare(
+      `
+        INSERT INTO session (
+          session_id,
+          telegram_chat_id,
+          thread_id,
+          selected_model,
+          selected_reasoning_effort,
+          plan_mode,
+          pending_default_collaboration_mode_reset,
+          display_name,
+          project_name,
+          project_path,
+          status,
+          failure_reason,
+          archived,
+          archived_at,
+          created_at,
+          last_used_at,
+          last_turn_id,
+          last_turn_status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      "session-legacy-fork",
+      "chat-legacy-fork",
+      "thread-legacy-fork",
+      null,
+      null,
+      0,
+      0,
+      "Fork: Legacy Project",
+      "Legacy Project",
+      "/tmp/legacy-fork-project",
+      "idle",
+      null,
+      0,
+      null,
+      "2026-03-10T10:00:00.000Z",
+      "2026-03-10T10:00:00.000Z",
+      null,
+      null
+    );
+
+    db.prepare(
+      `
+        INSERT INTO recent_project (
+          project_path,
+          project_name,
+          project_alias,
+          last_used_at,
+          pinned,
+          last_session_id,
+          last_success_at,
+          source
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      "/tmp/legacy-alias-project",
+      "Legacy Project",
+      "Aliased Name",
+      "2026-03-10T10:00:00.000Z",
+      0,
+      "session-legacy-alias",
+      null,
+      "mru"
+    );
+
+    db.prepare(
+      `
+        INSERT INTO recent_project (
+          project_path,
+          project_name,
+          project_alias,
+          last_used_at,
+          pinned,
+          last_session_id,
+          last_success_at,
+          source
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      "/tmp/legacy-fork-project",
+      "Legacy Project",
+      "Aliased Fork Project",
+      "2026-03-10T10:00:00.000Z",
+      0,
+      "session-legacy-fork",
+      null,
+      "mru"
+    );
+
+    db.close();
+
+    store = await BridgeStateStore.open(paths, testLogger);
+    assert.equal(store.getSessionById("session-legacy-alias")?.displayNameSource, "auto");
+    assert.equal(store.getSessionById("session-legacy-fork")?.displayNameSource, "auto");
+  } finally {
+    store?.close();
+    await rm(root, { recursive: true, force: true });
   }
 });
 

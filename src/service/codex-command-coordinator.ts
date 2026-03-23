@@ -617,6 +617,7 @@ export class CodexCommandCoordinator {
         projectName: activeSession.projectName,
         projectPath: activeSession.projectPath,
         displayName: `Review: ${activeSession.displayName}`,
+        displayNameSource: "manual",
         selectedModel: activeSession.selectedModel,
         selectedReasoningEffort: activeSession.selectedReasoningEffort,
         planMode: activeSession.planMode,
@@ -655,11 +656,13 @@ export class CodexCommandCoordinator {
       ...(activeSession.selectedModel ? { model: activeSession.selectedModel } : {})
     });
     const lastForkTurn = forked.thread.turns.at(-1) ?? null;
+    const requestedForkName = args.trim();
     const created = store.createSession({
       telegramChatId: chatId,
       projectName: activeSession.projectName,
       projectPath: activeSession.projectPath,
-      displayName: args.trim() || `Fork: ${activeSession.displayName}`,
+      displayName: requestedForkName || `Fork: ${activeSession.displayName}`,
+      displayNameSource: requestedForkName ? "manual" : "auto",
       selectedModel: activeSession.selectedModel ?? forked.model,
       selectedReasoningEffort: activeSession.selectedReasoningEffort ?? forked.reasoningEffort ?? null,
       planMode: activeSession.planMode,

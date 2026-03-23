@@ -5,6 +5,7 @@ import { createLogger } from "./logger.js";
 import { parseProjectScanRootsValue } from "./config.js";
 import { parseBooleanLike } from "./util/boolean.js";
 import {
+  captureSystemdStopAuditCommand,
   clearAuthorization,
   getStatus,
   installBridge,
@@ -67,6 +68,7 @@ function printUsage(): void {
   ctb uninstall [--purge-state]
   ctb authorize pending [--latest | --select <index> | --user-id <id> | --show-expired]
   ctb authorize clear
+  ctb audit capture-systemd-stop
   ctb service run
 `);
 }
@@ -212,6 +214,17 @@ async function main(): Promise<void> {
 
       printUsage();
       process.exitCode = 1;
+      return;
+    }
+
+    case "audit": {
+      if (subcommand !== "capture-systemd-stop") {
+        printUsage();
+        process.exitCode = 1;
+        return;
+      }
+
+      await captureSystemdStopAuditCommand(paths);
       return;
     }
 

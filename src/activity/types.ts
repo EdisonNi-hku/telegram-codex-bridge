@@ -195,6 +195,7 @@ export interface ThreadStartedNotification extends ClassifiedNotificationBase {
   agentNickname: string | null;
   agentRole: string | null;
   threadName: string | null;
+  threadPreview: string | null;
 }
 
 export interface ThreadNameUpdatedNotification extends ClassifiedNotificationBase {

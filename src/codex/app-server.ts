@@ -132,7 +132,11 @@ export type UserInput =
     };
 
 export interface ThreadStartResult {
-  thread: { id: string };
+  thread: {
+    id: string;
+    name?: string | null;
+    preview?: string;
+  };
   model?: string | null;
   modelProvider?: string | null;
   reasoningEffort?: ReasoningEffort | null;
@@ -283,6 +287,8 @@ export interface ThreadResumeResult {
   reasoningEffort?: ReasoningEffort | null;
   thread: {
     id: string;
+    name?: string | null;
+    preview?: string;
     reasoningEffort?: ReasoningEffort | null;
     turns: Array<{
       id: string;
@@ -315,6 +321,8 @@ export interface ReviewStartResult {
 export interface ThreadForkResult {
   thread: {
     id: string;
+    name?: string | null;
+    preview?: string;
     turns: Array<{
       id: string;
       status: string;
@@ -328,6 +336,8 @@ export interface ThreadForkResult {
 export interface ThreadRollbackResult {
   thread: {
     id: string;
+    name?: string | null;
+    preview?: string;
     turns: Array<{
       id: string;
       status: string;

@@ -132,20 +132,27 @@ test("listThreads sends archived filters through the JSON-RPC client", async () 
 
 test("readThread sends includeTurns when requested", async () => {
   const client = new CodexAppServerClient("codex", "/tmp/app-server.log", testLogger);
-  let captured: { method: string; params: unknown } | null = null;
+  let captured: { method: string; params: unknown; options: unknown } | null = null;
 
-  (client as any).request = async (method: string, params: unknown) => {
-    captured = { method, params };
+  (client as any).request = async (method: string, params: unknown, options: unknown) => {
+    captured = { method, params, options };
     return { thread: { id: "thread-1", turns: [] } };
   };
 
-  await client.readThread("thread-1", true);
+  await client.readThread("thread-1", true, {
+    timeoutMs: 321,
+    terminateOnTimeout: false
+  });
 
   assert.deepEqual(captured, {
     method: "thread/read",
     params: {
       threadId: "thread-1",
       includeTurns: true
+    },
+    options: {
+      timeoutMs: 321,
+      terminateOnTimeout: false
     }
   });
 });

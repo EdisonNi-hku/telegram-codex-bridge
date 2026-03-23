@@ -147,6 +147,9 @@ While a turn is running:
 - keep richer runtime rows such as model, directory, token, and plan-mode fields out of the hub and available through `/status`
 - when plan state becomes available, expose it through a collapsed button on the viewed runtime surface
 - the collapsed Chinese plan label is fixed `计划清单`, `收起计划清单`, and plan/agent controls share one row when both are present
+- when expanded inside the hub, plan details render as a dedicated `[计划详情]` block under `当前查看中的会话`; known trailing states such as `inProgress`, `completed`, and `pending` are converted into localized status labels instead of raw suffix text
+- when expanded inside the hub, agent details render as a dedicated `[协作 Agent]` block under `当前查看中的会话`, using localized agent-state text plus either the latest progress summary or `等待状态更新`
+- when a live hub approaches the Telegram text soft limit, compact other-session previews first, then tighten expanded plan/agent detail limits, and only collapse the expanded plan/agent sections as a last resort
 - project `commandExecution` items into the runtime surface instead of sending separate command cards
 - keep the visible running-state label aligned with reduced Codex runtime state such as running, blocked, and terminal outcomes
 - command activity should appear only through the visible progress text when a complete progress unit exists

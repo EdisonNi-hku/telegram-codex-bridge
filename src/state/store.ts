@@ -22,12 +22,14 @@ import type {
   RuntimeStatusField,
   RuntimeNotice,
   SessionProjectStatsRow,
+  SessionDisplayNameSource,
   SessionRow,
   SessionStatus,
   UiLanguage,
   TurnInputSourceKind,
   TurnInputSourceRow
 } from "../types.js";
+import { resolveAutoSessionTitle } from "../util/session-title.js";
 import {
   appliedTableExists,
   buildStateStoreFailure,
@@ -381,6 +383,7 @@ export class BridgeStateStore {
     projectName: string;
     projectPath: string;
     displayName?: string;
+    displayNameSource?: SessionDisplayNameSource;
     selectedModel?: string | null;
     selectedReasoningEffort?: ReasoningEffort | null;
     planMode?: boolean;
@@ -406,6 +409,33 @@ export class BridgeStateStore {
 
   renameSession(sessionId: string, displayName: string): void {
     this.sessions.renameSession(sessionId, displayName);
+  }
+
+  autoRenameSession(sessionId: string, displayName: string): boolean {
+    return this.sessions.autoRenameSession(sessionId, displayName);
+  }
+
+  syncSessionTitleFromThread(
+    threadId: string,
+    options: {
+      name?: string | null | undefined;
+      preview?: string | null | undefined;
+    }
+  ): boolean {
+    const session = this.getSessionByThreadId(threadId);
+    if (!session) {
+      return false;
+    }
+
+    const title = resolveAutoSessionTitle({
+      threadName: options.name,
+      preview: options.preview
+    });
+    if (!title) {
+      return false;
+    }
+
+    return this.sessions.autoRenameSession(session.sessionId, title);
   }
 
   pinProject(options: {

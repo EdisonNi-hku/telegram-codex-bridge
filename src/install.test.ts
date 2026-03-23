@@ -208,6 +208,42 @@ function createReadinessSnapshot(
   };
 }
 
+async function writeServiceAuditSnapshot(
+  paths: BridgePaths,
+  overrides: Record<string, unknown> = {}
+): Promise<void> {
+  await mkdir(paths.stateRoot, { recursive: true });
+  await writeFile(
+    join(paths.stateRoot, "service-audit-latest.json"),
+    JSON.stringify({
+      recordedAt: "2026-03-22T08:24:57.000Z",
+      source: "systemd_exec_stop_post",
+      serviceManager: "systemd",
+      unit: "codex-telegram-bridge.service",
+      serviceResult: "success",
+      exitCode: "exited",
+      exitStatus: "0",
+      systemdResult: "success",
+      systemdExecMainCode: "0",
+      systemdExecMainStatus: "0",
+      restart: "on-failure",
+      nRestarts: 0,
+      invocationId: null,
+      requester: "client_pid=4181994 comm=systemctl",
+      stopSignal: "SIGTERM",
+      possibleOom: false,
+      summary: "systemd stop requested by client PID 4181994 (systemctl)",
+      journalHighlights: [
+        "Reloading requested from client PID 4181994 ('systemctl') (unit codex-telegram-bridge.service)...",
+        "Stopped codex-telegram-bridge.service - Codex Telegram Bridge."
+      ],
+      oomEvidence: [],
+      ...overrides
+    }, null, 2),
+    "utf8"
+  );
+}
+
 test("prepareRelease builds before copying dist into the install root", async () => {
   const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
   const paths = createTestPaths(root);
@@ -609,6 +645,70 @@ exit 0
   }
 });
 
+test("installBridge writes a systemd stop-post audit hook into the user service unit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+  const binDir = join(root, "bin");
+
+  try {
+    await Promise.all([
+      createReleaseFixture(paths),
+      createSkillFixture(paths.repoRoot),
+      mkdir(join(paths.repoRoot, "dist"), { recursive: true }),
+      mkdir(binDir, { recursive: true })
+    ]);
+    await writeFile(join(paths.repoRoot, "dist", "cli.js"), "console.log('ok');\n", "utf8");
+    await writeExecutableFixture(binDir, "npm", {
+      posix: "#!/usr/bin/env bash\nset -euo pipefail\nexit 0\n",
+      win32: "@echo off\r\nexit /b 0\r\n"
+    });
+    await writeExecutableFixture(binDir, "systemctl", {
+      posix: `#!/usr/bin/env bash
+set -euo pipefail
+if [ "$1" = "--user" ] && [ "$2" = "is-active" ]; then
+  echo inactive
+  exit 3
+fi
+exit 0
+`,
+      win32: `@echo off\r\nif "%1"=="--user" if "%2"=="is-active" (\r\n  echo inactive\r\n  exit /b 3\r\n)\r\nexit /b 0\r\n`
+    });
+
+    await withEnvironment(
+      {
+        PATH: extendPath(binDir)
+      },
+      async () => {
+        await installBridge(paths, testLogger, {
+          telegramBotToken: "test-token"
+        }, {
+          detectServiceManager: async () => "systemd",
+          probeReadiness: async () => ({
+            snapshot: createReadinessSnapshot(),
+            appServer: null
+          }),
+          createTelegramApi: () => ({
+            getMe: async () => ({
+              id: 1,
+              is_bot: true,
+              first_name: "Bridge",
+              username: "bridge_bot"
+            }),
+            setMyCommands: async () => {}
+          }),
+          syncTelegramCommands: async () => {}
+        } as any);
+      }
+    );
+
+    const unit = await readFile(paths.servicePath, "utf8");
+    assert.match(unit, /ExecStart=.*dist\/cli\.js service run/u);
+    assert.match(unit, /ExecStopPost=.*dist\/cli\.js audit capture-systemd-stop/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("installBridge writes GitHub archive metadata into the install manifest", async () => {
   const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
   const paths = createTestPaths(root);
@@ -863,6 +963,50 @@ test("getStatus returns state-store failure diagnostics when the database cannot
     assert.match(status, /state_store_failure_class=integrity_failure/u);
     assert.match(status, /state_store_failure_stage=/u);
     assert.match(status, /state_store_failure_action=/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("getStatus includes the latest systemd service audit snapshot when present", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+
+  try {
+    await Promise.all([
+      mkdir(paths.installRoot, { recursive: true }),
+      mkdir(paths.stateRoot, { recursive: true }),
+      mkdir(paths.logsDir, { recursive: true }),
+      mkdir(paths.configRoot, { recursive: true })
+    ]);
+    await writeFile(paths.manifestPath, JSON.stringify({
+      version: "0.1.0",
+      sourceRoot: null,
+      installedAt: "2026-03-14T09:00:00.000Z"
+    }, null, 2));
+    await mkdir(join(paths.installRoot, "dist"), { recursive: true });
+    await writeFile(join(paths.installRoot, "dist", "cli.js"), "console.log('ok');\n", "utf8");
+    await mkdir(join(paths.binPath, ".."), { recursive: true });
+    await writeFile(paths.binPath, process.platform === "win32" ? "@echo off\r\n" : "#!/usr/bin/env bash\n", "utf8");
+    await writeFile(paths.envPath, "TELEGRAM_BOT_TOKEN=test-token\n", "utf8");
+    await writeServiceAuditSnapshot(paths);
+
+    const output = await getStatus(paths, {
+      detectServiceManager: async () => "systemd",
+      runCommand: async () => ({
+        exitCode: 3,
+        stdout: "inactive\n",
+        stderr: ""
+      })
+    } as any);
+
+    assert.match(output, /service_audit_present=true/u);
+    assert.match(output, /service_audit_recorded_at=2026-03-22T08:24:57\.000Z/u);
+    assert.match(output, /service_audit_result=success/u);
+    assert.match(output, /service_audit_requester=client_pid=4181994 comm=systemctl/u);
+    assert.match(output, /service_audit_stop_signal=SIGTERM/u);
+    assert.match(output, /service_audit_possible_oom=false/u);
+    assert.match(output, /service_audit_summary=systemd stop requested by client PID 4181994 \(systemctl\)/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1169,6 +1313,53 @@ test("runDoctor prints the expanded readiness matrix without syncing Telegram wh
     assert.match(output, /capability_check_passed=true/u);
     assert.match(output, /issues=telegram rejected the configured token/u);
     assert.match(output, /pending_runtime_notices=0/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("runDoctor includes the latest systemd service audit snapshot when present", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+
+  try {
+    await Promise.all([
+      mkdir(paths.installRoot, { recursive: true }),
+      mkdir(paths.stateRoot, { recursive: true }),
+      mkdir(paths.logsDir, { recursive: true }),
+      mkdir(paths.configRoot, { recursive: true }),
+      mkdir(paths.cacheDir, { recursive: true })
+    ]);
+    await writeFile(paths.envPath, "TELEGRAM_BOT_TOKEN=test-token\n", "utf8");
+    await writeServiceAuditSnapshot(paths, {
+      serviceResult: "oom-kill",
+      possibleOom: true,
+      summary: "service was terminated by oom-kill",
+      oomEvidence: ["kernel: Out of memory: Killed process 4157382 (node)"]
+    });
+
+    const output = await runDoctor(paths, testLogger, {
+      detectServiceManager: async () => "systemd",
+      probeReadiness: async () => ({
+        snapshot: createReadinessSnapshot(),
+        appServer: null
+      }),
+      createTelegramApi: () => ({
+        getMe: async () => ({
+          id: 1,
+          is_bot: true,
+          first_name: "Bridge",
+          username: "bridge_bot"
+        }),
+        setMyCommands: async () => {}
+      }),
+      syncTelegramCommands: async () => {}
+    } as any);
+
+    assert.match(output, /service_audit_present=true/u);
+    assert.match(output, /service_audit_result=oom-kill/u);
+    assert.match(output, /service_audit_possible_oom=true/u);
+    assert.match(output, /service_audit_summary=service was terminated by oom-kill/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

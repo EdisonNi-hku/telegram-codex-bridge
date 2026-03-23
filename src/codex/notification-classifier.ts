@@ -45,7 +45,8 @@ export function classifyNotification(method: string, params: unknown): Classifie
         ...context,
         agentNickname: getThreadAgentNickname(params),
         agentRole: getThreadAgentRole(params),
-        threadName: getThreadName(params)
+        threadName: getThreadName(params),
+        threadPreview: getThreadPreview(params)
       } satisfies ThreadStartedNotification;
 
     case "thread/name/updated":
@@ -403,6 +404,10 @@ function getMessagePhase(params: unknown): "commentary" | "final_answer" | null 
 
 function getThreadName(params: unknown): string | null {
   return getString(params, "threadName") ?? getString(getObject(params)?.thread, "name") ?? null;
+}
+
+function getThreadPreview(params: unknown): string | null {
+  return getString(params, "preview") ?? getString(getObject(params)?.thread, "preview") ?? null;
 }
 
 function getThreadAgentNickname(params: unknown): string | null {

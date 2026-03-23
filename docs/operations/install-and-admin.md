@@ -68,6 +68,7 @@ State directory:
 
 State contents:
 - `bridge.db`
+- `service-audit-latest.json`
 - `state-store-open-failure.json`
 - `runtime/`
 - `runtime/telegram-offset.json`
@@ -88,6 +89,7 @@ Log files:
 - `bridge.log`
 - `bootstrap.log`
 - `app-server.log`
+- `service-audit.log`
 - `launchd.stdout.log` on macOS when managed by LaunchAgent
 - `launchd.stderr.log` on macOS when managed by LaunchAgent
 - `telegram-session-flow/status-card.log`
@@ -257,7 +259,16 @@ Primary operator diagnostics:
 - install and state roots
 - config and service presence
 - detected service manager and active state
+- latest systemd stop audit fields when a recent audit snapshot exists
 - on Windows: task existence, task state, last run result, and resolved `codex` / `ffmpeg` paths
+
+Systemd audit note:
+- on Linux, the generated user service writes a stop-post audit snapshot after each stop attempt
+- the latest snapshot is stored at `~/.local/state/codex-telegram-bridge/service-audit-latest.json`
+- the append-only audit journal is stored at `~/.local/state/codex-telegram-bridge/logs/service-audit.log`
+- `ctb status` and `ctb doctor` surface the latest audit summary so operators can distinguish clean stops, stop requests from `systemctl`, signal-driven exits, and likely OOM kills
+- audit requester and journal-based OOM attribution are scoped to the current systemd invocation id; when invocation id is unavailable, these fields stay `unknown` to avoid stale-log misattribution
+- non-zero `systemctl` or `journalctl` exits are captured in `service_audit_collection_errors` so audit collection failures are visible in diagnostics
 - installed version and timestamp
 - whether the SQLite state store opened successfully
 - active session summary

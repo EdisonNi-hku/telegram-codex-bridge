@@ -10,6 +10,11 @@ import type { Logger } from "./logger.js";
 import { ensureBridgeDirectories, type BridgePaths } from "./paths.js";
 import { commandExists, resolveCommand, runCommand, type CommandResult } from "./process.js";
 import {
+  captureSystemdStopAudit,
+  formatServiceAuditLines,
+  readLatestServiceAudit
+} from "./service-audit.js";
+import {
   getHostPlatform,
   type HostPlatform,
   LAUNCHD_SERVICE_LABEL,
@@ -344,6 +349,7 @@ Type=simple
 WorkingDirectory=${paths.installRoot}
 EnvironmentFile=${paths.envPath}
 ExecStart=${process.execPath} --disable-warning=ExperimentalWarning ${cliEntryPath(paths)} service run
+ExecStopPost=-${process.execPath} --disable-warning=ExperimentalWarning ${cliEntryPath(paths)} audit capture-systemd-stop
 Restart=on-failure
 RestartSec=2
 
@@ -977,6 +983,7 @@ export async function getStatus(paths: BridgePaths, deps: InstallDependencies = 
     (await pathExists(join(paths.installRoot, "dist", "cli.js"))) &&
     (await pathExists(paths.binPath));
   const stateExists = await pathExists(paths.stateRoot);
+  const serviceAudit = await readLatestServiceAudit(paths);
 
   let serviceState = "unavailable";
   if (serviceManager === "systemd") {
@@ -1042,7 +1049,8 @@ export async function getStatus(paths: BridgePaths, deps: InstallDependencies = 
     `state_store_open=${stateStoreOpen}`,
     `active_session=${activeSessionSummary}`,
     `pending_runtime_notices=${pendingNotices}`,
-    formatSnapshot(snapshot)
+    formatSnapshot(snapshot),
+    ...formatServiceAuditLines(serviceAudit)
   ];
 
   if (stateStoreOpen === "failed") {
@@ -1059,6 +1067,7 @@ export async function runDoctor(paths: BridgePaths, logger: Logger, deps: Instal
   const syncCommands = deps.syncTelegramCommands ?? syncTelegramCommands;
   const scanArchiveDrift = deps.scanArchiveDrift ?? collectArchiveDriftDiagnostics;
   await ensureBridgeDirectories(paths);
+  const serviceAudit = await readLatestServiceAudit(paths);
   let store: BridgeStateStore | null = null;
   let appServer: CodexAppServerClient | null = null;
   try {
@@ -1067,7 +1076,7 @@ export async function runDoctor(paths: BridgePaths, logger: Logger, deps: Instal
     const failure = error instanceof StateStoreOpenError
       ? error.failure
       : await readStateStoreFailure(paths);
-    return formatStateStoreFailure(failure);
+    return [formatStateStoreFailure(failure), ...formatServiceAuditLines(serviceAudit)].join("\n");
   }
 
   try {
@@ -1098,7 +1107,8 @@ export async function runDoctor(paths: BridgePaths, logger: Logger, deps: Instal
       `task_scheduler_state=${taskSchedulerStatus?.state ?? "unknown"}`,
       `task_scheduler_last_run_result=${taskSchedulerStatus?.lastRunResult ?? "unknown"}`,
       formatSnapshot(snapshot),
-      `pending_runtime_notices=${pendingNoticeCount}`
+      `pending_runtime_notices=${pendingNoticeCount}`,
+      ...formatServiceAuditLines(serviceAudit)
     ];
     if (isOperationalReadinessState(snapshot.state) && appServer) {
       try {
@@ -1143,6 +1153,11 @@ export async function startService(paths: BridgePaths): Promise<void> {
   }
 
   throw new Error("no supported service manager found; run `ctb service run` under a supervisor");
+}
+
+export async function captureSystemdStopAuditCommand(paths: BridgePaths): Promise<void> {
+  await ensureBridgeDirectories(paths);
+  await captureSystemdStopAudit(paths);
 }
 
 export async function stopService(paths: BridgePaths): Promise<void> {

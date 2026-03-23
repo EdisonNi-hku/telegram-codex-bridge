@@ -39,6 +39,8 @@ Integration assumptions:
 - one app-server child per bridge process
 - one JSON-RPC request id namespace per bridge process
 - thread id is the durable foreign key from bridge session to Codex conversation
+- startup/reconnect session-title sync is best-effort only and must not terminate a healthy app-server child on thread-read timeout
+- shutdown logging is best-effort and must not block critical stop-path cleanup of poller, cards, and app-server child teardown
 - Telegram may receive bridge-owned runtime cards before turn completion, but the final answer is still sent only after completion
 - the bridge uses a persisted interaction broker for current server-request surfaces such as approvals, structured user input, elicitation, and blocked-turn continuation
 - the bridge now also uses stable long-tail client requests where Telegram has a clear adapted UX, including plugin/app discovery, MCP admin discovery plus reload/login-link, account diagnostics, and background-terminal cleanup
@@ -152,6 +154,7 @@ Important fields:
 - `selected_model`
 - `selected_reasoning_effort`
 - `display_name`
+- `display_name_source`
 - `project_name`
 - `project_path`
 - `status`
@@ -172,6 +175,7 @@ Allowed `status` values:
 Archive note:
 - archive state is tracked separately from runtime `status`
 - archived sessions are hidden from the default session list and active-session lookup
+- legacy migration rule: when inferring `display_name_source`, a `display_name` that still matches `project_name` remains `auto` even if `recent_project.project_alias` was added later
 
 Allowed v1 `failure_reason` values:
 - `bridge_restart`

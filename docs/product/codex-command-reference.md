@@ -135,6 +135,7 @@ Behavior:
 - starts `review/start` against the active session thread
 - if Codex returns a new review thread, the bridge creates a dedicated review session and makes it active
 - review sessions inherit the active session's selected model
+- detached review sessions are named `Review: <active session name>` as a manual label, so later automatic thread-title sync does not overwrite the review marker
 
 ### `/fork [name]`
 

@@ -394,6 +394,42 @@ test("TurnCoordinator keeps the known reasoning effort when the model is reroute
   }
 });
 
+test("TurnCoordinator auto-syncs session names from thread title updates but keeps manual names locked", async () => {
+  const { coordinator, store, cleanup } = await createCoordinatorContext();
+
+  try {
+    const autoSession = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      threadId: "thread-auto-title"
+    });
+    const manualSession = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project Two",
+      projectPath: "/tmp/project-two",
+      threadId: "thread-manual-title"
+    });
+    store.renameSession(manualSession.sessionId, "Manual Name");
+
+    await coordinator.handleAppServerNotification("thread/name/updated", {
+      threadId: "thread-auto-title",
+      threadName: "Implement runtime title sync"
+    });
+    await coordinator.handleAppServerNotification("thread/name/updated", {
+      threadId: "thread-manual-title",
+      threadName: "Should not overwrite manual"
+    });
+
+    assert.equal(store.getSessionById(autoSession.sessionId)?.displayName, "Implement runtime title sync");
+    assert.equal(store.getSessionById(autoSession.sessionId)?.displayNameSource, "auto");
+    assert.equal(store.getSessionById(manualSession.sessionId)?.displayName, "Manual Name");
+    assert.equal(store.getSessionById(manualSession.sessionId)?.displayNameSource, "manual");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("TurnCoordinator recreates missing remote threads before starting a turn", async () => {
   const startTurnCalls: unknown[] = [];
   let startThreadCalls = 0;

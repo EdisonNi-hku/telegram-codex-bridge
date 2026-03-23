@@ -9,6 +9,7 @@ import type { Logger } from "./logger.js";
 import type { BridgePaths } from "./paths.js";
 import type { ActivityStatus } from "./activity/types.js";
 import { ActivityTracker } from "./activity/tracker.js";
+import type { ThreadReadResult } from "./codex/app-server.js";
 import { CodexAppServerClient } from "./codex/app-server.js";
 import { classifyNotification } from "./codex/notification-classifier.js";
 import { BridgeService } from "./service.js";
@@ -94,7 +95,13 @@ async function createServiceContext(
     service,
     store,
     cleanup: async () => {
-      store.close();
+      try {
+        store.close();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ERR_INVALID_STATE") {
+          throw error;
+        }
+      }
       await rm(root, { recursive: true, force: true });
     }
   };
@@ -119,6 +126,247 @@ function createCapturingLogger() {
 
   return { logger, info, warn, error };
 }
+
+test("stop logs shutdown context when a signal-triggered shutdown is requested", async () => {
+  const { service, cleanup } = await createServiceContext();
+  const captured = createCapturingLogger();
+
+  try {
+    (service as any).logger = captured.logger;
+    (service as any).appServer = {
+      stop: async () => {}
+    };
+
+    await (service as any).stop({
+      source: "signal",
+      signal: "SIGTERM"
+    });
+
+    const shutdownContext = JSON.parse(
+      await readFile(join((service as any).paths.stateRoot, "service-shutdown-context.json"), "utf8")
+    );
+    assert.equal(shutdownContext.signal, "SIGTERM");
+    assert.equal(shutdownContext.source, "signal");
+
+    const shutdownEntry = captured.info.find((entry) => entry.message === "bridge service stopping");
+    assert.ok(shutdownEntry);
+    assert.deepEqual(shutdownEntry.meta, {
+      source: "signal",
+      signal: "SIGTERM",
+      activeTurns: 0,
+      alreadyStopping: false
+    });
+  } finally {
+    await cleanup();
+  }
+});
+
+test("stop continues cleanup when shutdown logging fails", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  let pollerStopCalls = 0;
+  let appServerStopCalls = 0;
+  let storeCloseCalls = 0;
+  const originalStoreClose = store.close.bind(store);
+
+  try {
+    (service as any).logger = {
+      info: async () => {
+        throw new Error("log write failed");
+      },
+      warn: async () => {},
+      error: async () => {}
+    };
+    (service as any).poller = {
+      stop: () => {
+        pollerStopCalls += 1;
+      }
+    };
+    (service as any).appServer = {
+      stop: async () => {
+        appServerStopCalls += 1;
+      }
+    };
+    (service as any).store.close = () => {
+      storeCloseCalls += 1;
+      originalStoreClose();
+    };
+
+    await assert.doesNotReject(async () => {
+      await (service as any).stop({
+        source: "signal",
+        signal: "SIGTERM"
+      });
+    });
+
+    assert.equal(pollerStopCalls, 1);
+    assert.equal(appServerStopCalls, 1);
+    assert.equal(storeCloseCalls, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("auto session title sync never terminates app-server on read timeout", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const captured = createCapturingLogger();
+  const readCalls: Array<{
+    threadId: string;
+    includeTurns: boolean;
+    options: unknown;
+  }> = [];
+
+  try {
+    (service as any).logger = captured.logger;
+    store.createSession({
+      telegramChatId: "chat-timeout",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      threadId: "thread-timeout"
+    });
+    (service as any).appServer = {
+      readThread: async (threadId: string, includeTurns: boolean, options?: unknown) => {
+        readCalls.push({ threadId, includeTurns, options });
+        throw new Error("app-server request timed out: thread/read");
+      }
+    };
+
+    await (service as any).syncAutoSessionTitlesFromRemoteThreads();
+
+    assert.equal(readCalls.length, 1);
+    assert.equal(readCalls[0]?.threadId, "thread-timeout");
+    assert.equal(readCalls[0]?.includeTurns, false);
+    assert.deepEqual(readCalls[0]?.options, {
+      terminateOnTimeout: false
+    });
+    assert.equal(
+      captured.warn.some((entry) => entry.message === "session title sync from remote thread failed"),
+      true
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("auto session title sync reads thread titles concurrently", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const startedThreadIds: string[] = [];
+  const resolvers = new Map<
+    string,
+    {
+      resolve: (value: { thread: { name: string; preview: string | null } }) => void;
+    }
+  >();
+
+  try {
+    store.createSession({
+      telegramChatId: "chat-sync-a",
+      projectName: "Project A",
+      projectPath: "/tmp/project-a",
+      threadId: "thread-a"
+    });
+    store.createSession({
+      telegramChatId: "chat-sync-b",
+      projectName: "Project B",
+      projectPath: "/tmp/project-b",
+      threadId: "thread-b"
+    });
+
+    (service as any).appServer = {
+      readThread: (threadId: string) => {
+        startedThreadIds.push(threadId);
+        return new Promise<{ thread: { name: string; preview: string | null } }>((resolve) => {
+          resolvers.set(threadId, { resolve });
+        });
+      }
+    };
+
+    const syncPromise = (service as any).syncAutoSessionTitlesFromRemoteThreads();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(startedThreadIds, ["thread-b", "thread-a"]);
+
+    resolvers.get("thread-a")?.resolve({
+      thread: {
+        name: "Remote thread A",
+        preview: null
+      }
+    });
+    resolvers.get("thread-b")?.resolve({
+      thread: {
+        name: "Remote thread B",
+        preview: null
+      }
+    });
+
+    await syncPromise;
+
+    assert.equal(store.getSessionByThreadId("thread-a")?.displayName, "Remote thread A");
+    assert.equal(store.getSessionByThreadId("thread-b")?.displayName, "Remote thread B");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("ensureAppServerAvailable does not wait for auto session title sync to finish", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const originalInitializeAndProbe = CodexAppServerClient.prototype.initializeAndProbe;
+  const originalReadThread = CodexAppServerClient.prototype.readThread;
+  let syncResolvedBeforeThreadReadCompleted = false;
+  let resolveThreadRead: ((value: ThreadReadResult) => void) | undefined;
+
+  try {
+    store.createSession({
+      telegramChatId: "chat-startup-sync",
+      projectName: "Startup Project",
+      projectPath: "/tmp/startup-project",
+      threadId: "thread-startup-sync"
+    });
+
+    (service as any).attachAppServerListeners = () => {};
+
+    CodexAppServerClient.prototype.initializeAndProbe = async function patchedInitializeAndProbe() {
+      Object.defineProperty(this, "isRunning", {
+        value: true,
+        writable: true,
+        configurable: true
+      });
+    };
+
+    CodexAppServerClient.prototype.readThread = function patchedReadThread() {
+      return new Promise<ThreadReadResult>((resolve) => {
+        resolveThreadRead = resolve;
+      });
+    };
+
+    const availablePromise = (service as any).ensureAppServerAvailable().then(() => {
+      syncResolvedBeforeThreadReadCompleted = true;
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    const observedResolution = syncResolvedBeforeThreadReadCompleted;
+
+    assert.ok(resolveThreadRead);
+    resolveThreadRead({
+      thread: {
+        id: "thread-startup-sync",
+        name: "Remote startup title",
+        cwd: "/tmp/startup-project",
+        preview: "",
+        updatedAt: 0,
+        createdAt: 0,
+        status: "idle",
+        turns: []
+      }
+    });
+    await availablePromise;
+
+    assert.equal(observedResolution, true);
+  } finally {
+    CodexAppServerClient.prototype.initializeAndProbe = originalInitializeAndProbe;
+    CodexAppServerClient.prototype.readThread = originalReadThread;
+    await cleanup();
+  }
+});
 
 function createFakeTelegramMessage(messageId: number, text: string) {
   return {
@@ -2147,10 +2395,10 @@ test("status card expands the current plan inline and keeps only the latest plan
     });
 
     assert.equal(callbackAnswers.at(-1), undefined);
-    assert.match(edited.at(-1)?.text ?? "", /<b>计划清单:<\/b>/u);
-    assert.match(edited.at(-1)?.text ?? "", /1\. Collect protocol evidence \(pending\)/u);
-    assert.match(edited.at(-1)?.text ?? "", /2\. Wire inspect renderer \(pending\)/u);
-    assert.ok((edited.at(-1)?.text ?? "").indexOf("<b>进度</b>") < (edited.at(-1)?.text ?? "").indexOf("<b>计划清单:</b>"));
+    assert.match(edited.at(-1)?.text ?? "", /<b>\[计划详情\]<\/b>/u);
+    assert.match(edited.at(-1)?.text ?? "", /1\. <b>待处理<\/b> · Collect protocol evidence/u);
+    assert.match(edited.at(-1)?.text ?? "", /2\. <b>待处理<\/b> · Wire inspect renderer/u);
+    assert.ok((edited.at(-1)?.text ?? "").indexOf("<b>[Runtime Preview]</b>") < (edited.at(-1)?.text ?? "").indexOf("<b>[计划详情]</b>"));
     assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "收起计划清单");
 
     await withMockedNow("2026-03-10T10:00:11.000Z", async () => {
@@ -2164,9 +2412,9 @@ test("status card expands the current plan inline and keeps only the latest plan
       });
     });
 
-    assert.match(edited.at(-1)?.text ?? "", /1\. Collect protocol evidence \(completed\)/u);
-    assert.match(edited.at(-1)?.text ?? "", /2\. Wire inspect renderer \(inProgress\)/u);
-    assert.doesNotMatch(edited.at(-1)?.text ?? "", /Collect protocol evidence \(pending\)/u);
+    assert.match(edited.at(-1)?.text ?? "", /1\. <b>已完成<\/b> · Collect protocol evidence/u);
+    assert.match(edited.at(-1)?.text ?? "", /2\. <b>进行中<\/b> · Wire inspect renderer/u);
+    assert.doesNotMatch(edited.at(-1)?.text ?? "", /<b>待处理<\/b> · Collect protocol evidence/u);
 
     await withMockedNow("2026-03-10T10:00:14.000Z", async () => {
       await (service as any).handleCallback({
@@ -2775,7 +3023,7 @@ test("status card shows running subagents behind an agent button and expands the
     });
 
     assert.equal(callbackAnswers.at(-1), undefined);
-    assert.match(edited.at(-1)?.text ?? "", /<b>Agent:<\/b>/u);
+    assert.match(edited.at(-1)?.text ?? "", /<b>\[协作 Agent\]<\/b>/u);
     assert.match(edited.at(-1)?.text ?? "", /Booting/u);
     assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "收起 Agent");
 
@@ -2790,7 +3038,10 @@ test("status card shows running subagents behind an agent button and expands the
       });
     });
 
-    assert.match(edited.at(-1)?.text ?? "", new RegExp(`${truncatedNickname} \\(pending\\): Booting`, "u"));
+    assert.match(
+      edited.at(-1)?.text ?? "",
+      new RegExp(`<b>${truncatedNickname}<\\/b> · 等待初始化 · Booting`, "u")
+    );
     assert.equal((edited.at(-1)?.text ?? "").includes(longNickname), false);
 
     await withMockedNow("2026-03-10T11:00:07.000Z", async () => {
@@ -2814,7 +3065,7 @@ test("status card shows running subagents behind an agent button and expands the
 
     assert.match(
       edited.at(-1)?.text ?? "",
-      new RegExp(`${truncatedNickname} \\(running\\): Comparing Telegram flow with the shipped callbacks\\.`, "u")
+      new RegExp(`<b>${truncatedNickname}<\\/b> · 运行中 · Comparing Telegram flow with the shipped callbacks\\.`, "u")
     );
 
     await withMockedNow("2026-03-10T11:00:11.500Z", async () => {
@@ -2831,7 +3082,7 @@ test("status card shows running subagents behind an agent button and expands the
 
     assert.match(
       edited.at(-1)?.text ?? "",
-      new RegExp(`${truncatedNickname} \\(running\\): Comparing Telegram flow with the shipped callbacks\\.`, "u")
+      new RegExp(`<b>${truncatedNickname}<\\/b> · 运行中 · Comparing Telegram flow with the shipped callbacks\\.`, "u")
     );
 
     const editCountBeforeCommandOutput = edited.length;
@@ -2847,7 +3098,7 @@ test("status card shows running subagents behind an agent button and expands the
     assert.equal(edited.length, editCountBeforeCommandOutput);
     assert.match(
       edited.at(-1)?.text ?? "",
-      new RegExp(`${truncatedNickname} \\(running\\): Comparing Telegram flow with the shipped callbacks\\.`, "u")
+      new RegExp(`<b>${truncatedNickname}<\\/b> · 运行中 · Comparing Telegram flow with the shipped callbacks\\.`, "u")
     );
 
     await withMockedNow("2026-03-10T11:00:15.000Z", async () => {
@@ -2860,7 +3111,10 @@ test("status card shows running subagents behind an agent button and expands the
       });
     });
 
-    assert.match(edited.at(-1)?.text ?? "", new RegExp(`${truncatedNickname} \\(running\\): Waiting for approval`, "u"));
+    assert.match(
+      edited.at(-1)?.text ?? "",
+      new RegExp(`<b>${truncatedNickname}<\\/b> · 运行中 · Waiting for approval`, "u")
+    );
 
     await withMockedNow("2026-03-10T11:00:16.000Z", async () => {
       await (service as any).handleAppServerNotification("thread/status/changed", {
@@ -2879,7 +3133,7 @@ test("status card shows running subagents behind an agent button and expands the
 
     assert.match(
       edited.at(-1)?.text ?? "",
-      new RegExp(`${truncatedNickname} \\(running\\): Comparing Telegram flow with the shipped callbacks\\.`, "u")
+      new RegExp(`<b>${truncatedNickname}<\\/b> · 运行中 · Comparing Telegram flow with the shipped callbacks\\.`, "u")
     );
 
     await withMockedNow("2026-03-10T11:00:21.000Z", async () => {
@@ -2997,7 +3251,7 @@ test("status card replays cached subagent identity when the thread identity arri
     });
 
     assert.equal(callbackAnswers.at(-1), undefined);
-    assert.match(edited.at(-1)?.text ?? "", /Gauss \(pending\): Booting/u);
+    assert.match(edited.at(-1)?.text ?? "", /<b>Gauss<\/b> · 等待初始化 · Booting/u);
     assert.doesNotMatch(edited.at(-1)?.text ?? "", /agent-early/u);
   } finally {
     await cleanup();
@@ -3102,7 +3356,7 @@ test("status card backfills missing subagent identity from thread read once per 
     });
 
     assert.equal(callbackAnswers.at(-1), undefined);
-    assert.match(edited.at(-1)?.text ?? "", /Euler \(pending\): Booting/u);
+    assert.match(edited.at(-1)?.text ?? "", /<b>Euler<\/b> · 等待初始化 · Booting/u);
 
     await withMockedNow("2026-03-10T11:13:04.000Z", async () => {
       await (service as any).handleAppServerNotification("thread/status/changed", {
@@ -3224,8 +3478,8 @@ test("status card backfills title-only subagent identity to nickname", async () 
     });
 
     assert.equal(callbackAnswers.at(-1), undefined);
-    assert.match(edited.at(-1)?.text ?? "", /Euler \(pending\): Booting/u);
-    assert.doesNotMatch(edited.at(-1)?.text ?? "", /Delayed Title \(pending\): Booting/u);
+    assert.match(edited.at(-1)?.text ?? "", /<b>Euler<\/b> · 等待初始化 · Booting/u);
+    assert.doesNotMatch(edited.at(-1)?.text ?? "", /Delayed Title/u);
   } finally {
     await cleanup();
   }
@@ -3459,7 +3713,7 @@ test("status card keeps the fallback subagent label when thread read cannot reso
     });
 
     assert.equal(callbackAnswers.at(-1), undefined);
-    assert.match(edited.at(-1)?.text ?? "", /agent-llback \(pending\): Booting/u);
+    assert.match(edited.at(-1)?.text ?? "", /<b>agent-llback<\/b> · 等待初始化 · Booting/u);
 
     await withMockedNow("2026-03-10T11:14:04.000Z", async () => {
       await (service as any).handleAppServerNotification("thread/status/changed", {
@@ -7727,6 +7981,7 @@ test("review command starts review mode and creates a dedicated review session w
     assert.notEqual(reviewSession?.sessionId, session.sessionId);
     assert.equal(reviewSession?.threadId, "thread-review-new");
     assert.equal(reviewSession?.selectedModel, "gpt-5");
+    assert.equal(reviewSession?.displayNameSource, "manual");
     assert.equal(reviewSession?.status, "running");
   } finally {
     await cleanup();

@@ -231,12 +231,26 @@ export function buildRuntimeHubMessage(options: {
   isMainHub?: boolean;
   completed?: boolean;
   sessionProgressTextLimit?: number;
+  currentViewedSessionProgressTextLimit?: number;
+  otherSessionProgressTextLimit?: number;
+  recentEndedSessionProgressTextLimit?: number;
   genericSessionLayout?: "detailed" | "compact";
   genericVisibleSessionLimit?: number;
+  hubPlanEntryLimit?: number;
+  hubPlanEntryTextLimit?: number;
+  hubAgentEntryLimit?: number;
+  hubAgentProgressTextLimit?: number;
   reminderText?: string | null;
 }): string {
   const language = options.language ?? "zh";
   const sessionProgressTextLimit = options.sessionProgressTextLimit ?? 120;
+  const currentViewedSessionProgressTextLimit = options.currentViewedSessionProgressTextLimit ?? sessionProgressTextLimit;
+  const otherSessionProgressTextLimit = options.otherSessionProgressTextLimit ?? sessionProgressTextLimit;
+  const recentEndedSessionProgressTextLimit = options.recentEndedSessionProgressTextLimit ?? 0;
+  const hubPlanEntryLimit = options.hubPlanEntryLimit ?? 6;
+  const hubPlanEntryTextLimit = options.hubPlanEntryTextLimit ?? 120;
+  const hubAgentEntryLimit = options.hubAgentEntryLimit ?? 4;
+  const hubAgentProgressTextLimit = options.hubAgentProgressTextLimit ?? 100;
   const usesSlotSections = options.completed !== undefined
     || options.currentViewedSession !== undefined
     || options.otherSessions !== undefined
@@ -252,25 +266,25 @@ export function buildRuntimeHubMessage(options: {
       pushRuntimeHubSectionHeading(lines, language === "en" ? "Current viewed session" : "当前查看中的会话");
       pushRuntimeHubSession(lines, options.currentViewedSession, null, {
         language,
-        progressTextLimit: sessionProgressTextLimit,
+        progressTextLimit: currentViewedSessionProgressTextLimit,
         emphasizeMarkers: false,
         showMarkers: false
       });
 
-      appendExpandedPlanSection(lines, {
+      appendExpandedHubPlanSection(lines, {
         language,
         entries: options.planEntries,
         expanded: options.planExpanded,
-        entryLimit: 6,
-        entryTextLimit: 120
+        entryLimit: hubPlanEntryLimit,
+        entryTextLimit: hubPlanEntryTextLimit
       });
 
-      appendExpandedAgentSection(lines, {
+      appendExpandedHubAgentSection(lines, {
         language,
         entries: options.agentEntries,
         expanded: options.agentsExpanded,
-        entryLimit: 6,
-        entryProgressTextLimit: 100
+        entryLimit: hubAgentEntryLimit,
+        entryProgressTextLimit: hubAgentProgressTextLimit
       });
     }
 
@@ -279,7 +293,7 @@ export function buildRuntimeHubMessage(options: {
       for (const session of options.otherSessions ?? []) {
         pushRuntimeHubSession(lines, session, null, {
           language,
-          progressTextLimit: sessionProgressTextLimit,
+          progressTextLimit: otherSessionProgressTextLimit,
           emphasizeMarkers: false,
           showMarkers: false
         });
@@ -291,7 +305,7 @@ export function buildRuntimeHubMessage(options: {
       for (const session of options.recentEndedSessions ?? []) {
         pushRuntimeHubSession(lines, session, null, {
           language,
-          progressTextLimit: 0,
+          progressTextLimit: recentEndedSessionProgressTextLimit,
           emphasizeMarkers: false,
           showMarkers: false
         });
@@ -366,20 +380,20 @@ export function buildRuntimeHubMessage(options: {
       });
     }
 
-    appendExpandedPlanSection(lines, {
+    appendExpandedHubPlanSection(lines, {
       language,
       entries: options.planEntries,
       expanded: options.planExpanded,
-      entryLimit: 6,
-      entryTextLimit: 120
+      entryLimit: hubPlanEntryLimit,
+      entryTextLimit: hubPlanEntryTextLimit
     });
 
-    appendExpandedAgentSection(lines, {
+    appendExpandedHubAgentSection(lines, {
       language,
       entries: options.agentEntries,
       expanded: options.agentsExpanded,
-      entryLimit: 6,
-      entryProgressTextLimit: 100
+      entryLimit: hubAgentEntryLimit,
+      entryProgressTextLimit: hubAgentProgressTextLimit
     });
   }
 
@@ -480,6 +494,60 @@ function appendExpandedAgentSection(
 
   for (const [index, entry] of options.entries.slice(0, options.entryLimit).entries()) {
     lines.push(renderAgentRuntimeLine(entry, index + 1, options.entryProgressTextLimit));
+  }
+
+  if (options.entries.length > options.entryLimit) {
+    lines.push(options.language === "en"
+      ? `... ${options.entries.length - options.entryLimit} more agents`
+      : `... 还有 ${options.entries.length - options.entryLimit} 个 Agent`);
+  }
+}
+
+function appendExpandedHubPlanSection(
+  lines: string[],
+  options: {
+    language: UiLanguage;
+    entries: string[] | undefined;
+    expanded: boolean | undefined;
+    entryLimit: number;
+    entryTextLimit: number;
+  }
+): void {
+  if (!options.expanded || !options.entries || options.entries.length === 0) {
+    return;
+  }
+
+  pushRuntimeHubSectionHeading(lines, options.language === "en" ? "Plan Details" : "计划详情");
+
+  for (const [index, entry] of options.entries.slice(0, options.entryLimit).entries()) {
+    lines.push(renderHubPlanEntryLine(entry, index + 1, options.language, options.entryTextLimit));
+  }
+
+  if (options.entries.length > options.entryLimit) {
+    lines.push(options.language === "en"
+      ? `... ${options.entries.length - options.entryLimit} more plan items`
+      : `... 还有 ${options.entries.length - options.entryLimit} 项计划`);
+  }
+}
+
+function appendExpandedHubAgentSection(
+  lines: string[],
+  options: {
+    language: UiLanguage;
+    entries: CollabAgentStateSnapshot[] | undefined;
+    expanded: boolean | undefined;
+    entryLimit: number;
+    entryProgressTextLimit: number;
+  }
+): void {
+  if (!options.expanded || !options.entries || options.entries.length === 0) {
+    return;
+  }
+
+  pushRuntimeHubSectionHeading(lines, options.language === "en" ? "Collab Agents" : "协作 Agent");
+
+  for (const entry of options.entries.slice(0, options.entryLimit)) {
+    lines.push(renderHubAgentDetailLine(entry, options.language, options.entryProgressTextLimit));
   }
 
   if (options.entries.length > options.entryLimit) {
@@ -1681,9 +1749,91 @@ function selectCurrentPlanEntry(entries: string[]): string | null {
 
 function stripPlanEntryStatus(entry: string): string {
   return entry
+    .replace(/^\d+\.\s*/u, "")
+    .replace(/^[-*]\s+/u, "")
     .replace(/\s+\((inProgress|pending|todo|completed|failed|blocked)\)$/u, "")
     .replace(/^#+\s*/u, "")
     .trim();
+}
+
+function renderHubPlanEntryLine(entry: string, index: number, language: UiLanguage, textLimit: number): string {
+  const parsedStatus = parsePlanEntryStatus(entry);
+  const renderedText = renderInlineMarkdown(truncateText(stripPlanEntryStatus(entry), textLimit));
+  if (!parsedStatus) {
+    return `${index}. ${renderedText}`;
+  }
+
+  return `${index}. <b>${escapeHtml(formatHubPlanStatus(parsedStatus, language))}</b> · ${renderedText}`;
+}
+
+function parsePlanEntryStatus(entry: string): "inProgress" | "completed" | "pending" | "todo" | "failed" | "blocked" | null {
+  const match = entry.match(/\((inProgress|pending|todo|completed|failed|blocked)\)\s*$/u);
+  return (match?.[1] as "inProgress" | "completed" | "pending" | "todo" | "failed" | "blocked" | null) ?? null;
+}
+
+function formatHubPlanStatus(
+  status: "inProgress" | "completed" | "pending" | "todo" | "failed" | "blocked",
+  language: UiLanguage
+): string {
+  switch (status) {
+    case "inProgress":
+      return language === "en" ? "In Progress" : "进行中";
+    case "completed":
+      return language === "en" ? "Completed" : "已完成";
+    case "pending":
+    case "todo":
+      return language === "en" ? "Pending" : "待处理";
+    case "failed":
+      return language === "en" ? "Failed" : "失败";
+    case "blocked":
+      return language === "en" ? "Blocked" : "阻塞中";
+  }
+}
+
+function renderHubAgentDetailLine(
+  entry: CollabAgentStateSnapshot,
+  language: UiLanguage,
+  progressLimit: number
+): string {
+  const progressText = entry.progress
+    ? renderInlineMarkdown(truncateText(entry.progress, progressLimit))
+    : escapeHtml(language === "en" ? "Waiting for status update" : "等待状态更新");
+  return `${buildHubAgentStatusBadge(entry.status)} <b>${escapeHtml(entry.label)}</b> · ${escapeHtml(formatHubAgentStatus(entry.status, language))} · ${progressText}`;
+}
+
+function buildHubAgentStatusBadge(status: CollabAgentStateSnapshot["status"]): string {
+  switch (status) {
+    case "running":
+      return "🟢";
+    case "completed":
+      return "🏁";
+    case "errored":
+    case "notFound":
+      return "⛔";
+    case "pendingInit":
+    case "shutdown":
+    default:
+      return "🟡";
+  }
+}
+
+function formatHubAgentStatus(status: CollabAgentStateSnapshot["status"], language: UiLanguage): string {
+  switch (status) {
+    case "pendingInit":
+      return language === "en" ? "Pending init" : "等待初始化";
+    case "running":
+      return language === "en" ? "Running" : "运行中";
+    case "completed":
+      return language === "en" ? "Completed" : "已完成";
+    case "errored":
+      return language === "en" ? "Errored" : "异常";
+    case "shutdown":
+      return language === "en" ? "Stopped" : "已停止";
+    case "notFound":
+      return language === "en" ? "Not found" : "未找到";
+    default:
+      return status;
+  }
 }
 
 function formatAgentStatus(status: CollabAgentStateSnapshot["status"]): string {

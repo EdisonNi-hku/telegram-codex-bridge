@@ -25,7 +25,7 @@ const LEGACY_RUNTIME_STATUS_FIELD_MIGRATIONS: ReadonlyMap<string, RuntimeStatusF
   ["thread_id", "session-id"]
 ]);
 const RUNTIME_STATUS_FIELD_V4_MIGRATION_CUTOFF = "2026-03-17T00:00:00.000Z";
-const CURRENT_SCHEMA_VERSION = 15;
+const CURRENT_SCHEMA_VERSION = 16;
 
 export function parseRuntimeStatusFields(fieldsJson: string): RuntimeStatusField[] {
   try {
@@ -121,6 +121,7 @@ function initialSchema(): string {
       plan_mode INTEGER NOT NULL DEFAULT 0,
       pending_default_collaboration_mode_reset INTEGER NOT NULL DEFAULT 0,
       display_name TEXT NOT NULL,
+      display_name_source TEXT NOT NULL DEFAULT 'auto',
       project_name TEXT NOT NULL,
       project_path TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -544,6 +545,32 @@ function applyMigrations(db: DatabaseSync): void {
     );
 
     recordMigration(db, 15);
+  }
+
+  if (!applied.has(16)) {
+    if (!hasColumn(db, "session", "display_name_source")) {
+      db.exec("ALTER TABLE session ADD COLUMN display_name_source TEXT NOT NULL DEFAULT 'auto'");
+    }
+
+    // Legacy fork sessions used a generated "Fork: ..." title before the source column existed.
+    db.exec(
+      `
+        UPDATE session
+        SET display_name_source = CASE
+          WHEN display_name = project_name THEN 'auto'
+          WHEN display_name LIKE 'Fork: %' THEN 'auto'
+          WHEN display_name = (
+            SELECT recent_project.project_alias
+            FROM recent_project
+            WHERE recent_project.project_path = session.project_path
+            LIMIT 1
+          ) THEN 'auto'
+          ELSE 'manual'
+        END
+      `
+    );
+
+    recordMigration(db, 16);
   }
 }
 
