@@ -1,5 +1,8 @@
 # Multi-Platform Core Pending Task Tracker
 
+Status: Active post-Phase-1 backlog
+Phase 1 merged to `master` on 2026-03-23 in commit `02a3774`
+
 > Truth status:
 > - Current truth? No
 > - Use for: active backlog lock for deferred multi-platform Core work outside phase 1
@@ -15,6 +18,20 @@ Phase 1 is only the first Core seam.
 Without an explicit tracker, the repo is likely to blur "Core started" into "multi-platform solved".
 
 This document prevents that drift by locking every major deferred item in one place.
+
+## Current Status
+
+The first internal Core seam is now landed in current code:
+
+- `src/core/domain/`
+- `src/core/interaction-model/`
+- `src/core/workflow/`
+
+Current judgment:
+
+- Phase 1 is complete
+- Telegram remains the only shipped surface
+- future work should now start from this tracker rather than reopening the completed Phase 1 plan
 
 ## Locked Phase-1 Boundary
 
@@ -52,7 +69,7 @@ This order can change only if a later approved plan explains why.
 ### MP-01: Neutralize persistence and delivery identifiers
 
 Status:
-- deferred until phase 1 is stable
+- deferred after Phase 1 completion
 
 Why deferred now:
 - schema churn is the highest-risk refactor in this direction
@@ -78,7 +95,7 @@ Likely affected areas:
 ### MP-02: Add a real capability layer
 
 Status:
-- deferred until at least one non-Telegram rendering path is being prepared
+- deferred after Phase 1 completion
 
 Why deferred now:
 - capability work is too speculative while only one renderer exists
@@ -101,7 +118,7 @@ Likely affected areas:
 ### MP-03: Extract a presentation layer
 
 Status:
-- deferred until after the capability layer begins to exist
+- deferred after Phase 1 completion
 
 Why deferred now:
 - separating renderers before semantic interaction inputs are stable would create a rename-only split
@@ -124,7 +141,7 @@ Likely affected areas:
 ### MP-04: Formalize Telegram as the first official platform pack
 
 Status:
-- deferred until Core, capability, and presentation seams are real
+- deferred after Phase 1 completion
 
 Why deferred now:
 - Telegram is still mixed across transport, auth, callback, rendering, and install behavior
@@ -148,7 +165,7 @@ Likely affected areas:
 ### MP-05: Add pack-aware install and admin support
 
 Status:
-- deferred until Telegram Pack formalization starts
+- deferred after Phase 1 completion
 
 Why deferred now:
 - current install/admin path is intentionally Telegram-first and already large
@@ -173,7 +190,7 @@ Likely affected areas:
 ### MP-06: Deliver one second-platform pilot
 
 Status:
-- deferred until the Core and Telegram Pack seams are credible
+- deferred after Phase 1 completion
 
 Why deferred now:
 - adding a second platform before the internal seam holds would only duplicate Telegram coupling
@@ -196,7 +213,7 @@ Likely affected areas:
 ### MP-07: Add a Web or App control console
 
 Status:
-- deferred until after a second platform proves the Core abstraction
+- deferred after Phase 1 completion
 
 Why deferred now:
 - Web/App work is a larger product surface and should consume the Core, not drive it prematurely
@@ -219,7 +236,7 @@ Likely affected areas:
 ### MP-08: Decouple long-tail Telegram-owned flows
 
 Status:
-- deferred until the main Core seam is landed
+- deferred after Phase 1 completion
 
 Why deferred now:
 - not every flow needs to move in phase 1

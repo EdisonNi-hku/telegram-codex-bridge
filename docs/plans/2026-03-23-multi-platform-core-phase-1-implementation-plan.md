@@ -1,8 +1,11 @@
 # Multi-Platform Core Phase 1 Implementation Plan
 
+Status: Implemented and merged to `master` on 2026-03-23
+Merged commit: `02a3774` (`feat: complete phase-1 core seam tightening`)
+
 > Truth status:
 > - Current truth? No
-> - Use for: implementation sequencing for the first internal multi-platform Core abstraction wave
+> - Use for: historical implementation sequencing for the first internal multi-platform Core abstraction wave
 > - Verify current shipped behavior in: `docs/product/`, `docs/architecture/`, and current `src/`
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -10,6 +13,7 @@
 Planning document with verified current status as of 2026-03-23.
 This file is not a current-behavior spec.
 It is the approved first implementation plan for the multi-platform Core transition.
+Its implementation outcome is now reflected in current code and current architecture docs.
 
 ## Goal
 
@@ -60,7 +64,25 @@ Phase 1 is out of scope for:
 - install/admin pack selection
 - repository/package/CLI rename
 
-## Worktree Execution Rules
+## Outcome Summary
+
+Phase 1 landed the first internal Core seam under `src/core/`:
+
+- Domain terms and persisted-record contracts
+- Workflow helpers for interaction, runtime, and terminal delivery semantics
+- Interaction-model contracts that let Telegram consume semantic views instead of inventing bridge meaning in place
+
+What it did not do:
+
+- capability layer
+- presentation-layer extraction
+- persistence neutralization
+- Telegram Pack formalization
+- second platform delivery
+
+Those follow-up items now live in `docs/plans/2026-03-23-multi-platform-core-pending-task-tracker.md`.
+
+## Historical Worktree Execution Rules
 
 All implementation for this phase must follow these constraints:
 
@@ -69,7 +91,8 @@ All implementation for this phase must follow these constraints:
 - do not merge, cherry-pick, or otherwise fold the branch back into `main` or `master` when implementation finishes
 - wait for explicit human instruction before any merge or final integration step
 
-This rule exists to keep the current Telegram product stable while the Core boundary is still being reviewed.
+These rules applied during implementation review.
+They are no longer active instructions now that the work has already been merged.
 
 ## Architecture Intent
 

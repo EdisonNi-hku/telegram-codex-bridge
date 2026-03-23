@@ -39,9 +39,10 @@ Current shipped truth in this repository is:
 Current implementation also shows an important boundary:
 - the Codex protocol wrapper already exposes a broader surface than the Telegram UX currently adopts
 - the runtime shell, delivery surfaces, and persistence model are still strongly keyed to Telegram concepts such as chats, callback flows, and Telegram message ids
+- the first internal `Domain + Workflow + Interaction Model` seam is now landed under `src/core/`, but it is still an internal boundary rather than a full multi-platform product core
 
 Practical implication:
-- the repo already has the beginning of a reusable protocol and workflow core
+- the repo already has the beginning of a reusable protocol, workflow, and semantic-view core
 - it does **not** yet have a platform-neutral product core
 
 ## 3. Product Goal
@@ -191,6 +192,12 @@ The intended future sequence is:
 4. add one non-Telegram pack or one Web/App console after the Core boundary holds
 
 This sequence is directional, not a locked implementation schedule.
+
+Current milestone reading on 2026-03-23:
+
+- step 1 is complete
+- step 2 is started and now materially landed for the first internal abstraction wave
+- steps 3 and 4 remain future work
 
 ## 9. Success Criteria
 
