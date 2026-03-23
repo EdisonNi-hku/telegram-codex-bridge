@@ -80,6 +80,7 @@ async function createCoordinatorContext(options: {
   const store = await BridgeStateStore.open(paths, testLogger);
   const appServer = options.appServer ?? {};
   const syncReasons: string[] = [];
+  const syncCalls: Array<{ reason: string; force: boolean | undefined }> = [];
   const safeMessages: string[] = [];
   const sentHtmlMessages: Array<{
     chatId: string;
@@ -126,6 +127,7 @@ async function createCoordinatorContext(options: {
     },
     syncRuntimeCards: async (_activeTurn, _classified, _previousStatus, _nextStatus, options) => {
       syncReasons.push(options.reason);
+      syncCalls.push({ reason: options.reason, force: options.force });
     },
     runRuntimeCardOperation: async (_activeTurn, operation) => {
       await operation();
@@ -168,6 +170,7 @@ async function createCoordinatorContext(options: {
     coordinator,
     store,
     syncReasons,
+    syncCalls,
     safeMessages,
     sentHtmlMessages,
     interactionResolutions,
@@ -425,6 +428,96 @@ test("TurnCoordinator auto-syncs session names from thread title updates but kee
     assert.equal(store.getSessionById(autoSession.sessionId)?.displayNameSource, "auto");
     assert.equal(store.getSessionById(manualSession.sessionId)?.displayName, "Manual Name");
     assert.equal(store.getSessionById(manualSession.sessionId)?.displayNameSource, "manual");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator refreshes auto session names from remote thread metadata after a normal turn completes", async () => {
+  let readThreadCalls = 0;
+  const { coordinator, store, sentHtmlMessages, cleanup } = await createCoordinatorContext({
+    appServer: {
+      startThread: async () => ({
+        thread: {
+          id: "thread-late-title"
+        }
+      }),
+      startTurn: async () => ({
+        turn: {
+          id: "turn-late-title",
+          status: "inProgress"
+        }
+      }),
+      readThread: async () => {
+        readThreadCalls += 1;
+        return {
+          thread: {
+            id: "thread-late-title",
+            name: "Fix laggy session title refresh",
+            cwd: "/tmp/project-one",
+            preview: "Fix laggy session title refresh",
+            updatedAt: 0,
+            createdAt: 0,
+            status: "idle",
+            turns: []
+          }
+        } as any;
+      }
+    }
+  });
+
+  try {
+    const session = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+
+    await coordinator.startTextTurn("chat-1", session, "Fix laggy session title refresh");
+    assert.equal(store.getSessionById(session.sessionId)?.displayName, "Project One");
+
+    await coordinator.handleAppServerNotification("codex/event/task_complete", {
+      threadId: "thread-late-title",
+      turnId: "turn-late-title",
+      msg: {
+        last_agent_message: "Done"
+      }
+    });
+    await coordinator.handleAppServerNotification("turn/completed", {
+      threadId: "thread-late-title",
+      turnId: "turn-late-title",
+      status: "completed"
+    });
+
+    assert.equal(readThreadCalls, 1);
+    assert.equal(store.getSessionById(session.sessionId)?.displayName, "Fix laggy session title refresh");
+    assert.equal(store.getSessionById(session.sessionId)?.displayNameSource, "auto");
+    assert.match(sentHtmlMessages[0]?.html ?? "", /Fix laggy session title refresh \/ Project One/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator forces runtime refresh when thread title notifications update the active auto session name", async () => {
+  const { coordinator, store, syncCalls, cleanup } = await createCoordinatorContext();
+
+  try {
+    const session = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      threadId: "thread-title-live"
+    });
+
+    await coordinator.beginActiveTurn("chat-1", session, "thread-title-live", "turn-live-title", "inProgress");
+    await coordinator.handleAppServerNotification("thread/name/updated", {
+      threadId: "thread-title-live",
+      threadName: "Runtime title updated in place"
+    });
+
+    assert.equal(store.getSessionById(session.sessionId)?.displayName, "Runtime title updated in place");
+    assert.equal(syncCalls.at(-1)?.reason, "thread_name_updated");
+    assert.equal(syncCalls.at(-1)?.force, true);
   } finally {
     await cleanup();
   }

@@ -33,6 +33,7 @@ import { nowIso } from "../util/time.js";
 
 const MAX_RECENT_ACTIVITY_ENTRIES = 20;
 const MAX_RUNNING_SESSIONS_PER_CHAT = 10;
+const COMPLETED_TURN_TITLE_SYNC_TIMEOUT_MS = 1_500;
 
 interface ActiveTurnState extends InteractionBrokerActiveTurn {
   startedInPlanMode: boolean;
@@ -622,7 +623,7 @@ export class TurnCoordinator {
     params: unknown,
     classified: ReturnType<typeof classifyNotification>
   ): Promise<void> {
-    this.syncSessionTitleFromNotification(classified);
+    const sessionTitleUpdated = this.syncSessionTitleFromNotification(classified);
 
     if (this.shouldIgnoreTerminalNotification(classified)) {
       await this.deps.logger.info("ignored terminal turn notification", {
@@ -685,7 +686,11 @@ export class TurnCoordinator {
       this.activeTurnSessionIdsByThreadId.set(agent.threadId, activeTurn.sessionId);
     }
     const after = activeTurn.tracker.getStatus();
-    const forceSurfaceSync = classified.kind === "turn_completed";
+    const forceSurfaceSync = classified.kind === "turn_completed"
+      || (
+        sessionTitleUpdated
+        && (classified.kind === "thread_started" || classified.kind === "thread_name_updated")
+      );
     await this.deps.logger.info("turn event processed", {
       sessionId: activeTurn.sessionId,
       chatId: activeTurn.chatId,
@@ -731,6 +736,7 @@ export class TurnCoordinator {
       this.markTerminalTurn(activeTurn);
       store.markSessionSuccessful(activeTurn.sessionId);
       this.unregisterActiveTurn(activeTurn);
+      const completionTitleSyncPromise = this.syncSessionTitleFromCompletedTurn(activeTurn);
 
       let finalMessage = activeTurn.finalMessage;
       let proposedPlan: string | null = null;
@@ -783,6 +789,8 @@ export class TurnCoordinator {
       if (activeTurn.startedInReviewMode && !finalMessage) {
         finalMessage = observedReviewMessage;
       }
+
+      await completionTitleSyncPromise;
 
       let delivery: TerminalDeliveryResult;
       try {
@@ -1473,23 +1481,55 @@ export class TurnCoordinator {
     }
   }
 
-  private syncSessionTitleFromNotification(classified: ReturnType<typeof classifyNotification>): void {
+  private syncSessionTitleFromNotification(classified: ReturnType<typeof classifyNotification>): boolean {
     const store = this.deps.getStore();
     if (!store || !classified.threadId) {
-      return;
+      return false;
     }
 
     if (classified.kind === "thread_started") {
-      store.syncSessionTitleFromThread(classified.threadId, {
+      return store.syncSessionTitleFromThread(classified.threadId, {
         name: classified.threadName,
         preview: classified.threadPreview
       });
-      return;
     }
 
     if (classified.kind === "thread_name_updated") {
-      store.syncSessionTitleFromThread(classified.threadId, {
+      return store.syncSessionTitleFromThread(classified.threadId, {
         name: classified.threadName
+      });
+    }
+
+    return false;
+  }
+
+  private async syncSessionTitleFromCompletedTurn(activeTurn: ActiveTurnState): Promise<void> {
+    const store = this.deps.getStore();
+    const appServer = this.deps.getAppServer();
+    if (!store || !appServer) {
+      return;
+    }
+
+    const session = store.getSessionById(activeTurn.sessionId);
+    if (!session || session.displayNameSource !== "auto") {
+      return;
+    }
+
+    try {
+      const result = await appServer.readThread(activeTurn.threadId, false, {
+        timeoutMs: COMPLETED_TURN_TITLE_SYNC_TIMEOUT_MS,
+        terminateOnTimeout: false
+      });
+      store.syncSessionTitleFromThread(activeTurn.threadId, {
+        name: result.thread.name,
+        preview: result.thread.preview
+      });
+    } catch (error) {
+      await this.deps.logger.warn("session title sync after turn completion failed", {
+        sessionId: activeTurn.sessionId,
+        threadId: activeTurn.threadId,
+        turnId: activeTurn.turnId,
+        error: `${error}`
       });
     }
   }
