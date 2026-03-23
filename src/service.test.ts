@@ -814,7 +814,9 @@ test("archive command archives the active session, switches active session, and 
     assert.equal(
       sent.at(-1)?.text,
       [
-        "<b>已归档当前会话：</b> Project One",
+        "<b>已归档会话</b>",
+        "<b>会话名：</b> Session Alpha",
+        "<b>项目：</b> Project One",
         "<b>当前会话：</b> Session Beta",
         "<b>当前项目：</b> Project Two"
       ].join("\n")
@@ -860,7 +862,14 @@ test("sessions archived and unarchive command expose and restore archived sessio
     assert.equal(store.getActiveSession("chat-1")?.sessionId, session.sessionId);
     assert.equal(store.listSessions("chat-1")[0]?.sessionId, session.sessionId);
     assert.equal(sent.at(-1)?.parseMode, "HTML");
-    assert.equal(sent.at(-1)?.text, "<b>已恢复会话：</b> Project One");
+    assert.equal(
+      sent.at(-1)?.text,
+      [
+        "<b>已恢复会话</b>",
+        "<b>会话名：</b> Session Alpha",
+        "<b>项目：</b> Project One"
+      ].join("\n")
+    );
   } finally {
     await cleanup();
   }
@@ -4484,12 +4493,12 @@ test("plan command toggles the active session mode while idle", async () => {
     await (service as any).routeCommand("1", "plan", "");
     assert.equal(store.getSessionById(session.sessionId)?.planMode, true);
     assert.equal(store.getSessionById(session.sessionId)?.needsDefaultCollaborationModeReset, false);
-    assert.equal(sent.at(-1)?.text, "已为当前会话开启 Plan mode。下次任务开始时生效。");
+    assert.equal(sent.at(-1)?.text, "已为会话「Project One」开启 Plan mode。下次任务开始时生效。");
 
     await (service as any).routeCommand("1", "plan", "");
     assert.equal(store.getSessionById(session.sessionId)?.planMode, false);
     assert.equal(store.getSessionById(session.sessionId)?.needsDefaultCollaborationModeReset, true);
-    assert.equal(sent.at(-1)?.text, "已为当前会话关闭 Plan mode。下次任务开始时生效。");
+    assert.equal(sent.at(-1)?.text, "已为会话「Project One」关闭 Plan mode。下次任务开始时生效。");
   } finally {
     await cleanup();
   }
@@ -4513,7 +4522,7 @@ test("plan command toggles the next-turn mode without affecting a running turn",
     await (service as any).routeCommand("1", "plan", "");
     assert.equal(store.getSessionById(session.sessionId)?.planMode, true);
     assert.equal(store.getSessionById(session.sessionId)?.needsDefaultCollaborationModeReset, false);
-    assert.equal(sent.at(-1)?.text, "已为当前会话开启 Plan mode。当前任务不受影响，下次任务开始时生效。");
+    assert.equal(sent.at(-1)?.text, "已为会话「Project One」开启 Plan mode。当前任务不受影响，下次任务开始时生效。");
   } finally {
     await cleanup();
   }
@@ -4804,7 +4813,14 @@ test("structured project and session replies use Telegram HTML parse mode", asyn
     const secondSessionIndex = store.listSessions("chat-1").findIndex((entry) => entry.sessionId === secondSession.sessionId) + 1;
     await (service as any).routeCommand("chat-1", "use", `${secondSessionIndex}`);
     assert.equal(sent.at(-1)?.parseMode, "HTML");
-    assert.equal(sent.at(-1)?.text, "<b>已切换到项目：</b> Project &lt;Two&gt;");
+    assert.equal(
+      sent.at(-1)?.text,
+      [
+        "<b>已切换会话</b>",
+        "<b>会话名：</b> Project &lt;Two&gt;",
+        "<b>项目：</b> Project &lt;Two&gt;"
+      ].join("\n")
+    );
 
     await (service as any).routeCommand("chat-1", "rename", "Session <Bravo>");
     assert.equal(sent.at(-1)?.parseMode, "HTML");
@@ -4846,7 +4862,14 @@ test("use command can switch away from a running session so another session beco
     await (service as any).routeCommand("chat-1", "use", `${idleSessionIndex}`);
 
     assert.equal(sent.at(-1)?.parseMode, "HTML");
-    assert.equal(sent.at(-1)?.text, "<b>已切换到项目：</b> Project Idle");
+    assert.equal(
+      sent.at(-1)?.text,
+      [
+        "<b>已切换会话</b>",
+        "<b>会话名：</b> Project Idle",
+        "<b>项目：</b> Project Idle"
+      ].join("\n")
+    );
     assert.equal(store.getActiveSession("chat-1")?.sessionId, idleSession.sessionId);
     assert.equal(store.getSessionById(runningSession.sessionId)?.status, "running");
   } finally {
@@ -4897,7 +4920,14 @@ test("use command leaves the existing runtime hub in place when another session 
     await (service as any).routeCommand("chat-1", "use", `${idleSessionIndex}`);
 
     assert.equal(sent[1]?.parseMode, "HTML");
-    assert.equal(sent[1]?.text, "<b>已切换到项目：</b> Project Idle");
+    assert.equal(
+      sent[1]?.text,
+      [
+        "<b>已切换会话</b>",
+        "<b>会话名：</b> Project Idle",
+        "<b>项目：</b> Project Idle"
+      ].join("\n")
+    );
     assert.equal(sent.length, 2);
     assert.deepEqual(deleted, []);
     assert.equal(store.getActiveSession("chat-1")?.sessionId, idleSession.sessionId);
@@ -4952,7 +4982,14 @@ test("use command does not reanchor a background running session after it become
     await (service as any).routeCommand("chat-1", "use", `${runningSessionIndex}`);
 
     assert.equal(sent[1]?.parseMode, "HTML");
-    assert.equal(sent[1]?.text, "<b>已切换到项目：</b> Project One");
+    assert.equal(
+      sent[1]?.text,
+      [
+        "<b>已切换会话</b>",
+        "<b>会话名：</b> Project One",
+        "<b>项目：</b> Project One"
+      ].join("\n")
+    );
     assert.equal(sent.length, 2);
     assert.deepEqual(deleted, []);
     assert.equal(store.getActiveSession("chat-1")?.sessionId, runningSession.sessionId);
@@ -5136,7 +5173,7 @@ test("rename, pin, and plan replies leave the runtime hub where it is", async ()
     assert.deepEqual(deleted, [renameSurfaceMessageId!]);
 
     await (service as any).routeCommand("chat-1", "plan", "");
-    assert.equal(sent.at(-1)?.text, "已为当前会话开启 Plan mode。当前任务不受影响，下次任务开始时生效。");
+    assert.equal(sent.at(-1)?.text, "已为会话「Project One」开启 Plan mode。当前任务不受影响，下次任务开始时生效。");
     assert.deepEqual(deleted, [renameSurfaceMessageId!]);
     assert.equal((service as any).activeTurn?.statusCard.messageId, initialStatusMessageId);
   } finally {
@@ -7530,7 +7567,7 @@ test("model command opens a paginated picker and supports two-step model plus re
     });
     assert.equal(store.getActiveSession("1")?.selectedModel, "o3");
     assert.equal(store.getActiveSession("1")?.selectedReasoningEffort, "xhigh");
-    assert.match(edited.at(-1)?.text ?? "", /已设置当前会话模型：o3 \+ 极高/u);
+    assert.match(edited.at(-1)?.text ?? "", /已为会话「Project One」设置模型：o3 \+ 极高/u);
 
     await (service as any).handleNormalText("1", "Use the selected model");
 
@@ -7603,7 +7640,7 @@ test("model picker skips the second step when the chosen model does not offer mu
 
     assert.equal(store.getActiveSession("1")?.selectedModel, "gpt-4.1");
     assert.equal(store.getActiveSession("1")?.selectedReasoningEffort, null);
-    assert.match(edited.at(-1)?.text ?? "", /已设置当前会话模型：gpt-4.1 \+ 默认/u);
+    assert.match(edited.at(-1)?.text ?? "", /已为会话「Project One」设置模型：gpt-4.1 \+ 默认/u);
   } finally {
     await cleanup();
   }
@@ -7705,7 +7742,9 @@ test("skills command lists available skills and skill selection can queue prompt
     };
 
     await (service as any).routeCommand("1", "skills", "");
-    assert.match(sent[0] ?? "", /当前项目可用技能/u);
+    assert.match(sent[0] ?? "", /当前会话：Project One/u);
+    assert.match(sent[0] ?? "", /当前项目：Project One/u);
+    assert.match(sent[0] ?? "", /可用技能/u);
     assert.match(sent[0] ?? "", /\[启用\] deploy \| Deploy the current project/u);
 
     await (service as any).routeCommand("1", "skill", "deploy");
@@ -7791,7 +7830,9 @@ test("phase6 plugin commands list, install, and uninstall repo-scoped plugins", 
     };
 
     await (service as any).routeCommand("1", "plugins", "");
-    assert.match(sent[0] ?? "", /当前项目可用插件/u);
+    assert.match(sent[0] ?? "", /当前会话：Project One/u);
+    assert.match(sent[0] ?? "", /当前项目：Project One/u);
+    assert.match(sent[0] ?? "", /可用插件/u);
     assert.match(sent[0] ?? "", /\[已安装\]\[启用\] repo\.logs \| Logs/u);
     assert.match(sent[0] ?? "", /repo-market\/deploy/u);
 
@@ -7800,13 +7841,13 @@ test("phase6 plugin commands list, install, and uninstall repo-scoped plugins", 
       marketplacePath: "/marketplaces/repo",
       pluginName: "deploy"
     }]);
-    assert.match(sent[1] ?? "", /已安装插件：deploy/u);
+    assert.match(sent[1] ?? "", /已为项目「Project One」安装插件：deploy/u);
     assert.match(sent[1] ?? "", /Slack/u);
     assert.match(sent[1] ?? "", /https:\/\/apps\.example\/slack/u);
 
     await (service as any).routeCommand("1", "plugin", "uninstall repo.logs");
     assert.deepEqual(uninstallCalls, ["repo.logs"]);
-    assert.match(sent[2] ?? "", /已卸载插件：repo\.logs/u);
+    assert.match(sent[2] ?? "", /已为项目「Project One」卸载插件：repo\.logs/u);
   } finally {
     await cleanup();
   }
@@ -7898,6 +7939,8 @@ test("phase6 apps mcp account and background-terminal commands surface admin sta
     };
 
     await (service as any).routeCommand("1", "apps", "");
+    assert.match(sent[0] ?? "", /当前会话：Project One/u);
+    assert.match(sent[0] ?? "", /当前项目：Project One/u);
     assert.match(sent[0] ?? "", /当前可用 Apps/u);
     assert.match(sent[0] ?? "", /Slack/u);
     assert.match(sent[0] ?? "", /Deploy Plugin/u);
@@ -7922,7 +7965,7 @@ test("phase6 apps mcp account and background-terminal commands surface admin sta
 
     await (service as any).routeCommand("1", "thread", "clean-terminals");
     assert.deepEqual(cleanCalls, ["thread-1"]);
-    assert.match(sent[5] ?? "", /已清理当前线程的后台终端/u);
+    assert.match(sent[5] ?? "", /已为会话「Project One」清理当前线程的后台终端/u);
   } finally {
     await cleanup();
   }
@@ -8111,10 +8154,10 @@ test("rollback compact and thread metadata commands call the app-server and upda
     assert.equal(store.getSessionById(session.sessionId)?.displayName, "Release Prep");
     assert.equal(store.getSessionById(session.sessionId)?.lastTurnId, "turn-after-rollback");
     assert.equal(store.getSessionById(session.sessionId)?.lastTurnStatus, "completed");
-    assert.match(sent[0] ?? "", /已回滚最近 2 个 turn/u);
-    assert.match(sent[1] ?? "", /已请求压缩当前线程/u);
-    assert.match(sent[2] ?? "", /已更新线程名称：Release Prep/u);
-    assert.match(sent[3] ?? "", /已更新线程元数据：branch=main, sha=abc123, origin=https:\/\/example\.com\/repo\.git/u);
+    assert.match(sent[0] ?? "", /已为会话「Project One」回滚最近 2 个 turn/u);
+    assert.match(sent[1] ?? "", /已为会话「Project One」请求压缩当前线程/u);
+    assert.match(sent[2] ?? "", /会话标题已更新为：Release Prep/u);
+    assert.match(sent[3] ?? "", /已为会话「Release Prep」更新线程元数据：branch=main, sha=abc123, origin=https:\/\/example\.com\/repo\.git/u);
   } finally {
     await cleanup();
   }
@@ -8217,7 +8260,7 @@ test("rollback clears cached activity so inspect renders the rolled-back thread 
     await (service as any).routeCommand("chat-1", "inspect", "");
 
     assert.equal(readCalls, 1);
-    assert.match(sent[0]?.text ?? "", /已回滚最近 1 个 turn/u);
+    assert.match(sent[0]?.text ?? "", /已为会话「Project One」回滚最近 1 个 turn/u);
     assert.equal(sent[1]?.parseMode, "HTML");
     assert.match(sent[1]?.text ?? "", /\$ echo fresh/u);
     assert.doesNotMatch(sent[1]?.text ?? "", /stale cached output/u);

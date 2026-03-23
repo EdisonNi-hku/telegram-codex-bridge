@@ -138,6 +138,8 @@ While a turn is running:
 - show at most one `[当前查看中的会话]` section on the hub that owns the active viewed session; hide that section entirely when the active session has not joined any hub yet
 - show `[其他运行中的会话]` and `[最近结束的会话]` from that hub's own slots only
 - use a fixed one-row slot selector with `1..5` for occupied slots and `·` for empty positions; ended slots remain selectable, and archive-driven removal may leave middle holes
+- when the user selects a hub slot, acknowledge with the chosen session title and resend a bridge-owned recent-output entry to the bottom of the chat
+- the recent-output entry is a compact bridge-owned message that shows the selected session identity and, when a terminal result exists, offers `展开最近输出` / `收起最近输出` on that same message
 - each visible hub session renders as a divider-separated block with a state badge, a `SESSION #n` label, an optional `Folder:` line only when the project name differs from the session name, and a short runtime preview block when progress text is shown
 - a separate current-input block outside the slot set uses `SESSION:` without a slot number and may carry the `当前输入` marker
 - generic recovery hubs use the same `Active Hub` shell but are not slot-based; when the active input target is outside the recovered set, they may render a separate `当前输入会话` section

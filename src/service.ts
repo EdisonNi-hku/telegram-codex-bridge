@@ -767,6 +767,13 @@ export class BridgeService {
         answerId,
         mode
       ),
+      renderRecentOutputEntry: async (answerId, mode) => this.renderRecentOutputEntry(
+        callbackQuery.id,
+        chatId,
+        message.message_id,
+        answerId,
+        mode
+      ),
       handleRuntimePreferencesPage: async (token, page) => this.handleRuntimePreferencesPageCallback(
         callbackQuery.id,
         chatId,
@@ -1090,6 +1097,25 @@ export class BridgeService {
     }
   ): Promise<void> {
     await this.runtimeSurfaceController.renderPersistedPlanResult(
+      callbackQueryId,
+      chatId,
+      messageId,
+      answerId,
+      mode
+    );
+  }
+
+  private async renderRecentOutputEntry(
+    callbackQueryId: string,
+    chatId: string,
+    messageId: number,
+    answerId: string,
+    mode: {
+      expanded: boolean;
+      page?: number;
+    }
+  ): Promise<void> {
+    await this.runtimeSurfaceController.renderRecentOutputEntry(
       callbackQueryId,
       chatId,
       messageId,

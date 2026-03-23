@@ -6,6 +6,8 @@ import type { BridgeStateStore } from "../state/store.js";
 import type { TelegramInlineKeyboardMarkup, TelegramMessage } from "../telegram/api.js";
 import {
   buildFinalAnswerReplyMarkup,
+  buildRecentOutputEntryHtml,
+  buildRecentOutputReplyMarkup,
   buildInspectClosedMessage,
   buildInspectText,
   buildInspectViewMessage,
@@ -257,6 +259,7 @@ export class RuntimeSurfaceController {
   private readonly runtimeHubStates = new Map<string, RuntimeHubChatState>();
   private readonly turnHubAutoRefreshStates = new Map<string, TurnHubAutoRefreshState>();
   private readonly learnedHubCommandChats = new Set<string>();
+  private readonly recentOutputMessageIds = new Map<string, number>();
 
   constructor(private readonly deps: RuntimeSurfaceControllerDeps) {}
 
@@ -1805,10 +1808,11 @@ export class RuntimeSurfaceController {
     hubState.planExpanded = false;
     hubState.agentsExpanded = false;
     hubState.callbackVersion += 1;
-    await this.deps.safeAnswerCallbackQuery(callbackQueryId, "已切换当前会话。");
+    await this.deps.safeAnswerCallbackQuery(callbackQueryId, `已切换到会话：${truncateText(session.displayName, 40)}`);
 
     if (hubState.kind === "live") {
       await this.refreshLiveRuntimeHubsNow(hubState.chatId, "hub_session_selected", sessionId);
+      await this.refreshRecentOutputEntry(hubState.chatId, session.sessionId);
       return;
     }
 
@@ -1818,6 +1822,7 @@ export class RuntimeSurfaceController {
       reason: "recovery_hub_session_selected",
       visibleState: rendered.visibleState
     });
+    await this.refreshRecentOutputEntry(hubState.chatId, session.sessionId);
   }
 
   private scheduleHubRetry(hubState: RuntimeHubState, delayMs: number): void {
@@ -2729,6 +2734,7 @@ export class RuntimeSurfaceController {
     for (const turnId of this.turnHubAutoRefreshStates.keys()) {
       this.clearTurnHubAutoRefreshState(turnId);
     }
+    this.recentOutputMessageIds.clear();
   }
 
   async handleHub(chatId: string): Promise<{ kind: "refreshed" | "no_running" | "interaction_pending" }> {
@@ -3029,6 +3035,74 @@ export class RuntimeSurfaceController {
     await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result);
   }
 
+  async renderRecentOutputEntry(
+    callbackQueryId: string,
+    chatId: string,
+    messageId: number,
+    answerId: string,
+    mode: {
+      expanded: boolean;
+      page?: number;
+    }
+  ): Promise<void> {
+    const store = this.deps.getStore();
+    if (!store) {
+      await this.deps.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
+      return;
+    }
+
+    const view = store.getFinalAnswerView(answerId, chatId);
+    if (!view) {
+      await this.deps.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
+      return;
+    }
+
+    const session = store.getSessionById(view.sessionId);
+    const sessionName = session?.displayName ?? null;
+    const projectName = session
+      ? (session.projectAlias?.trim() || session.projectName)
+      : null;
+
+    if (!mode.expanded) {
+      const result = await this.deps.safeEditHtmlMessageText(
+        chatId,
+        messageId,
+        buildRecentOutputEntryHtml({
+          sessionName,
+          projectName,
+          hasResult: true
+        }),
+        buildRecentOutputReplyMarkup({
+          answerId,
+          totalPages: view.pages.length,
+          expanded: false
+        })
+      );
+      await this.finishBridgeOwnedCallbackRender(callbackQueryId, result);
+      return;
+    }
+
+    const page = mode.page ?? 1;
+    const pageHtml = view.pages[page - 1];
+    if (!pageHtml) {
+      await this.deps.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
+      return;
+    }
+
+    const result = await this.deps.safeEditHtmlMessageText(
+      chatId,
+      messageId,
+      view.kind === "plan_result" ? this.buildPlanResultHtml(pageHtml, view.primaryActionConsumed) : pageHtml,
+      buildRecentOutputReplyMarkup({
+        answerId,
+        totalPages: view.pages.length,
+        expanded: true,
+        currentPage: page
+      })
+    );
+    await this.finishBridgeOwnedCallbackRender(callbackQueryId, result);
+  }
+
   async handleInspect(chatId: string, sessionId?: string): Promise<void> {
     const store = this.deps.getStore();
     if (!store) {
@@ -3213,6 +3287,57 @@ export class RuntimeSurfaceController {
 
   private buildPlanResultHtml(html: string, primaryActionConsumed: boolean): string {
     return primaryActionConsumed ? `${buildPlanResultConsumedNotice()}\n\n${html}` : html;
+  }
+
+  private async refreshRecentOutputEntry(chatId: string, sessionId: string): Promise<void> {
+    const store = this.deps.getStore();
+    const session = store?.getSessionById(sessionId) ?? null;
+    if (!store || !session || session.telegramChatId !== chatId) {
+      return;
+    }
+
+    const latestView = store.listFinalAnswerViews(chatId).find((candidate) => candidate.sessionId === sessionId) ?? null;
+    const previousMessageId = this.recentOutputMessageIds.get(chatId) ?? null;
+    const sent = await this.deps.safeSendHtmlMessageResult(
+      chatId,
+      buildRecentOutputEntryHtml({
+        sessionName: session.displayName,
+        projectName: session.projectAlias?.trim() || session.projectName,
+        hasResult: latestView !== null
+      }),
+      latestView
+        ? buildRecentOutputReplyMarkup({
+          answerId: latestView.answerId,
+          totalPages: latestView.pages.length,
+          expanded: false
+        })
+        : undefined
+    );
+    if (!sent) {
+      return;
+    }
+
+    this.recentOutputMessageIds.set(chatId, sent.message_id);
+    if (previousMessageId && previousMessageId !== sent.message_id) {
+      await this.deps.safeDeleteMessage(chatId, previousMessageId);
+    }
+  }
+
+  private async finishBridgeOwnedCallbackRender(
+    callbackQueryId: string,
+    result: TelegramEditResult
+  ): Promise<void> {
+    if (isTelegramEditCommitted(result)) {
+      await this.deps.safeAnswerCallbackQuery(callbackQueryId);
+      return;
+    }
+
+    if (result.outcome === "rate_limited") {
+      await this.deps.safeAnswerCallbackQuery(callbackQueryId, "Telegram 正在限流，请稍后再试。");
+      return;
+    }
+
+    await this.deps.safeAnswerCallbackQuery(callbackQueryId, "暂时无法更新这条消息，请稍后再试。");
   }
 
   private async finishPersistedFinalAnswerRender(

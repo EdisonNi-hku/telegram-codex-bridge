@@ -441,7 +441,10 @@ export class SessionProjectCoordinator {
     }
 
     store.setActiveSession(chatId, target.sessionId);
-    await this.deps.safeSendHtmlMessage(chatId, buildSessionSwitchedText(this.projectDisplayName(target)));
+    await this.deps.safeSendHtmlMessage(
+      chatId,
+      buildSessionSwitchedText(target.displayName, this.projectDisplayName(target))
+    );
   }
 
   async handleArchive(chatId: string): Promise<void> {
@@ -493,7 +496,11 @@ export class SessionProjectCoordinator {
       await this.deps.safeSendHtmlMessage(
         chatId,
         buildArchiveSuccessText(
-          this.projectDisplayName(activeSession),
+          {
+            displayName: activeSession.displayName,
+            projectName: activeSession.projectName,
+            projectAlias: activeSession.projectAlias
+          },
           nextActiveSession
             ? {
                 displayName: nextActiveSession.displayName,
@@ -571,7 +578,10 @@ export class SessionProjectCoordinator {
           error: `${error}`
         });
       }
-      await this.deps.safeSendHtmlMessage(chatId, buildUnarchiveSuccessText(this.projectDisplayName(target)));
+      await this.deps.safeSendHtmlMessage(
+        chatId,
+        buildUnarchiveSuccessText(target.displayName, this.projectDisplayName(target))
+      );
     } catch {
       if (target.threadId && pendingOpId !== null) {
         this.deps.dropPendingThreadArchiveOp(target.threadId, pendingOpId);
@@ -819,7 +829,7 @@ export class SessionProjectCoordinator {
     const suffix = activeSession.status === "running"
       ? "当前任务不受影响，下次任务开始时生效。"
       : "下次任务开始时生效。";
-    await this.deps.safeSendMessage(chatId, `已为当前会话${verb} Plan mode。${suffix}`);
+    await this.deps.safeSendMessage(chatId, `已为会话「${activeSession.displayName}」${verb} Plan mode。${suffix}`);
   }
 
   private async requireActivePickerState(chatId: string, messageId: number): Promise<PickerState | null> {

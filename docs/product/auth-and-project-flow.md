@@ -244,7 +244,10 @@ Shows:
 ### `/use <n>`
 
 Responses:
-- success: `已切换到项目：{project_name}`
+- success: a compact HTML card:
+  - `已切换会话`
+  - `会话名：{session_name}`
+  - `项目：{project_name}`
 - failure: `找不到这个会话。`
 
 Rules:
@@ -255,7 +258,7 @@ Rules:
 ### `/archive`
 
 Responses:
-- success: `已归档当前会话：{project_name}`
+- success: an HTML card showing the archived `会话名` and `项目`, plus either the new `当前会话` and `当前项目` or the empty-state follow-up
 - no active session: `当前没有活动会话。`
 - active session running: `当前项目仍在执行，请先等待完成或停止当前操作。`
 - archive unavailable: `当前无法归档这个会话，请稍后重试。`
@@ -270,7 +273,10 @@ Archive rules:
 ### `/unarchive <n>`
 
 Responses:
-- success: `已恢复会话：{project_name}`
+- success: an HTML card:
+  - `已恢复会话`
+  - `会话名：{session_name}`
+  - `项目：{project_name}`
 - failure: `找不到这个会话。`
 - unarchive unavailable: `当前无法恢复这个会话，请稍后重试。`
 

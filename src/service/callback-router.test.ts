@@ -79,6 +79,9 @@ function createHandlers(calls: Call[]) {
     renderPersistedPlanResult: async (answerId: string, mode: { expanded: boolean; page?: number }) => {
       calls.push({ name: "renderPersistedPlanResult", args: [answerId, mode] });
     },
+    renderRecentOutputEntry: async (answerId: string, mode: { expanded: boolean; page?: number }) => {
+      calls.push({ name: "renderRecentOutputEntry", args: [answerId, mode] });
+    },
     handleRuntimePreferencesPage: async (token: string, page: number) => {
       calls.push({ name: "handleRuntimePreferencesPage", args: [token, page] });
     },
@@ -253,6 +256,18 @@ test("status-card, inspect, and persisted-result callbacks preserve their routin
     { parsed: { kind: "final_open", answerId: "answer-1" }, expected: [{ name: "renderPersistedFinalAnswer", args: ["answer-1", { expanded: true, page: 1 }] }] },
     { parsed: { kind: "final_page", answerId: "answer-2", page: 4 }, expected: [{ name: "renderPersistedFinalAnswer", args: ["answer-2", { expanded: true, page: 4 }] }] },
     { parsed: { kind: "plan_result_close", answerId: "answer-3" }, expected: [{ name: "renderPersistedPlanResult", args: ["answer-3", { expanded: false }] }] },
+    {
+      parsed: { kind: "recent_output_open", answerId: "answer-3b" } as ParsedCallbackData,
+      expected: [{ name: "renderRecentOutputEntry", args: ["answer-3b", { expanded: true, page: 1 }] }]
+    },
+    {
+      parsed: { kind: "recent_output_page", answerId: "answer-3c", page: 2 } as ParsedCallbackData,
+      expected: [{ name: "renderRecentOutputEntry", args: ["answer-3c", { expanded: true, page: 2 }] }]
+    },
+    {
+      parsed: { kind: "recent_output_close", answerId: "answer-3d" } as ParsedCallbackData,
+      expected: [{ name: "renderRecentOutputEntry", args: ["answer-3d", { expanded: false }] }]
+    },
     { parsed: { kind: "inspect_expand", sessionId: "session-3", page: 1 }, expected: [{ name: "handleInspectView", args: ["session-3", { collapsed: false, page: 1 }] }] },
     { parsed: { kind: "inspect_collapse", sessionId: "session-4" }, expected: [{ name: "handleInspectView", args: ["session-4", { collapsed: true, page: 0 }] }] },
     { parsed: { kind: "inspect_close", sessionId: "session-4b" }, expected: [{ name: "handleInspectClose", args: ["session-4b"] }] },
