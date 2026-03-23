@@ -31,6 +31,7 @@ export interface BridgeCallbackRouterHandlers {
   handleStatusCardInterrupt(sessionId: string): Promise<void>;
   renderPersistedFinalAnswer(answerId: string, mode: { expanded: boolean; page?: number }): Promise<void>;
   renderPersistedPlanResult(answerId: string, mode: { expanded: boolean; page?: number }): Promise<void>;
+  renderRecentOutputEntry(answerId: string, mode: { expanded: boolean; page?: number }): Promise<void>;
   handleRuntimePreferencesPage(token: string, page: number): Promise<void>;
   handleRuntimePreferencesToggle(token: string, field: RuntimeStatusField): Promise<void>;
   handleRuntimePreferencesSave(token: string): Promise<void>;
@@ -149,6 +150,15 @@ export async function routeBridgeCallback(
       return;
     case "plan_result_page":
       await handlers.renderPersistedPlanResult(parsed.answerId, { expanded: true, page: parsed.page });
+      return;
+    case "recent_output_open":
+      await handlers.renderRecentOutputEntry(parsed.answerId, { expanded: true, page: 1 });
+      return;
+    case "recent_output_close":
+      await handlers.renderRecentOutputEntry(parsed.answerId, { expanded: false });
+      return;
+    case "recent_output_page":
+      await handlers.renderRecentOutputEntry(parsed.answerId, { expanded: true, page: parsed.page });
       return;
     case "runtime_page":
       await handlers.handleRuntimePreferencesPage(parsed.token, parsed.page);

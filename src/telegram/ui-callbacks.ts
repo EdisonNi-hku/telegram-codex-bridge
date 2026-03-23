@@ -33,6 +33,9 @@ export type ParsedCallbackData =
   | { kind: "plan_result_open"; answerId: string }
   | { kind: "plan_result_close"; answerId: string }
   | { kind: "plan_result_page"; answerId: string; page: number }
+  | { kind: "recent_output_open"; answerId: string }
+  | { kind: "recent_output_close"; answerId: string }
+  | { kind: "recent_output_page"; answerId: string; page: number }
   | { kind: "runtime_page"; token: string; page: number }
   | { kind: "runtime_toggle"; token: string; field: RuntimeStatusField }
   | { kind: "runtime_save"; token: string }
@@ -257,6 +260,18 @@ export function encodePlanResultPageCallback(answerId: string, page: number): st
   return `v4:plan:page:${answerId}:${page}`;
 }
 
+export function encodeRecentOutputOpenCallback(answerId: string): string {
+  return ensureTelegramCallbackDataLimit(`v7:rr:o:${answerId}`);
+}
+
+export function encodeRecentOutputCloseCallback(answerId: string): string {
+  return ensureTelegramCallbackDataLimit(`v7:rr:c:${answerId}`);
+}
+
+export function encodeRecentOutputPageCallback(answerId: string, page: number): string {
+  return ensureTelegramCallbackDataLimit(`v7:rr:p:${answerId}:${encodeInteractionIndex(page)}`);
+}
+
 export function encodeRuntimePageCallback(token: string, page: number): string {
   return ensureTelegramCallbackDataLimit(`v4:rt:p:${token}:${encodeInteractionIndex(page)}`);
 }
@@ -365,6 +380,25 @@ export function encodeHubSelectCallback(token: string, version: number, slot: nu
 
 export function parseCallbackData(data: string): ParsedCallbackData | null {
   const parts = data.split(":");
+  if (parts[0] === "v7" && parts[1] === "rr") {
+    if (parts[2] === "o" && parts[3]) {
+      return { kind: "recent_output_open", answerId: parts[3] };
+    }
+
+    if (parts[2] === "c" && parts[3]) {
+      return { kind: "recent_output_close", answerId: parts[3] };
+    }
+
+    if (parts[2] === "p" && parts[3] && parts[4]) {
+      const page = decodeInteractionIndex(parts[4]);
+      if (page !== null) {
+        return { kind: "recent_output_page", answerId: parts[3], page };
+      }
+    }
+
+    return null;
+  }
+
   if (parts[0] === "v6" && parts[1] === "hb") {
     if (parts[2] === "s" && parts[3] && parts[4] && parts[5]) {
       const version = decodeInteractionIndex(parts[4]);

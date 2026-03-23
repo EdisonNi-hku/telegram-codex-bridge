@@ -44,6 +44,7 @@ async function writeCurlStub(binDir: string): Promise<void> {
 test("TelegramApi surfaces curl transport failures before JSON parsing", async () => {
   const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-test-"));
   const binDir = join(root, "bin");
+  const operations: unknown[] = [];
 
   try {
     await mkdir(binDir, { recursive: true });
@@ -59,7 +60,13 @@ test("TelegramApi surfaces curl transport failures before JSON parsing", async (
         HTTPS_PROXY: "http://proxy.internal:8080"
       },
       async () => {
-        const api = new TelegramApi("test-token", "https://api.telegram.org");
+        const api = new TelegramApi("test-token", "https://api.telegram.org", {
+          performanceRecorder: {
+            recordOperation: async (event: unknown) => {
+              operations.push(event);
+            }
+          }
+        } as any);
 
         await assert.rejects(api.getMe(), (error: unknown) => {
           const message = String(error);
@@ -67,6 +74,11 @@ test("TelegramApi surfaces curl transport failures before JSON parsing", async (
           assert.doesNotMatch(message, /Unexpected end of JSON input/u);
           return true;
         });
+
+        assert.equal(operations.length, 1);
+        assert.match(JSON.stringify(operations[0]), /"category":"telegram_api"/u);
+        assert.match(JSON.stringify(operations[0]), /"name":"getMe"/u);
+        assert.match(JSON.stringify(operations[0]), /"outcome":"error"/u);
       }
     );
   } finally {
@@ -123,5 +135,43 @@ test("TelegramApi sends pin and unpin requests with the expected payload", async
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
     });
+  }
+});
+
+test("TelegramApi records successful fetch operations", async () => {
+  const operations: unknown[] = [];
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      result: {
+        id: 1,
+        is_bot: true,
+        first_name: "BridgeBot"
+      }
+    })
+  })) as unknown as typeof fetch;
+
+  try {
+    const api = new TelegramApi("test-token", "https://api.telegram.org", {
+      performanceRecorder: {
+        recordOperation: async (event: unknown) => {
+          operations.push(event);
+        }
+      }
+    } as any);
+
+    const user = await api.getMe();
+
+    assert.equal(user.id, 1);
+    assert.equal(operations.length, 1);
+    assert.match(JSON.stringify(operations[0]), /"category":"telegram_api"/u);
+    assert.match(JSON.stringify(operations[0]), /"name":"getMe"/u);
+    assert.match(JSON.stringify(operations[0]), /"transport":"fetch"/u);
+    assert.match(JSON.stringify(operations[0]), /"outcome":"ok"/u);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });

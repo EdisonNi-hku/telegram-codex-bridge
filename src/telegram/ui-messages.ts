@@ -36,6 +36,14 @@ function displayProjectName(projectName: string, projectAlias: string | null | u
   return projectAlias?.trim() || projectName;
 }
 
+function buildSessionProjectContextBlock(title: string, sessionName: string, projectName: string): string {
+  return [
+    formatHtmlHeading(title),
+    formatHtmlField("会话名：", sessionName),
+    formatHtmlField("项目：", projectName)
+  ].join("\n");
+}
+
 function buildProjectBadgeLabels(candidate: ProjectCandidate): string[] {
   const labels: string[] = [];
   if (candidate.group !== "recent" && candidate.isRecent) {
@@ -355,19 +363,27 @@ export function buildSessionCreatedText(sessionName: string, projectPath: string
   ].join("\n");
 }
 
-export function buildSessionSwitchedText(projectName: string): string {
-  return formatHtmlField("已切换到项目：", projectName);
+export function buildSessionSwitchedText(sessionName: string, projectName: string): string {
+  return buildSessionProjectContextBlock("已切换会话", sessionName, projectName);
 }
 
 export function buildArchiveSuccessText(
-  projectName: string,
+  session: {
+    displayName: string;
+    projectName: string;
+    projectAlias?: string | null;
+  },
   nextActiveSession?: {
     displayName: string;
     projectName: string;
     projectAlias?: string | null;
   } | null
 ): string {
-  const lines = [formatHtmlField("已归档当前会话：", projectName)];
+  const lines = [
+    formatHtmlHeading("已归档会话"),
+    formatHtmlField("会话名：", session.displayName),
+    formatHtmlField("项目：", displayProjectName(session.projectName, session.projectAlias ?? null))
+  ];
   if (nextActiveSession) {
     lines.push(formatHtmlField("当前会话：", nextActiveSession.displayName));
     lines.push(
@@ -383,8 +399,8 @@ export function buildArchiveSuccessText(
   return lines.join("\n");
 }
 
-export function buildUnarchiveSuccessText(projectName: string): string {
-  return formatHtmlField("已恢复会话：", projectName);
+export function buildUnarchiveSuccessText(sessionName: string, projectName: string): string {
+  return buildSessionProjectContextBlock("已恢复会话", sessionName, projectName);
 }
 
 export function buildSessionRenamedText(name: string): string {

@@ -19,6 +19,7 @@ function createTestPaths(root: string): BridgePaths {
     stateRoot: join(root, "state"),
     configRoot: join(root, "config"),
     logsDir,
+    perfLogsDir: join(logsDir, "perf"),
     telegramSessionFlowLogsDir,
     runtimeDir,
     cacheDir: join(root, "cache"),
@@ -140,7 +141,10 @@ test("writeConfig persists PROJECT_SCAN_ROOTS and withInstallOverrides can repla
     voiceInputEnabled: false,
     voiceOpenaiApiKey: "",
     voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
-    voiceFfmpegBin: "ffmpeg"
+    voiceFfmpegBin: "ffmpeg",
+    perfMonitorEnabled: false,
+    perfMonitorSampleIntervalMs: 15_000,
+    perfMonitorRetentionDays: 7
   };
 
   try {
@@ -157,6 +161,78 @@ test("writeConfig persists PROJECT_SCAN_ROOTS and withInstallOverrides can repla
       projectScanRoots: [join(root, "code")]
     });
     assert.deepEqual(nextConfig.projectScanRoots, [join(root, "code")]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig parses perf monitor settings from bridge.env", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-config-test-"));
+  const paths = createTestPaths(root);
+
+  try {
+    await mkdir(paths.configRoot, { recursive: true });
+    await writeFile(
+      paths.envPath,
+      [
+        "TELEGRAM_BOT_TOKEN=test-token",
+        "PERF_MONITOR_ENABLED=1",
+        "PERF_MONITOR_SAMPLE_INTERVAL_MS=2500",
+        "PERF_MONITOR_RETENTION_DAYS=14"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const config = await loadConfig(paths);
+
+    assert.equal((config as any).perfMonitorEnabled, true);
+    assert.equal((config as any).perfMonitorSampleIntervalMs, 2500);
+    assert.equal((config as any).perfMonitorRetentionDays, 14);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("writeConfig persists perf monitor settings and withInstallOverrides can replace them", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-config-test-"));
+  const paths = createTestPaths(root);
+  const initialConfig = {
+    telegramBotToken: "test-token",
+    codexBin: "codex",
+    telegramApiBaseUrl: "https://api.telegram.org",
+    telegramPollTimeoutSeconds: 20,
+    telegramPollIntervalMs: 1500,
+    projectScanRoots: [],
+    voiceInputEnabled: false,
+    voiceOpenaiApiKey: "",
+    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+    voiceFfmpegBin: "ffmpeg",
+    perfMonitorEnabled: true,
+    perfMonitorSampleIntervalMs: 15_000,
+    perfMonitorRetentionDays: 7
+  } as BridgeConfig & {
+    perfMonitorEnabled: boolean;
+    perfMonitorSampleIntervalMs: number;
+    perfMonitorRetentionDays: number;
+  };
+
+  try {
+    await mkdir(paths.configRoot, { recursive: true });
+    await writeConfig(paths, initialConfig);
+
+    const content = await readFile(paths.envPath, "utf8");
+    assert.match(content, /^PERF_MONITOR_ENABLED=1$/mu);
+    assert.match(content, /^PERF_MONITOR_SAMPLE_INTERVAL_MS=15000$/mu);
+    assert.match(content, /^PERF_MONITOR_RETENTION_DAYS=7$/mu);
+
+    const nextConfig = withInstallOverrides(initialConfig, {
+      perfMonitorEnabled: false,
+      perfMonitorSampleIntervalMs: 3000,
+      perfMonitorRetentionDays: 30
+    } as any) as typeof initialConfig;
+    assert.equal(nextConfig.perfMonitorEnabled, false);
+    assert.equal(nextConfig.perfMonitorSampleIntervalMs, 3000);
+    assert.equal(nextConfig.perfMonitorRetentionDays, 30);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

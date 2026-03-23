@@ -33,6 +33,9 @@ Supported config keys in `bridge.env`:
 - `VOICE_OPENAI_API_KEY`
 - `VOICE_OPENAI_TRANSCRIBE_MODEL`
 - `VOICE_FFMPEG_BIN`
+- `PERF_MONITOR_ENABLED`
+- `PERF_MONITOR_SAMPLE_INTERVAL_MS`
+- `PERF_MONITOR_RETENTION_DAYS`
 
 `PROJECT_SCAN_ROOTS` rules:
 - path-delimited root list written into `bridge.env`
@@ -90,6 +93,7 @@ Log files:
 - `bootstrap.log`
 - `app-server.log`
 - `service-audit.log`
+- `perf/YYYY-MM-DD.jsonl`
 - `launchd.stdout.log` on macOS when managed by LaunchAgent
 - `launchd.stderr.log` on macOS when managed by LaunchAgent
 - `telegram-session-flow/status-card.log`
@@ -132,8 +136,9 @@ Reason:
 ## Local Management Commands
 
 Supported subcommands:
-- `ctb install --telegram-token <token> [--codex-bin <bin>] [--project-scan-roots <path1:path2:...>] [--voice-input <true|false>] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>]`
+- `ctb install --telegram-token <token> [--codex-bin <bin>] [--project-scan-roots <path1:path2:...>] [--voice-input <true|false>] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>] [--perf-monitor-enabled <true|false>] [--perf-monitor-sample-interval-ms <ms>] [--perf-monitor-retention-days <days>]`
 - `ctb install-skill`
+- `ctb perf report [--window <5m|1h|24h|7d>]`
 - `ctb status`
 - `ctb restart`
 - `ctb stop`
@@ -242,12 +247,19 @@ Bridge exit:
 Primary operator diagnostics:
 - `ctb status`
 - `ctb doctor`
+- `ctb perf report --window 1h`
 - `journalctl --user -u codex-telegram-bridge.service -n 200`
 - `launchctl print gui/$(id -u)/com.codex.telegram-bridge`
 - `powershell.exe -NoProfile -Command "Get-ScheduledTask -TaskName CodexTelegramBridge | Format-List *"`
 - `sqlite3 ~/.local/state/codex-telegram-bridge/bridge.db`
 - inspect the per-turn JSONL files under `~/.local/state/codex-telegram-bridge/runtime/debug/`
 - inspect Telegram session-surface trace logs under `~/.local/state/codex-telegram-bridge/logs/telegram-session-flow/`
+- inspect perf JSONL logs under `~/.local/state/codex-telegram-bridge/logs/perf/`
+
+Performance-monitor note:
+- perf monitoring is Linux-first and default-disabled
+- `ctb perf report` summarizes recent bridge and app-server samples plus RPC/API timings from structured perf logs
+- use perf logs and `ctb perf report` for lightweight trend tracking, then use `node --cpu-prof`, `--heap-prof`, or Linux `perf` for deeper hotspot analysis
 
 `/where` operator note:
 - `Bridge 会话 ID` maps to `session.session_id` in SQLite

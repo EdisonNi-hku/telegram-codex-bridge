@@ -169,7 +169,7 @@ export class CodexCommandCoordinator {
     await this.deps.safeEditMessageText(
       chatId,
       messageId,
-      "已设置当前会话模型：默认模型 + 默认\n下次任务开始时生效。"
+      this.buildModelSelectionText(session.displayName, "默认模型 + 默认")
     );
   }
 
@@ -289,7 +289,7 @@ export class CodexCommandCoordinator {
       return;
     }
 
-    const lines = ["当前项目可用技能"];
+    const lines = this.buildSessionProjectContextLines(activeSession, "可用技能");
     for (const skill of entry.skills.slice(0, 20)) {
       const description = skill.interface?.shortDescription ?? skill.shortDescription ?? skill.description;
       const marker = skill.enabled ? "[启用] " : "[禁用] ";
@@ -360,7 +360,7 @@ export class CodexCommandCoordinator {
       return;
     }
 
-    const lines = ["当前项目可用插件"];
+    const lines = this.buildSessionProjectContextLines(activeSession, "可用插件");
     const installExample = findFirstInstallablePlugin(result);
 
     for (const marketplace of result.marketplaces.slice(0, 5)) {
@@ -421,7 +421,7 @@ export class CodexCommandCoordinator {
         marketplacePath: marketplace.path,
         pluginName: plugin.name
       });
-      const lines = [`已安装插件：${plugin.name}`];
+      const lines = [`已为项目「${this.projectDisplayName(activeSession)}」安装插件：${plugin.name}`];
       if (installResult.appsNeedingAuth.length > 0) {
         lines.push("", "这些 App 可能还需要额外授权：");
         for (const app of installResult.appsNeedingAuth.slice(0, 5)) {
@@ -440,7 +440,7 @@ export class CodexCommandCoordinator {
       }
 
       await appServer.uninstallPlugin(pluginId);
-      await this.deps.safeSendMessage(chatId, `已卸载插件：${pluginId}`);
+      await this.deps.safeSendMessage(chatId, `已为项目「${this.projectDisplayName(activeSession)}」卸载插件：${pluginId}`);
       return;
     }
 
@@ -466,7 +466,7 @@ export class CodexCommandCoordinator {
       return;
     }
 
-    const lines = ["当前可用 Apps"];
+    const lines = this.buildSessionProjectContextLines(activeSession, "当前可用 Apps");
     for (const app of apps.slice(0, 12)) {
       const flags = [
         app.isAccessible ? "[可访问]" : "[不可访问]",
@@ -704,7 +704,7 @@ export class CodexCommandCoordinator {
     }
 
     await this.executeRollback(session, numTurns);
-    await this.deps.safeSendMessage(chatId, buildRollbackSuccessText(numTurns));
+    await this.deps.safeSendMessage(chatId, buildRollbackSuccessText(numTurns, session.displayName));
   }
 
   async handleRollbackPickerCallback(
@@ -786,7 +786,7 @@ export class CodexCommandCoordinator {
     await this.deps.safeEditMessageText(
       chatId,
       messageId,
-      `已回滚到：${target.sequenceNumber}. ${target.label}\n${buildRollbackSuccessText(target.rollbackCount)}`
+      `已回滚到：${target.sequenceNumber}. ${target.label}\n${buildRollbackSuccessText(target.rollbackCount, session.displayName)}`
     );
   }
 
@@ -825,7 +825,7 @@ export class CodexCommandCoordinator {
 
     const appServer = await this.deps.ensureAppServerAvailable();
     await appServer.compactThread(activeSession.threadId);
-    await this.deps.safeSendMessage(chatId, "已请求压缩当前线程。");
+    await this.deps.safeSendMessage(chatId, `已为会话「${activeSession.displayName}」请求压缩当前线程。`);
   }
 
   async handleThreadCommand(chatId: string, args: string): Promise<void> {
@@ -866,7 +866,7 @@ export class CodexCommandCoordinator {
 
       await appServer.setThreadName(activeSession.threadId, nextName);
       store.renameSession(activeSession.sessionId, nextName);
-      await this.deps.safeSendMessage(chatId, `已更新线程名称：${nextName}`);
+      await this.deps.safeSendMessage(chatId, `会话标题已更新为：${nextName}`);
       return;
     }
 
@@ -886,13 +886,16 @@ export class CodexCommandCoordinator {
         gitInfo.sha !== undefined ? `sha=${gitInfo.sha ?? "clear"}` : null,
         gitInfo.originUrl !== undefined ? `origin=${gitInfo.originUrl ?? "clear"}` : null
       ].filter((value): value is string => Boolean(value));
-      await this.deps.safeSendMessage(chatId, `已更新线程元数据：${fragments.join(", ")}`);
+      await this.deps.safeSendMessage(
+        chatId,
+        `已为会话「${activeSession.displayName}」更新线程元数据：${fragments.join(", ")}`
+      );
       return;
     }
 
     if (subcommand === "clean-terminals") {
       await appServer.cleanBackgroundTerminals(activeSession.threadId);
-      await this.deps.safeSendMessage(chatId, "已清理当前线程的后台终端。");
+      await this.deps.safeSendMessage(chatId, `已为会话「${activeSession.displayName}」清理当前线程的后台终端。`);
       return;
     }
 
@@ -914,6 +917,25 @@ export class CodexCommandCoordinator {
     }
 
     return activeSession;
+  }
+
+  private projectDisplayName(session: Pick<SessionRow, "projectName" | "projectAlias">): string {
+    return session.projectAlias?.trim() || session.projectName;
+  }
+
+  private buildSessionProjectContextLines(
+    session: Pick<SessionRow, "displayName" | "projectName" | "projectAlias">,
+    title: string
+  ): string[] {
+    return [
+      `当前会话：${session.displayName}`,
+      `当前项目：${this.projectDisplayName(session)}`,
+      title
+    ];
+  }
+
+  private buildModelSelectionText(sessionName: string, nextConfig: string): string {
+    return `已为会话「${sessionName}」设置模型：${nextConfig}\n下次任务开始时生效。`;
   }
 
   private async handleExpiredModelPicker(chatId: string, messageId: number): Promise<void> {
@@ -939,7 +961,7 @@ export class CodexCommandCoordinator {
       selectedModel: modelId,
       selectedReasoningEffort: effort
     });
-    const text = `已设置当前会话模型：${nextConfig}\n下次任务开始时生效。`;
+    const text = this.buildModelSelectionText(session.displayName, nextConfig);
 
     if (messageId === null) {
       await this.deps.safeSendMessage(chatId, text);
@@ -1254,6 +1276,9 @@ function formatRateLimitSummary(rateLimits: {
   return parts.length > 0 ? parts.join("\n") : null;
 }
 
-function buildRollbackSuccessText(numTurns: number): string {
-  return `已回滚最近 ${numTurns} 个 turn。\n注意：这不会自动撤销代理已经写到本地文件的改动。`;
+function buildRollbackSuccessText(numTurns: number, sessionName?: string): string {
+  const summary = sessionName
+    ? `已为会话「${sessionName}」回滚最近 ${numTurns} 个 turn。`
+    : `已回滚最近 ${numTurns} 个 turn。`;
+  return `${summary}\n注意：这不会自动撤销代理已经写到本地文件的改动。`;
 }

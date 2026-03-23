@@ -6,6 +6,9 @@ import {
   encodeFinalAnswerOpenCallback,
   encodeFinalAnswerPageCallback,
   encodePlanImplementCallback,
+  encodeRecentOutputCloseCallback,
+  encodeRecentOutputOpenCallback,
+  encodeRecentOutputPageCallback,
   encodePlanResultCloseCallback,
   encodePlanResultOpenCallback,
   encodePlanResultPageCallback
@@ -181,6 +184,63 @@ export function buildPlanResultActionRows(answerId: string): Array<Array<{ text:
   return [[
     { text: "实施这个计划", callback_data: encodePlanImplementCallback(answerId) }
   ]];
+}
+
+export function buildRecentOutputEntryHtml(options: {
+  sessionName?: string | null;
+  projectName?: string | null;
+  hasResult: boolean;
+}): string {
+  const identity = buildFinalAnswerIdentityHeader({
+    ...(options.sessionName !== undefined ? { sessionName: options.sessionName } : {}),
+    ...(options.projectName !== undefined ? { projectName: options.projectName } : {})
+  });
+
+  return [
+    "<b>最近输出</b>",
+    identity,
+    options.hasResult
+      ? "<i>点击“展开最近输出”查看该会话最近一次输出。</i>"
+      : "<i>该会话还没有最近输出。</i>"
+  ].filter((part) => part.length > 0).join("\n\n");
+}
+
+export function buildRecentOutputReplyMarkup(options: {
+  answerId: string;
+  totalPages: number;
+  expanded: boolean;
+  currentPage?: number;
+}): TelegramInlineKeyboardMarkup {
+  if (!options.expanded) {
+    return {
+      inline_keyboard: [[{
+        text: "展开最近输出",
+        callback_data: encodeRecentOutputOpenCallback(options.answerId)
+      }]]
+    };
+  }
+
+  const buttons: Array<{ text: string; callback_data: string }> = [];
+  if (options.totalPages > 1 && options.currentPage && options.currentPage > 1) {
+    buttons.push({
+      text: "上一页",
+      callback_data: encodeRecentOutputPageCallback(options.answerId, options.currentPage - 1)
+    });
+  }
+  if (options.totalPages > 1 && options.currentPage && options.currentPage < options.totalPages) {
+    buttons.push({
+      text: "下一页",
+      callback_data: encodeRecentOutputPageCallback(options.answerId, options.currentPage + 1)
+    });
+  }
+  buttons.push({
+    text: "收起最近输出",
+    callback_data: encodeRecentOutputCloseCallback(options.answerId)
+  });
+
+  return {
+    inline_keyboard: [buttons]
+  };
 }
 
 export function buildPlanResultReplyMarkup(options: {
