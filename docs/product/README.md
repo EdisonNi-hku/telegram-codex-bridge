@@ -1,26 +1,35 @@
-# Product Docs
+<!-- docmeta
+role: domain
+layer: 2
+parent: docs/INDEX.md
+children: []
+summary: router for current Telegram-first product behavior and user-facing command surfaces
+read_when:
+  - the request is about current user-facing Telegram behavior
+  - the request is about v1 scope, command UX, or callback behavior
+skip_when:
+  - the request is mainly about code ownership, install/admin, or future Core direction
+source_of_truth:
+  - docs/product/README.md
+  - docs/product
+-->
 
-This directory describes the current intended product behavior of the bridge.
+# Product Index
 
-Files:
-- `v1-scope.md` — v1 scope, trust model, out-of-scope boundary
-- `chat-and-project-flow.md` — lightweight router for the split Telegram UX docs
-- `auth-and-project-flow.md` — authorization, project discovery, project picker, session flow, browse
-- `codex-command-reference.md` — Codex-backed Telegram commands and structured rich-input flows
-- `runtime-and-delivery.md` — runtime hubs/cards, inspect/status/runtime, final-answer delivery, blocked-turn continuation
-- `callback-contract.md` — bridge-owned Telegram callback payload families and encoding rules
+Use this directory for current Telegram-first product behavior.
+Do not use it for future Core direction.
 
-Read this directory when you need to answer:
-- what the bridge is supposed to do for users
-- what v1 includes or excludes
-- how user-facing Telegram behavior should work
+## Open One Leaf
 
-This directory is about **current Telegram-first behavior**.
-Future repository direction beyond Telegram belongs in `docs/future/multi-platform-core-prd.md`.
+- `v1-scope.md` - scope, trust model, and hard out-of-scope boundaries.
+- `chat-and-project-flow.md` - the smallest router for picking the right Telegram UX doc.
+- `auth-and-project-flow.md` - authorization, project picker, session flow, and browse behavior.
+- `codex-command-reference.md` - Codex-backed commands and structured rich-input flows.
+- `runtime-and-delivery.md` - runtime hubs/cards, inspect and status surfaces, and final-answer delivery.
+- `callback-contract.md` - callback payload families, encoding rules, and stale-callback behavior.
 
-Suggested reading order for Telegram UX work:
-1. `chat-and-project-flow.md` if you need the high-level router first
-2. then exactly one narrow product doc from the split set above
+## Skip This Directory When
 
-Do not use this directory alone to prove current code behavior.
-If needed, verify implementation in `src/telegram/commands.ts`, `src/telegram/ui-*.ts`, and the narrow owner under `src/service/` such as `session-project-coordinator.ts`, `project-browser-coordinator.ts`, `codex-command-coordinator.ts`, `rich-input-adapter.ts`, or `runtime-surface-controller.ts`.
+- you need current code ownership or runtime internals
+- you need install or diagnostics behavior
+- you need the future multi-platform Core direction

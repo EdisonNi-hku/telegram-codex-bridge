@@ -53,6 +53,7 @@ export class PerformanceSampler implements PerformanceSamplerLike {
   private readonly pruneIntervalMs: number;
   private readonly disposeReaders: () => void;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private samplePromise: Promise<void> | null = null;
   private lastPruneAt = 0;
 
   constructor(private readonly options: PerformanceSamplerOptions) {
@@ -74,9 +75,9 @@ export class PerformanceSampler implements PerformanceSamplerLike {
       return;
     }
 
-    void this.sampleNow();
+    void this.requestSample();
     this.timer = this.setIntervalFn(() => {
-      void this.sampleNow();
+      void this.requestSample();
     }, this.options.sampleIntervalMs);
     this.timer.unref?.();
   }
@@ -93,6 +94,24 @@ export class PerformanceSampler implements PerformanceSamplerLike {
   }
 
   async sampleNow(): Promise<void> {
+    await this.requestSample();
+  }
+
+  private requestSample(): Promise<void> {
+    if (this.samplePromise) {
+      return this.samplePromise;
+    }
+
+    const samplePromise = this.runSample().finally(() => {
+      if (this.samplePromise === samplePromise) {
+        this.samplePromise = null;
+      }
+    });
+    this.samplePromise = samplePromise;
+    return samplePromise;
+  }
+
+  private async runSample(): Promise<void> {
     if (this.platform !== "linux") {
       return;
     }

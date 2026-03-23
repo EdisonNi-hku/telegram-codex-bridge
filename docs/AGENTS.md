@@ -1,3 +1,20 @@
+<!-- docmeta
+role: agent
+layer: 2
+parent: AGENTS.md
+children: []
+summary: docs-first routing contract for coding agents
+read_when:
+  - the task is mainly about documentation, intended behavior, runtime shape, or operating guidance
+  - the root agent router already chose docs as the correct domain
+skip_when:
+  - the task is implementation-first and belongs in src
+source_of_truth:
+  - docs/AGENTS.md
+  - docs/INDEX.md
+  - docs/catalog.yaml
+-->
+
 # docs/AGENTS.md
 
 Documentation router for `telegram-codex-bridge`.

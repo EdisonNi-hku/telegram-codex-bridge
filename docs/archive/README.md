@@ -1,17 +1,31 @@
-# Archive Docs
+<!-- docmeta
+role: domain
+layer: 2
+parent: docs/INDEX.md
+children: []
+summary: router for archived historical material kept for reconstruction only
+read_when:
+  - the request needs historical reconstruction because current sources conflict
+  - the request explicitly asks for archived material
+skip_when:
+  - current docs or code are enough to answer the question
+source_of_truth:
+  - docs/archive/README.md
+  - docs/archive
+-->
 
-This directory contains historical material kept for reconstruction and context.
+# Archive Index
 
-Examples include:
+Use this directory only when current sources are not enough.
+Archive material is fallback context, not current truth.
+
+## Typical Contents
+
 - superseded drafts
-- legacy planning documents
-- no-longer-active historical notes
+- legacy plans
+- older notes kept for reconstruction
 
-Read this directory only when historical context is required.
-Do not treat archive material as active behavior, active product intent, or active implementation guidance unless it is explicitly revived.
+## Skip This Directory When
 
-Prefer not to read archive material at all unless:
-- current docs, code, API behavior, and user-reported behavior appear broken or contradictory
-- the project has gone through a substantive behavior or business transition and historical comparison is required
-
-Archive docs are a fallback source, not a normal starting point.
+- current docs and code already answer the question
+- you only need active product, architecture, or operations guidance

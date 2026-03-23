@@ -1,15 +1,29 @@
-# Operations Docs
+<!-- docmeta
+role: domain
+layer: 2
+parent: docs/INDEX.md
+children: []
+summary: router for install, configuration, service management, update, and diagnostics docs
+read_when:
+  - the request is about install flow, config, service management, update, or diagnostics
+  - the request is about operator or admin behavior rather than Telegram UX
+skip_when:
+  - the request is about current user-facing behavior or future Core direction
+source_of_truth:
+  - docs/operations/README.md
+  - docs/operations
+-->
 
-This directory describes the operator/admin surface of the bridge.
+# Operations Index
 
-Files:
-- `install-and-admin.md` — install flow, config keys, paths, services, voice-input backends, update/restart behavior, diagnostics
+Use this directory for install, configuration, service management, update, and diagnostics.
 
-Read this directory when you need to answer:
-- how to install or run the bridge
-- what `ctb` commands exist
-- where config/state/log files live
-- how to diagnose or repair the service
+## Open One Leaf
 
-This is operational reference, not product UX specification.
-If needed, verify implementation in `src/install.ts`, `src/readiness.ts`, `src/service.ts`, `src/config.ts`, and `src/paths.ts`.
+- `install-and-admin.md` - install flow, config keys, paths, services, voice-input backends, update and restart behavior, and diagnostics.
+
+## Skip This Directory When
+
+- you need current Telegram UX
+- you need current code ownership instead of operator behavior
+- you need future Core direction rather than the current admin surface

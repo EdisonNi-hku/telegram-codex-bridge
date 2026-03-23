@@ -55,7 +55,11 @@ test("cli perf report renders the recent perf summary", async () => {
     );
 
     assert.match(result.stdout, /^perf_monitor_enabled=true$/mu);
-    assert.match(result.stdout, /^app_server_rpc_count=1$/mu);
+    if (process.platform === "linux") {
+      assert.match(result.stdout, /^app_server_rpc_count=1$/mu);
+    } else {
+      assert.match(result.stdout, /^perf_monitor_supported=false$/mu);
+    }
   } finally {
     await rm(homeDir, { recursive: true, force: true });
   }

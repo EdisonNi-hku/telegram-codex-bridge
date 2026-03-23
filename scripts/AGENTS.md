@@ -1,3 +1,20 @@
+<!-- docmeta
+role: agent
+layer: 2
+parent: AGENTS.md
+children: []
+summary: local router for top-level GitHub install scripts
+read_when:
+  - the task is about hosted shell installer entrypoints
+  - the root agent router already chose scripts as the correct domain
+skip_when:
+  - the task is about runtime behavior, code ownership, or bundled skill logic
+source_of_truth:
+  - scripts/AGENTS.md
+  - scripts
+  - docs/operations/install-and-admin.md
+-->
+
 # scripts/AGENTS.md
 
 Router for top-level GitHub install scripts.

@@ -131,7 +131,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
           SELECT session_id
           FROM session
           WHERE telegram_chat_id = ? AND archived = 0
-          ORDER BY last_used_at DESC, created_at DESC
+          ORDER BY last_used_at DESC, created_at DESC, rowid DESC
           LIMIT 1
         `
       )
@@ -167,7 +167,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
             FROM session s
             LEFT JOIN recent_project rp ON rp.project_path = s.project_path
             WHERE s.telegram_chat_id = ? AND s.archived = ?
-            ORDER BY s.last_used_at DESC, s.created_at DESC
+            ORDER BY s.last_used_at DESC, s.created_at DESC, s.rowid DESC
             LIMIT ?
           `
         )
@@ -203,7 +203,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
             FROM session s
             LEFT JOIN recent_project rp ON rp.project_path = s.project_path
             WHERE s.thread_id IS NOT NULL
-            ORDER BY s.last_used_at DESC, s.created_at DESC
+            ORDER BY s.last_used_at DESC, s.created_at DESC, s.rowid DESC
           `
         )
         .all() as unknown as SessionRecord[];

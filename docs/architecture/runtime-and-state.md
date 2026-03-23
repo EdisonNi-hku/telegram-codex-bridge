@@ -1,3 +1,22 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/architecture/README.md
+children: []
+summary: current runtime lifecycle, SQLite state, recovery, and delivery rules for the Telegram-first bridge
+read_when:
+  - the request is about service lifecycle, SQLite state, recovery, concurrency, or delivery rules
+  - the request needs the current runtime contract rather than the future Core direction
+skip_when:
+  - the request is mainly about code ownership or future multi-platform architecture
+source_of_truth:
+  - docs/architecture/runtime-and-state.md
+  - src/service.ts
+  - src/service
+  - src/state
+  - src/telegram
+-->
+
 # Runtime And State Architecture
 
 ## Service Shape

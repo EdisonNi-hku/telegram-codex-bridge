@@ -44,3 +44,31 @@ test("PerformanceJournal writes dated JSONL events and prunes expired log files"
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("PerformanceJournal creates the perf log directory on first append", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-perf-journal-test-"));
+  const perfLogsDir = join(root, "logs", "perf");
+
+  try {
+    const journal = new PerformanceJournal({
+      perfLogsDir,
+      retentionDays: 7
+    });
+
+    await journal.appendEvent({
+      ts: "2026-03-23T12:00:00.000Z",
+      kind: "sample",
+      target: "bridge",
+      pid: process.pid,
+      sampleIntervalMs: 15_000,
+      cpuCorePct: 12.5,
+      rssBytes: 1024,
+      uptimeSec: 10
+    } as any);
+
+    const content = await readFile(join(perfLogsDir, "2026-03-23.jsonl"), "utf8");
+    assert.match(content, /"target":"bridge"/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

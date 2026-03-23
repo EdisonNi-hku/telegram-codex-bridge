@@ -1,138 +1,51 @@
+<!-- docmeta
+role: entry
+layer: 1
+parent: null
+children: []
+summary: human-readable companion to the canonical docs router
+read_when:
+  - need a plain-English map of the docs tree
+  - want fast reading paths without loading every directory
+skip_when:
+  - the canonical docs router or exact leaf is already known
+source_of_truth:
+  - docs/README.md
+  - docs/INDEX.md
+  - docs/catalog.yaml
+-->
+
 # Documentation Map
 
-This repository uses a **three-tier documentation model**.
-The goal is to keep current truth, protocol evidence, and planning/history separate so readers do not have to preload the whole doc tree.
+Use this file when you want the human-readable version of the doc tree.
+If you want the canonical router, open `docs/INDEX.md`.
 
-For coding agents, the preferred path is:
+## Start With Truth Status
 
-1. root `AGENTS.md`
-2. `docs/AGENTS.md` or `src/AGENTS.md`
-3. one leaf file
+- Current behavior: `docs/product/`, `docs/architecture/`, `docs/operations/`, and `docs/generated/current-snapshot.md`
+- Protocol capability only: `docs/research/`
+- Future direction, sequencing, and history: `docs/future/`, `docs/plans/`, `docs/roadmap/`, and `docs/archive/`
 
-This file is the **human-readable map** of the doc system.
+## Fast Paths
 
-## Tier 1 — Current truth
+- Current Telegram product boundary: `docs/product/v1-scope.md`
+- Current runtime shape or ownership map: `docs/architecture/README.md`
+- Install, config, service, update, diagnostics: `docs/operations/install-and-admin.md`
+- Exact Codex app-server capability or payload shape: `docs/research/README.md`
+- Future multi-platform Core direction: `docs/future/multi-platform-core-prd.md`
+- What landed in the 2026-03-23 abstraction wave and what is still deferred: `docs/plans/README.md`
 
-Use this tier by default for current behavior.
+## Rules That Matter
 
-### Product
+- Current docs and current code beat plans.
+- Protocol evidence proves capability, not shipped Telegram UX.
+- Future and plan docs are intent and sequence, not current behavior.
+- Read one domain, then one leaf, then stop.
 
-- `docs/product/v1-scope.md`
-- `docs/product/chat-and-project-flow.md`
-- `docs/product/auth-and-project-flow.md`
-- `docs/product/codex-command-reference.md`
-- `docs/product/runtime-and-delivery.md`
-- `docs/product/callback-contract.md`
+## Agent Path
 
-### Architecture
+Coding agents should usually take the smaller route:
 
-- `docs/architecture/runtime-and-state.md`
-- `docs/architecture/current-code-organization.md`
-
-### Operations
-
-- `docs/operations/install-and-admin.md`
-
-### High-drift current facts
-
-- `docs/generated/current-snapshot.md`
-
-Use Tier 1 for questions like:
-
-- what v1 includes or excludes
-- how the Telegram UX is supposed to behave now
-- how runtime, state, recovery, and delivery are intended to work now
-- how operators install, configure, run, and diagnose the bridge now
-- what the current version baselines or code-size snapshots are
-
-## Tier 2 — Protocol evidence
-
-Use this tier only when the question is about Codex app-server capability or exact payload shape.
-
-- `docs/research/codex-app-server-authoritative-reference.md`
-- `docs/research/codex-app-server-api-quick-reference.md`
-- `docs/research/app-server-phase-0-verification.md`
-
-Use Tier 2 for questions like:
-
-- what Codex app-server supports in principle
-- exact request and notification shapes
-- earlier protocol verification details
-
-Rule:
-
-- Tier 2 proves **protocol capability**
-- Tier 2 does **not** automatically prove shipped Telegram behavior
-
-## Tier 3 — Planning and history
-
-Use this tier only for future direction, engineering sequencing, or historical reconstruction.
-
-- `docs/roadmap/`
-- `docs/future/`
-- `docs/plans/`
-- `docs/archive/`
-
-Use Tier 3 for questions like:
-
-- what a future multi-platform Core should look like
-- what comes next
-- what was planned for later phases
-- why an implementation sequence was chosen
-- how older behavior differed from the current model
-
-Rule:
-
-- Tier 3 is context, not default truth
-
-## Recommended Reading Paths
-
-### I want to understand the current product
-
-1. `docs/product/v1-scope.md`
-2. `docs/product/chat-and-project-flow.md` if you need a router
-3. exactly one narrow product doc from the split set
-
-### I want the current implementation map
-
-1. `docs/architecture/current-code-organization.md`
-2. then use `src/AGENTS.md` to choose one code owner file
-
-### I want install or admin guidance
-
-1. `docs/operations/install-and-admin.md`
-2. then `src/install.ts` or `src/readiness.ts` only if implementation verification is needed
-
-### I want Codex protocol details
-
-1. `docs/research/codex-app-server-authoritative-reference.md`
-2. `docs/research/codex-app-server-api-quick-reference.md` only if you need a fast method lookup
-3. then `src/codex/app-server.ts` only if bridge adoption must be confirmed
-
-### I want roadmap, future, or historical context
-
-1. the smallest relevant file in `docs/roadmap/`, `docs/future/`, `docs/plans/`, or `docs/archive/`
-2. then Tier 1 or code if you need to compare past intent with current truth
-
-### I want the future multi-platform Core direction
-
-1. `docs/future/multi-platform-core-prd.md`
-2. then `docs/research/codex-app-server-authoritative-reference.md` if protocol breadth matters
-3. then current code only to compare the target direction with today's Telegram-first implementation
-
-## Local Directory Maps
-
-The directory `README.md` files under these folders remain useful as local maps for humans:
-
-- `docs/product/`
-- `docs/architecture/`
-- `docs/operations/`
-- `docs/research/`
-
-Coding agents should usually prefer `docs/AGENTS.md` over these local maps.
-
-## Final Rule
-
-Read the smallest relevant tier first.
-Do not treat every document as equal.
-Do not preload the whole docs tree.
+1. `AGENTS.md`
+2. one domain router such as `docs/AGENTS.md` or `src/AGENTS.md`
+3. one leaf doc or one narrow source file

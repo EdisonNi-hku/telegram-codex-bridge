@@ -1,91 +1,84 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/plans/README.md
+children: []
+summary: active backlog for deferred multi-platform Core work after the first abstraction wave landed
+read_when:
+  - the request is about what Phase 1 intentionally left for later
+  - the request needs the next-wave backlog for multi-platform Core work
+skip_when:
+  - the request is only about what Phase 1 already landed or about current shipped behavior
+source_of_truth:
+  - docs/plans/2026-03-23-multi-platform-core-pending-task-tracker.md
+  - docs/future/multi-platform-core-prd.md
+  - docs/architecture/current-code-organization.md
+-->
+
 # Multi-Platform Core Pending Task Tracker
 
 Status: Active post-Phase-1 backlog
 Phase 1 merged to `master` on 2026-03-23 in commit `02a3774`
 
-> Truth status:
-> - Current truth? No
-> - Use for: active backlog lock for deferred multi-platform Core work outside phase 1
-> - Verify current shipped behavior in: `docs/product/`, `docs/architecture/`, and current `src/`
+Use this file to keep "Core started" from turning into the bullshit claim that "multi-platform is solved."
+It is the active lock on what Phase 1 intentionally did not do.
 
-Planning tracker with verified current status as of 2026-03-23.
-This file is not a current-behavior spec.
-It exists to keep deferred work visible while phase 1 stays intentionally narrow.
+## Current Starting Point
 
-## Purpose
-
-Phase 1 is only the first Core seam.
-Without an explicit tracker, the repo is likely to blur "Core started" into "multi-platform solved".
-
-This document prevents that drift by locking every major deferred item in one place.
-
-## Current Status
-
-The first internal Core seam is now landed in current code:
+Phase 1 is complete.
+The repo now has:
 
 - `src/core/domain/`
 - `src/core/interaction-model/`
 - `src/core/workflow/`
 
-Current judgment:
+The repo does not yet have:
 
-- Phase 1 is complete
-- Telegram remains the only shipped surface
-- future work should now start from this tracker rather than reopening the completed Phase 1 plan
-
-## Locked Phase-1 Boundary
-
-Phase 1 intentionally does not include:
-
-- SQLite schema neutralization
-- capability-layer extraction
-- presentation-layer extraction
-- Telegram Pack formalization
-- second platform delivery
-- Web or App console delivery
-- install/admin pack-aware setup
-- broad long-tail decoupling of every Telegram command path
-- automatic merge back into `main` or `master`
-
-Use this tracker whenever a future task is tempted to say "we can do that later."
+- a capability layer
+- a presentation layer split
+- a Telegram Pack boundary
+- pack-aware install and admin support
+- a second platform
+- a Web or App console
 
 ## Activation Order
 
-Recommended order after phase 1:
+Recommended order after Phase 1:
 
 1. persistence neutralization
 2. capability layer
 3. presentation layer
 4. Telegram Pack formalization
-5. install/admin pack support
-6. second platform pilot
-7. Web/App console
-8. long-tail flow decoupling
+5. pack-aware install and admin support
+6. second-platform pilot
+7. Web or App console
+8. long-tail Telegram flow decoupling
 
-This order can change only if a later approved plan explains why.
+Change that order only with a narrower approved plan.
 
 ## Pending Items
 
 ### MP-01: Neutralize persistence and delivery identifiers
 
-Status:
-- deferred after Phase 1 completion
+Why later:
 
-Why deferred now:
 - schema churn is the highest-risk refactor in this direction
-- phase 1 can prove the Core boundary without making persistence migration part of the first review
+- Phase 1 proved the Core seam without making migration part of the first review
 
-Activation trigger:
-- workflow and interaction-model seams are already landed and green
-- Telegram behavior remains stable after phase 1
+Start when:
 
-Done definition:
+- workflow and interaction-model seams are already stable
+- Telegram behavior stays solid after the Phase 1 refactor
+
+Done means:
+
 - bridge-owned records stop using Telegram-specific ids as their primary business identity
-- transport-specific ids move to delivery-reference fields or transport-scoped records
+- transport-specific ids move into delivery-reference fields or transport-scoped records
 - restart recovery and final-answer callback recovery still work after migration
-- schema migration and reopen tests exist
+- migration and reopen tests exist
 
-Likely affected areas:
+Likely areas:
+
 - `src/types.ts`
 - `src/state/store.ts`
 - `src/state/store-runtime-artifacts.ts`
@@ -94,45 +87,47 @@ Likely affected areas:
 
 ### MP-02: Add a real capability layer
 
-Status:
-- deferred after Phase 1 completion
+Why later:
 
-Why deferred now:
-- capability work is too speculative while only one renderer exists
-- phase 1 should establish semantic interaction intent first
+- capability work is guesswork while only one renderer exists
+- semantic interaction intent needed to land first
 
-Activation trigger:
-- phase 1 interaction model is stable
-- a second renderer, second pack, or meaningful fallback matrix is under design
+Start when:
 
-Done definition:
-- the bridge can declare platform abilities such as buttons, edits, uploads, previews, and long-form pagination explicitly
-- fallback behavior is selected by capability policy rather than scattered platform checks
+- the interaction model is stable
+- a second renderer, second pack, or real fallback matrix is under design
 
-Likely affected areas:
+Done means:
+
+- platform abilities such as buttons, edits, uploads, previews, and long-form pagination are explicit
+- fallback behavior comes from capability policy instead of scattered platform checks
+
+Likely areas:
+
 - future Core capability modules
 - workflow decision points
 - Telegram rendering fallbacks
-- future Slack/Discord/Web design docs
+- future Slack, Discord, or Web design docs
 
 ### MP-03: Extract a presentation layer
 
-Status:
-- deferred after Phase 1 completion
+Why later:
 
-Why deferred now:
-- separating renderers before semantic interaction inputs are stable would create a rename-only split
+- splitting renderers too early would mostly create rename-only churn
 
-Activation trigger:
-- interaction model is stable
-- capability rules exist for at least the major runtime and final-answer surfaces
+Start when:
 
-Done definition:
+- interaction-model inputs are stable
+- capability rules exist for the major runtime and final-answer surfaces
+
+Done means:
+
 - Telegram rendering consumes only interaction-model inputs and capability context
 - business decisions no longer live inside Telegram UI builders
-- final-answer, runtime, picker, and recovery rendering boundaries are explicit
+- runtime, final-answer, picker, and recovery rendering boundaries are explicit
 
-Likely affected areas:
+Likely areas:
+
 - `src/telegram/ui-runtime.ts`
 - `src/telegram/ui-final-answer.ts`
 - `src/telegram/ui-messages.ts`
@@ -140,23 +135,24 @@ Likely affected areas:
 
 ### MP-04: Formalize Telegram as the first official platform pack
 
-Status:
-- deferred after Phase 1 completion
+Why later:
 
-Why deferred now:
 - Telegram is still mixed across transport, auth, callback, rendering, and install behavior
-- extracting a pack before those seams exist would mostly move the same coupling into a new folder
+- extracting a pack too early would mostly move the same coupling into a new folder
 
-Activation trigger:
+Start when:
+
 - Core interaction and workflow boundaries are stable
 - Telegram rendering and transport responsibilities are easier to isolate
 
-Done definition:
+Done means:
+
 - Telegram transport, auth, ingress, egress, and callback compatibility have an explicit pack boundary
 - Core no longer imports Telegram concerns outside the agreed adapter edge
-- Telegram remains the reference pack, not the hidden default architecture
+- Telegram is the reference pack, not the hidden default architecture
 
-Likely affected areas:
+Likely areas:
+
 - `src/service.ts`
 - `src/telegram/`
 - `src/install.ts`
@@ -164,23 +160,24 @@ Likely affected areas:
 
 ### MP-05: Add pack-aware install and admin support
 
-Status:
-- deferred after Phase 1 completion
+Why later:
 
-Why deferred now:
-- current install/admin path is intentionally Telegram-first and already large
-- expanding it before pack boundaries exist would enlarge the wrong surface
+- the current install and admin path is intentionally Telegram-first and already large
+- expanding it before pack boundaries exist would grow the wrong surface
 
-Activation trigger:
-- Telegram pack boundary is explicit
-- at least one more pack is likely enough to justify shared install/admin logic
+Start when:
 
-Done definition:
+- the Telegram pack boundary is explicit
+- at least one more pack is close enough to justify shared install logic
+
+Done means:
+
 - install flow can select or validate pack configuration intentionally
-- doctor/status/update can explain pack-specific readiness cleanly
-- pack-specific credentials and setup steps are no longer hard-coded as Telegram-only assumptions
+- doctor, status, and update can explain pack-specific readiness cleanly
+- pack-specific credentials and setup steps stop being hard-coded as Telegram-only assumptions
 
-Likely affected areas:
+Likely areas:
+
 - `src/install.ts`
 - `src/cli.ts`
 - `src/config.ts`
@@ -189,67 +186,70 @@ Likely affected areas:
 
 ### MP-06: Deliver one second-platform pilot
 
-Status:
-- deferred after Phase 1 completion
+Why later:
 
-Why deferred now:
-- adding a second platform before the internal seam holds would only duplicate Telegram coupling
+- adding a second platform before the seam holds would only duplicate Telegram coupling
 
-Activation trigger:
-- phase 1 is complete
-- capability and presentation rules are stable enough to absorb a second renderer
-- Telegram Pack is explicit enough to compare against
+Start when:
 
-Done definition:
-- one additional platform can start or resume sessions, run turns, handle blocked interactions, show runtime state, and deliver final answers using the shared Core
+- capability and presentation rules are stable enough to absorb another renderer
+- the Telegram Pack boundary is explicit enough to compare against
+
+Done means:
+
+- one additional platform can start or resume sessions, run turns, handle blocked interactions, show runtime state, and deliver final answers through the shared Core
 - platform-specific code stays inside pack and presentation boundaries
 
-Likely affected areas:
-- future platform pack directory
+Likely areas:
+
+- a future platform pack directory
 - workflow adapters
 - capability policies
-- install/admin docs and skills
+- install docs and setup skills
 
 ### MP-07: Add a Web or App control console
 
-Status:
-- deferred after Phase 1 completion
+Why later:
 
-Why deferred now:
-- Web/App work is a larger product surface and should consume the Core, not drive it prematurely
+- Web or App work is a larger product surface and should consume the Core, not drive it early
 
-Activation trigger:
+Start when:
+
 - at least one non-Telegram path has already validated the interaction model
 - runtime and final-answer semantics are stable outside Telegram chat assumptions
 
-Done definition:
-- Web/App console reuses workflow and interaction-model contracts
-- it does not bypass bridge logic with a direct app-server-only shortcut
-- session, runtime, interaction, and final-answer semantics remain aligned with the shared Core
+Done means:
 
-Likely affected areas:
-- future console package
-- future presentation modules
+- a Web or App console reuses workflow and interaction-model contracts
+- it does not bypass bridge logic with a direct app-server shortcut
+- session, runtime, interaction, and final-answer semantics stay aligned with the shared Core
+
+Likely areas:
+
+- a future console package
+- presentation modules
 - capability rules
 - product docs and install docs
 
 ### MP-08: Decouple long-tail Telegram-owned flows
 
-Status:
-- deferred after Phase 1 completion
+Why later:
 
-Why deferred now:
-- not every flow needs to move in phase 1
-- broad cleanup before the main seam is stable would create churn without a clear payoff
+- not every flow needed to move in Phase 1
+- broad cleanup before the main seam was stable would have been churn without proof
 
-Activation trigger:
-- after phase 1, when hotspots are easier to rank by real coupling rather than guesswork
+Start when:
 
-Done definition:
-- session/project flow, project browser, rich input, media adaptation, and long-tail command paths each have an explicit answer to whether they are Domain, Workflow, Interaction Model, Capability, Presentation, or Pack
-- no major bridge-owned flow stays Telegram-first merely because it was "left for later"
+- the first wave has settled
+- hotspots can be ranked by real coupling instead of guesses
 
-Likely affected areas:
+Done means:
+
+- session flow, project browsing, rich input, media adaptation, and long-tail command paths each have an explicit answer to whether they belong in Domain, Workflow, Interaction Model, Capability, Presentation, or Pack
+- no major bridge-owned flow stays Telegram-first just because it was ignored earlier
+
+Likely areas:
+
 - `src/service/session-project-coordinator.ts`
 - `src/service/project-browser-coordinator.ts`
 - `src/service/rich-input-adapter.ts`
@@ -258,18 +258,16 @@ Likely affected areas:
 
 ## Review Gate Before Starting The Next Wave
 
-Before activating any item above, confirm all of the following:
+Before activating any tracker item, confirm all of the following:
 
-- the phase-1 worktree branch is verified and reviewed
-- the deferred item still belongs after phase 1 and was not accidentally solved already
-- the item has a narrower plan than "generalize more things"
+- the Phase 1 wave is verified and understood
+- the deferred item still belongs after Phase 1 and was not accidentally solved already
+- the next plan is narrower than "generalize more things"
 - current docs and AGENTS routing still separate shipped Telegram truth from future Core direction
 
 ## Final Rule
 
-If a future task touches multi-platform direction and is not clearly phase 1, it should either:
+If a future task touches multi-platform direction and is not clearly Phase 1, it should either:
 
-- point to one tracker item above
-- or add a new tracker item before the work starts
-
-Do not let deferred architecture work disappear into ad hoc refactors.
+- map to one tracker item above
+- or add a new tracker item before work starts

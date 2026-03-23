@@ -851,27 +851,36 @@ export class CodexAppServerClient {
         });
       });
 
-      await this.options.performanceRecorder?.recordOperation({
-        ts: startedAt,
-        category: "app_server_rpc",
-        name: method,
-        durationMs: Date.now() - startedMs,
-        outcome: "ok",
-        pid
-      });
+      this.recordOperation(method, startedAt, startedMs, "ok", pid);
 
       return result;
     } catch (error) {
-      await this.options.performanceRecorder?.recordOperation({
-        ts: startedAt,
-        category: "app_server_rpc",
-        name: method,
-        durationMs: Date.now() - startedMs,
-        outcome: `${error}`.includes("request timed out") ? "timeout" : "error",
+      this.recordOperation(
+        method,
+        startedAt,
+        startedMs,
+        `${error}`.includes("request timed out") ? "timeout" : "error",
         pid
-      });
+      );
       throw error;
     }
+  }
+
+  private recordOperation(
+    method: string,
+    startedAt: string,
+    startedMs: number,
+    outcome: "ok" | "error" | "timeout",
+    pid: number | null
+  ): void {
+    void Promise.resolve(this.options.performanceRecorder?.recordOperation({
+      ts: startedAt,
+      category: "app_server_rpc",
+      name: method,
+      durationMs: Date.now() - startedMs,
+      outcome,
+      pid
+    })).catch(() => {});
   }
 
   notify(method: string, params: unknown): void {

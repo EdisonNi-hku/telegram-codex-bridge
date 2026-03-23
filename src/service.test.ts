@@ -287,7 +287,8 @@ test("auto session title sync reads thread titles concurrently", async () => {
     const syncPromise = (service as any).syncAutoSessionTitlesFromRemoteThreads();
     await new Promise((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(startedThreadIds, ["thread-b", "thread-a"]);
+    assert.equal(startedThreadIds.length, 2);
+    assert.deepEqual([...startedThreadIds].sort(), ["thread-a", "thread-b"]);
 
     resolvers.get("thread-a")?.resolve({
       thread: {

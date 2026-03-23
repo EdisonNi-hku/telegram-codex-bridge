@@ -81,8 +81,13 @@ function dedupePaths(values: string[], hostPlatform: HostPlatform): string[] {
 }
 
 function pathEntries(env: NodeJS.ProcessEnv, hostPlatform: HostPlatform): string[] {
-  return (env.PATH ?? "")
-    .split(hostPlatform === "win32" ? ";" : ":")
+  const rawPath = env.PATH ?? "";
+  const delimiter = hostPlatform === "win32"
+    ? (rawPath.includes(";") || !rawPath.includes("/") ? ";" : ":")
+    : ":";
+
+  return rawPath
+    .split(delimiter)
     .filter((value) => value.length > 0);
 }
 

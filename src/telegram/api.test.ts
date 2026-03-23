@@ -155,22 +155,31 @@ test("TelegramApi records successful fetch operations", async () => {
   })) as unknown as typeof fetch;
 
   try {
-    const api = new TelegramApi("test-token", "https://api.telegram.org", {
-      performanceRecorder: {
-        recordOperation: async (event: unknown) => {
-          operations.push(event);
+    await withEnvironment({
+      HTTPS_PROXY: undefined,
+      https_proxy: undefined,
+      HTTP_PROXY: undefined,
+      http_proxy: undefined,
+      ALL_PROXY: undefined,
+      all_proxy: undefined
+    }, async () => {
+      const api = new TelegramApi("test-token", "https://api.telegram.org", {
+        performanceRecorder: {
+          recordOperation: async (event: unknown) => {
+            operations.push(event);
+          }
         }
-      }
-    } as any);
+      } as any);
 
-    const user = await api.getMe();
+      const user = await api.getMe();
 
-    assert.equal(user.id, 1);
-    assert.equal(operations.length, 1);
-    assert.match(JSON.stringify(operations[0]), /"category":"telegram_api"/u);
-    assert.match(JSON.stringify(operations[0]), /"name":"getMe"/u);
-    assert.match(JSON.stringify(operations[0]), /"transport":"fetch"/u);
-    assert.match(JSON.stringify(operations[0]), /"outcome":"ok"/u);
+      assert.equal(user.id, 1);
+      assert.equal(operations.length, 1);
+      assert.match(JSON.stringify(operations[0]), /"category":"telegram_api"/u);
+      assert.match(JSON.stringify(operations[0]), /"name":"getMe"/u);
+      assert.match(JSON.stringify(operations[0]), /"transport":"fetch"/u);
+      assert.match(JSON.stringify(operations[0]), /"outcome":"ok"/u);
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -1,3 +1,20 @@
+<!-- docmeta
+role: entry
+layer: 1
+parent: null
+children: []
+summary: public repository entry point for the Telegram-first bridge and its documentation trees
+read_when:
+  - first entry into the repository
+  - need to choose between human docs and coding-agent routing
+skip_when:
+  - the exact domain doc or source file is already known
+source_of_truth:
+  - README.md
+  - docs/INDEX.md
+  - AGENTS.md
+-->
+
 <h1 align="center">telegram-codex-bridge</h1>
 
 <p align="center">
@@ -153,6 +170,7 @@ npm run dev             # Dev mode with hot reload
 
 For detailed docs, start here:
 
+- [`docs/INDEX.md`](docs/INDEX.md) — canonical documentation router
 - [`docs/README.md`](docs/README.md) — documentation map
 - [`docs/product/v1-scope.md`](docs/product/v1-scope.md) — product boundary and trust model
 - [`docs/operations/install-and-admin.md`](docs/operations/install-and-admin.md) — admin reference

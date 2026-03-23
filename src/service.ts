@@ -535,10 +535,7 @@ export class BridgeService {
     });
 
     this.snapshot = snapshot;
-    this.appServer = appServer;
-    this.richInputAdapter.resetRuntimeCaches();
-    this.attachAppServerListeners();
-    this.scheduleAutoSessionTitleSyncFromRemoteThreads();
+    this.activateAppServer(appServer);
 
     if (!isOperationalReadinessState(snapshot.state)) {
       if (this.appServer) {
@@ -2039,10 +2036,7 @@ export class BridgeService {
     try {
       const client = this.createAppServerClient();
       await client.initializeAndProbe();
-      this.appServer = client;
-      this.richInputAdapter.resetRuntimeCaches();
-      this.attachAppServerListeners();
-      this.scheduleAutoSessionTitleSyncFromRemoteThreads();
+      this.activateAppServer(client);
       if (this.snapshot) {
         this.snapshot = {
           ...this.snapshot,
@@ -2083,10 +2077,7 @@ export class BridgeService {
 
     const client = this.createAppServerClient();
     await client.initializeAndProbe();
-    this.appServer = client;
-    this.richInputAdapter.resetRuntimeCaches();
-    this.attachAppServerListeners();
-    this.scheduleAutoSessionTitleSyncFromRemoteThreads();
+    this.activateAppServer(client);
   }
 
   private createAppServerClient(): CodexAppServerClient {
@@ -2100,6 +2091,17 @@ export class BridgeService {
         performanceRecorder: this.performanceRecorder
       }
     );
+  }
+
+  private activateAppServer(appServer: CodexAppServerClient | null): void {
+    this.appServer = appServer;
+    this.richInputAdapter.resetRuntimeCaches();
+    if (!appServer) {
+      return;
+    }
+
+    this.attachAppServerListeners();
+    this.scheduleAutoSessionTitleSyncFromRemoteThreads();
   }
 
   private scheduleAutoSessionTitleSyncFromRemoteThreads(): void {
@@ -2938,9 +2940,10 @@ export class BridgeService {
 
   private async restoreCurrentSessionCardsAtStartup(): Promise<void> {
     const bindings = this.store?.listChatBindings() ?? [];
-    for (const binding of bindings) {
-      await this.currentSessionCardController.syncForChat(binding.telegramChatId, "startup_restore");
-    }
+    await Promise.all(
+      bindings.map((binding) =>
+        this.currentSessionCardController.syncForChat(binding.telegramChatId, "startup_restore"))
+    );
   }
 
   private async syncTelegramCommands(): Promise<void> {

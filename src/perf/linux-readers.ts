@@ -72,9 +72,15 @@ export function createBridgeSnapshotReader(): BridgeSnapshotReader {
 
 export function createLinuxProcessSnapshotReader(): AppServerSnapshotReader {
   const previousByPid = new Map<number, { totalTicks: number; atMs: number }>();
+  let trackedPid: number | null = null;
 
   return {
     async read(pid: number): Promise<AppServerSnapshot | null> {
+      if (trackedPid !== null && trackedPid !== pid) {
+        previousByPid.delete(trackedPid);
+      }
+      trackedPid = pid;
+
       try {
         const [statText, uptimeText] = await Promise.all([
           readFile(`/proc/${pid}/stat`, "utf8"),
@@ -101,6 +107,9 @@ export function createLinuxProcessSnapshotReader(): AppServerSnapshotReader {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
           previousByPid.delete(pid);
+          if (trackedPid === pid) {
+            trackedPid = null;
+          }
           return null;
         }
         throw error;

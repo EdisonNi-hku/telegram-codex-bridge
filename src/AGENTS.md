@@ -1,3 +1,20 @@
+<!-- docmeta
+role: agent
+layer: 2
+parent: AGENTS.md
+children: []
+summary: code-first routing contract for current implementation work
+read_when:
+  - the task is mainly about code ownership, refactoring, or bug fixing
+  - the root agent router already chose src as the correct domain
+skip_when:
+  - the task is documentation-first or only about future direction
+source_of_truth:
+  - src/AGENTS.md
+  - docs/architecture/current-code-organization.md
+  - src
+-->
+
 # src/AGENTS.md
 
 Code router for `telegram-codex-bridge`.

@@ -1,0 +1,107 @@
+version: 1
+documents:
+  - path: README.md
+    role: entry
+    layer: 1
+    parent: null
+    summary: public repository entry point for the Telegram-first bridge and its documentation trees
+  - path: AGENTS.md
+    role: agent
+    layer: 1
+    parent: null
+    summary: root routing contract for coding agents working in this repository
+  - path: docs/INDEX.md
+    role: entry
+    layer: 1
+    parent: null
+    summary: canonical documentation router that separates current truth, protocol evidence, and future or historical context
+  - path: docs/README.md
+    role: entry
+    layer: 1
+    parent: null
+    summary: human-readable companion to the canonical docs router
+  - path: docs/AGENTS.md
+    role: agent
+    layer: 2
+    parent: AGENTS.md
+    summary: docs-first routing contract for coding agents
+  - path: src/AGENTS.md
+    role: agent
+    layer: 2
+    parent: AGENTS.md
+    summary: code-first routing contract for current implementation work
+  - path: scripts/AGENTS.md
+    role: agent
+    layer: 2
+    parent: AGENTS.md
+    summary: local router for top-level GitHub install scripts
+  - path: skills/AGENTS.md
+    role: agent
+    layer: 2
+    parent: AGENTS.md
+    summary: local router for bundled Codex skills
+  - path: docs/product/README.md
+    role: domain
+    layer: 2
+    parent: docs/INDEX.md
+    summary: router for current Telegram-first product behavior and user-facing command surfaces
+  - path: docs/architecture/README.md
+    role: domain
+    layer: 2
+    parent: docs/INDEX.md
+    summary: router for the current runtime shape, state model, and verified code ownership map
+  - path: docs/operations/README.md
+    role: domain
+    layer: 2
+    parent: docs/INDEX.md
+    summary: router for install, configuration, service management, update, and diagnostics docs
+  - path: docs/research/README.md
+    role: domain
+    layer: 2
+    parent: docs/INDEX.md
+    summary: router for Codex app-server protocol evidence and verification material
+  - path: docs/future/README.md
+    role: domain
+    layer: 2
+    parent: docs/INDEX.md
+    summary: router for future repository direction and forward-looking product or architecture intent
+  - path: docs/plans/README.md
+    role: domain
+    layer: 2
+    parent: docs/INDEX.md
+    summary: router for active trackers, implementation sequencing, and closeout notes
+  - path: docs/roadmap/README.md
+    role: domain
+    layer: 2
+    parent: docs/INDEX.md
+    summary: router for delivery ordering and acceptance-intent docs
+  - path: docs/archive/README.md
+    role: domain
+    layer: 2
+    parent: docs/INDEX.md
+    summary: router for archived historical material kept for reconstruction only
+  - path: docs/architecture/runtime-and-state.md
+    role: leaf
+    layer: 3
+    parent: docs/architecture/README.md
+    summary: current runtime lifecycle, SQLite state, recovery, and delivery rules for the Telegram-first bridge
+  - path: docs/architecture/current-code-organization.md
+    role: leaf
+    layer: 3
+    parent: docs/architecture/README.md
+    summary: verified owner map for the current src tree after the 2026-03-23 Core seam landed
+  - path: docs/future/multi-platform-core-prd.md
+    role: leaf
+    layer: 3
+    parent: docs/future/README.md
+    summary: future repository direction for a broader platform-neutral Core with Telegram as the first official pack
+  - path: docs/plans/2026-03-23-multi-platform-core-phase-1-implementation-plan.md
+    role: leaf
+    layer: 3
+    parent: docs/plans/README.md
+    summary: historical plan and landed outcome for the first internal multi-platform Core abstraction wave
+  - path: docs/plans/2026-03-23-multi-platform-core-pending-task-tracker.md
+    role: leaf
+    layer: 3
+    parent: docs/plans/README.md
+    summary: active backlog for deferred multi-platform Core work after the first abstraction wave landed

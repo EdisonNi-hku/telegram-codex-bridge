@@ -1,8 +1,10 @@
+import type { Dirent } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { BridgeConfig } from "../config.js";
 import type { BridgePaths } from "../paths.js";
+import { parsePerformanceLogDate } from "./log-date.js";
 import type { PerformanceEvent, PerformanceOperationEvent, PerformanceSampleEvent } from "./types.js";
 
 interface BuildPerformanceReportOptions {
@@ -92,10 +94,10 @@ export async function buildPerformanceReport(options: BuildPerformanceReportOpti
 }
 
 async function loadEvents(perfLogsDir: string, now: Date, windowMs: number): Promise<PerformanceEvent[]> {
-  let fileNames: string[] = [];
+  let entries: Dirent<string>[] = [];
 
   try {
-    fileNames = await readdir(perfLogsDir);
+    entries = await readdir(perfLogsDir, { withFileTypes: true });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return [];
@@ -107,12 +109,12 @@ async function loadEvents(perfLogsDir: string, now: Date, windowMs: number): Pro
   const maxTime = now.getTime();
   const events: PerformanceEvent[] = [];
 
-  for (const fileName of fileNames) {
-    if (!fileName.endsWith(".jsonl")) {
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".jsonl") || !logFileMayContainWindow(entry.name, minTime, maxTime)) {
       continue;
     }
 
-    const content = await readFile(join(perfLogsDir, fileName), "utf8");
+    const content = await readFile(join(perfLogsDir, entry.name), "utf8");
     for (const line of content.split(/\r?\n/u)) {
       if (!line.trim()) {
         continue;
@@ -132,6 +134,17 @@ async function loadEvents(perfLogsDir: string, now: Date, windowMs: number): Pro
   }
 
   return events;
+}
+
+function logFileMayContainWindow(fileName: string, minTime: number, maxTime: number): boolean {
+  const date = parsePerformanceLogDate(fileName);
+  if (!date) {
+    return true;
+  }
+
+  const dayStart = date.getTime();
+  const dayEnd = dayStart + (24 * 60 * 60 * 1000) - 1;
+  return dayEnd >= minTime && dayStart <= maxTime;
 }
 
 function maximum(values: number[]): number {

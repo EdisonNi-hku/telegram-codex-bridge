@@ -1,19 +1,35 @@
-# Architecture Docs
+<!-- docmeta
+role: domain
+layer: 2
+parent: docs/INDEX.md
+children:
+  - docs/architecture/runtime-and-state.md
+  - docs/architecture/current-code-organization.md
+summary: router for the current runtime shape, state model, and verified code ownership map
+read_when:
+  - the request is about current runtime lifecycle, state, recovery, or code ownership
+  - the request needs the current implementation map before opening source files
+skip_when:
+  - the request is mainly about current Telegram UX, install/admin, or future Core direction
+source_of_truth:
+  - docs/architecture/README.md
+  - docs/architecture/runtime-and-state.md
+  - docs/architecture/current-code-organization.md
+  - src
+-->
 
-This directory describes the current intended runtime shape of the bridge.
+# Architecture Index
 
-Files:
-- `runtime-and-state.md` — lifecycle, state, recovery, runtime-card behavior, final-answer delivery, concurrency limits
-- `current-code-organization.md` — verified current module ownership and where the split runtime, UI, store, and install code actually lives
+Use this directory for the current internal shape of the bridge.
+This is still Telegram-first runtime truth, not future-Core intent.
 
-Read this directory when you need to answer:
-- how the bridge is supposed to run internally
-- how state and recovery are supposed to work
-- how runtime delivery differs from final-answer delivery
-- how the current codebase is split after the current service/UI/store extraction waves
+## Open One Leaf
 
-This directory describes the current Telegram-first runtime shape.
-Future repository direction for a broader Core belongs in `docs/future/multi-platform-core-prd.md`.
+- `runtime-and-state.md` - service lifecycle, SQLite state, recovery rules, runtime surfaces, and final-answer delivery.
+- `current-code-organization.md` - verified owner map after the 2026-03-23 Core seam landed under `src/core/`.
 
-If you need to confirm actual implementation, verify against the relevant `src/` files.
-For many Telegram-facing runtime behaviors, the narrow owner now lives under `src/service/` rather than only under `src/telegram/`.
+## Skip This Directory When
+
+- you need current user-facing Telegram behavior
+- you need install or admin procedures
+- you need future multi-platform direction instead of today's implementation shape

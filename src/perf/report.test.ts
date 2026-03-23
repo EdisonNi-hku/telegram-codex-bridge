@@ -116,3 +116,39 @@ test("buildPerformanceReport returns explicit disabled and unsupported states", 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("buildPerformanceReport skips .jsonl entries outside the requested window", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-perf-report-test-"));
+  const perfLogsDir = join(root, "logs", "perf");
+
+  try {
+    await mkdir(perfLogsDir, { recursive: true });
+    await mkdir(join(perfLogsDir, "2026-03-01.jsonl"));
+    await writeFile(
+      join(perfLogsDir, "2026-03-23.jsonl"),
+      `${JSON.stringify({
+        ts: "2026-03-23T11:59:00.000Z",
+        kind: "sample",
+        target: "bridge",
+        pid: 101,
+        sampleIntervalMs: 15_000,
+        cpuCorePct: 10,
+        rssBytes: 1024,
+        uptimeSec: 12
+      })}\n`,
+      "utf8"
+    );
+
+    const report = await buildPerformanceReport({
+      paths: { perfLogsDir } as any,
+      config: { perfMonitorEnabled: true } as any,
+      windowMs: 60 * 60 * 1000,
+      now: new Date("2026-03-23T12:00:00.000Z"),
+      platform: "linux"
+    });
+
+    assert.match(report, /^sample_count=1$/mu);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

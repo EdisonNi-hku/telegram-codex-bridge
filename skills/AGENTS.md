@@ -1,3 +1,19 @@
+<!-- docmeta
+role: agent
+layer: 2
+parent: AGENTS.md
+children: []
+summary: local router for bundled Codex skills
+read_when:
+  - the task is about the bundled setup or helper skills themselves
+  - the root agent router already chose skills as the correct domain
+skip_when:
+  - the task is about current bridge runtime behavior outside the bundled skill path
+source_of_truth:
+  - skills/AGENTS.md
+  - skills
+-->
+
 # skills/AGENTS.md
 
 Router for bundled Codex skills.

@@ -1,19 +1,32 @@
-# Research Docs
+<!-- docmeta
+role: domain
+layer: 2
+parent: docs/INDEX.md
+children: []
+summary: router for Codex app-server protocol evidence and verification material
+read_when:
+  - the request is about Codex app-server capability or exact protocol shapes
+  - the request needs protocol evidence separate from shipped Telegram behavior
+skip_when:
+  - the request is only about current product behavior or implementation ownership
+source_of_truth:
+  - docs/research/README.md
+  - docs/research
+-->
 
-This directory contains protocol evidence and reference material.
+# Research Index
 
-Files:
-- `codex-app-server-authoritative-reference.md` — primary app-server protocol/reference guide
-- `codex-app-server-api-quick-reference.md` — method-by-method quick lookup
-- `app-server-phase-0-verification.md` — earlier verification findings
+Use this directory only when the question is about protocol capability or exact payload shape.
+It is evidence, not shipped-product proof.
 
-Read this directory when you need to answer:
-- what Codex app-server supports
-- exact method or notification shapes
-- what earlier protocol verification established
+## Open One Leaf
 
-These docs are also useful input for future Core planning.
-They still do not prove shipped behavior.
+- `codex-app-server-authoritative-reference.md` - full protocol reference.
+- `codex-app-server-api-quick-reference.md` - fast method lookup.
+- `app-server-phase-0-verification.md` - earlier verification findings.
 
-Do not assume protocol capability means the bridge already exposes that capability in Telegram.
-Verify actual bridge adoption in `src/codex/app-server.ts` and related code.
+## Skip This Directory When
+
+- you need current Telegram behavior
+- you need current code ownership
+- you only need future product direction without protocol detail

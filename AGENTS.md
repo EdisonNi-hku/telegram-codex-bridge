@@ -1,3 +1,26 @@
+<!-- docmeta
+role: agent
+layer: 1
+parent: null
+children:
+  - docs/AGENTS.md
+  - src/AGENTS.md
+  - scripts/AGENTS.md
+  - skills/AGENTS.md
+summary: root routing contract for coding agents working in this repository
+read_when:
+  - first agent entry into the repository
+  - need to choose the docs, code, scripts, or skills domain
+skip_when:
+  - already inside the correct domain router
+source_of_truth:
+  - AGENTS.md
+  - docs/AGENTS.md
+  - src/AGENTS.md
+  - scripts/AGENTS.md
+  - skills/AGENTS.md
+-->
+
 # AGENTS.md
 
 Agent router for `telegram-codex-bridge`.
