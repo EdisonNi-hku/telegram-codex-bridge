@@ -452,28 +452,34 @@ function taskSchedulerName(paths: BridgePaths): string {
   return paths.taskSchedulerName ?? WINDOWS_TASK_NAME;
 }
 
-async function systemctlAvailable(): Promise<boolean> {
-  return await commandExists("systemctl");
+async function systemctlAvailable(hostPlatform: HostPlatform = getHostPlatform()): Promise<boolean> {
+  if (hostPlatform === "win32") {
+    return false;
+  }
+
+  return await commandExists("systemctl", { platform: hostPlatform });
 }
 
-async function launchctlAvailable(): Promise<boolean> {
-  return process.platform === "darwin" && await commandExists("launchctl");
+async function launchctlAvailable(hostPlatform: HostPlatform = getHostPlatform()): Promise<boolean> {
+  return hostPlatform === "darwin" && await commandExists("launchctl", { platform: hostPlatform });
 }
 
-async function windowsTaskSchedulerAvailable(): Promise<boolean> {
-  return process.platform === "win32" && await commandExists("powershell.exe");
+async function windowsTaskSchedulerAvailable(hostPlatform: HostPlatform = getHostPlatform()): Promise<boolean> {
+  return hostPlatform === "win32" && await commandExists("powershell.exe", { platform: hostPlatform });
 }
 
-async function detectServiceManager(): Promise<ServiceManager> {
-  if (await windowsTaskSchedulerAvailable()) {
+// Service-manager detection must follow the target install platform so
+// cross-platform tests do not mutate the host running the test suite.
+async function detectServiceManager(hostPlatform: HostPlatform = getHostPlatform()): Promise<ServiceManager> {
+  if (await windowsTaskSchedulerAvailable(hostPlatform)) {
     return "task_scheduler";
   }
 
-  if (await launchctlAvailable()) {
+  if (await launchctlAvailable(hostPlatform)) {
     return "launchd";
   }
 
-  if (await systemctlAvailable()) {
+  if (await systemctlAvailable(hostPlatform)) {
     return "systemd";
   }
 
@@ -1120,7 +1126,7 @@ export async function runDoctor(paths: BridgePaths, logger: Logger, deps: Instal
 }
 
 export async function startService(paths: BridgePaths): Promise<void> {
-  const serviceManager = await detectServiceManager();
+  const serviceManager = await detectServiceManager(paths.platform ?? getHostPlatform());
   if (serviceManager === "systemd") {
     await callSystemctl(["start", SYSTEMD_SERVICE_NAME]);
     return;
@@ -1140,7 +1146,7 @@ export async function startService(paths: BridgePaths): Promise<void> {
 }
 
 export async function stopService(paths: BridgePaths): Promise<void> {
-  const serviceManager = await detectServiceManager();
+  const serviceManager = await detectServiceManager(paths.platform ?? getHostPlatform());
   if (serviceManager === "systemd") {
     await callSystemctl(["stop", SYSTEMD_SERVICE_NAME]);
     return;
@@ -1160,7 +1166,7 @@ export async function stopService(paths: BridgePaths): Promise<void> {
 }
 
 export async function restartService(paths: BridgePaths): Promise<void> {
-  const serviceManager = await detectServiceManager();
+  const serviceManager = await detectServiceManager(paths.platform ?? getHostPlatform());
   if (serviceManager === "systemd") {
     await callSystemctl(["restart", SYSTEMD_SERVICE_NAME]);
     return;
@@ -1228,7 +1234,7 @@ export async function uninstallBridge(paths: BridgePaths, purgeState: boolean): 
   const hostPlatform = paths.platform ?? getHostPlatform();
   const sharedInstallAndStateRoot = normalizeComparablePath(paths.installRoot, hostPlatform)
     === normalizeComparablePath(paths.stateRoot, hostPlatform);
-  const serviceManager = await detectServiceManager();
+  const serviceManager = await detectServiceManager(hostPlatform);
   if (serviceManager === "systemd") {
     await runCommand("systemctl", ["--user", "disable", "--now", SYSTEMD_SERVICE_NAME]);
     await runCommand("systemctl", ["--user", "daemon-reload"]);

@@ -808,6 +808,43 @@ test("uninstallBridge preserves shared Windows state when purgeState is false", 
   }
 });
 
+test("uninstallBridge ignores host systemd when the target platform is win32", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+  const binDir = join(root, "bin");
+  const systemctlLogPath = join(root, "systemctl.log");
+
+  try {
+    paths.platform = "win32";
+    await Promise.all([
+      mkdir(paths.installRoot, { recursive: true }),
+      mkdir(paths.configRoot, { recursive: true }),
+      mkdir(binDir, { recursive: true })
+    ]);
+    await writeExecutableFixture(binDir, "systemctl", {
+      posix: `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> ${JSON.stringify(systemctlLogPath)}
+exit 55
+`,
+      win32: `@echo off\r\necho %*>> ${JSON.stringify(systemctlLogPath)}\r\nexit /b 55\r\n`
+    });
+
+    await withEnvironment(
+      {
+        PATH: extendPath(binDir)
+      },
+      async () => {
+        await uninstallBridge(paths, false);
+      }
+    );
+
+    assert.equal(await pathExists(systemctlLogPath), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("getStatus returns state-store failure diagnostics when the database cannot be opened", async () => {
   const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
   const paths = createTestPaths(root);
