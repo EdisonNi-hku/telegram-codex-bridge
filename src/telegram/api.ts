@@ -1,6 +1,8 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 
+import type { PerformanceRecorder } from "../perf/recorder.js";
+import type { PerformanceTransport } from "../perf/types.js";
 import { commandExists, runCommand, type CommandResult } from "../process.js";
 
 export interface TelegramUser {
@@ -110,7 +112,10 @@ export class TelegramApiError extends Error {
 export class TelegramApi {
   constructor(
     private readonly token: string,
-    private readonly baseUrl = "https://api.telegram.org"
+    private readonly baseUrl = "https://api.telegram.org",
+    private readonly options: {
+      performanceRecorder?: PerformanceRecorder;
+    } = {}
   ) {}
 
   async getMe(): Promise<TelegramUser> {
@@ -292,8 +297,20 @@ export class TelegramApi {
   }
 
   private async call<T>(method: string, body: Record<string, unknown>, timeoutMs: number): Promise<T> {
+    const startedAt = new Date().toISOString();
+    const startedMs = Date.now();
+    let transport: PerformanceTransport = "fetch";
+
     if (shouldPreferCurl() && await this.canUseCurl()) {
-      return await this.callWithCurl<T>(method, body, timeoutMs, "proxy-environment");
+      transport = "curl";
+      try {
+        const result = await this.callWithCurl<T>(method, body, timeoutMs, "proxy-environment");
+        await this.recordOperation(method, startedAt, startedMs, "ok", transport);
+        return result;
+      } catch (error) {
+        await this.recordOperation(method, startedAt, startedMs, "error", transport, error);
+        throw error;
+      }
     }
 
     try {
@@ -311,9 +328,18 @@ export class TelegramApi {
         throw new TelegramApiError(method, payload);
       }
 
+      await this.recordOperation(method, startedAt, startedMs, "ok", transport);
       return payload.result;
     } catch (error) {
-      return await this.callWithCurl<T>(method, body, timeoutMs, error);
+      transport = "curl";
+      try {
+        const result = await this.callWithCurl<T>(method, body, timeoutMs, error);
+        await this.recordOperation(method, startedAt, startedMs, "ok", transport);
+        return result;
+      } catch (fallbackError) {
+        await this.recordOperation(method, startedAt, startedMs, "error", transport, fallbackError);
+        throw fallbackError;
+      }
     }
   }
 
@@ -427,6 +453,27 @@ export class TelegramApi {
 
   private async canUseCurl(): Promise<boolean> {
     return await commandExists("curl");
+  }
+
+  private async recordOperation(
+    method: string,
+    startedAt: string,
+    startedMs: number,
+    outcome: "ok" | "error",
+    transport: PerformanceTransport,
+    error?: unknown
+  ): Promise<void> {
+    await this.options.performanceRecorder?.recordOperation({
+      ts: startedAt,
+      category: "telegram_api",
+      name: method,
+      durationMs: Date.now() - startedMs,
+      outcome,
+      pid: process.pid,
+      transport,
+      errorCode: error instanceof TelegramApiError ? error.errorCode : null,
+      retryAfterSeconds: error instanceof TelegramApiError ? error.retryAfterSeconds : null
+    });
   }
 
   private assertCurlExitCode(action: string, result: CommandResult, originalError: unknown): void {

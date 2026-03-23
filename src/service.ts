@@ -4,6 +4,9 @@ import { createLogger, type Logger } from "./logger.js";
 import { TurnDebugJournal, type DebugJournalWriter } from "./activity/debug-journal.js";
 import { ensureBridgeDirectories, getBridgePaths, getDebugRuntimeDir, type BridgePaths } from "./paths.js";
 import { loadConfig, type BridgeConfig } from "./config.js";
+import { PerformanceJournal } from "./perf/journal.js";
+import { JsonlPerformanceRecorder, noopPerformanceRecorder, type PerformanceRecorder } from "./perf/recorder.js";
+import { PerformanceSampler, type PerformanceSamplerLike, type PerformanceSamplerOptions } from "./perf/sampler.js";
 import { probeReadiness } from "./readiness.js";
 import { recordServiceShutdownContext } from "./service-audit.js";
 import { routeBridgeCallback } from "./service/callback-router.js";
@@ -113,7 +116,7 @@ const CODEX_CLI_STATUS_LINE_BASELINE_TOKENS = 12_000;
 
 interface BridgeServiceDependencies {
   probeReadiness?: typeof probeReadiness;
-  createTelegramApi?: (token: string, baseUrl: string) => TelegramApi;
+  createTelegramApi?: (token: string, baseUrl: string, performanceRecorder?: PerformanceRecorder) => TelegramApi;
   createPoller?: (
     api: TelegramApi,
     config: BridgeConfig,
@@ -121,6 +124,8 @@ interface BridgeServiceDependencies {
     logger: Logger,
     onUpdate: (update: TelegramUpdate) => Promise<void>
   ) => TelegramPoller;
+  createPerformanceRecorder?: () => PerformanceRecorder;
+  createPerformanceSampler?: (options: PerformanceSamplerOptions) => PerformanceSamplerLike;
   sleep?: (delayMs: number) => Promise<void>;
 }
 
@@ -176,6 +181,9 @@ export class BridgeService {
   private snapshot: ReadinessSnapshot | null = null;
   private appServer: CodexAppServerClient | null = null;
   private autoSessionTitleSyncPromise: Promise<void> | null = null;
+  private performanceJournal: PerformanceJournal | null = null;
+  private performanceRecorder: PerformanceRecorder = noopPerformanceRecorder;
+  private performanceSampler: PerformanceSamplerLike | null = null;
   private readonly unauthorizedReplyAt = new Map<string, number>();
   private stopping = false;
 
@@ -454,10 +462,11 @@ export class BridgeService {
 
   async run(): Promise<void> {
     const readinessProbe = this.deps.probeReadiness ?? probeReadiness;
-    const createTelegramApi = this.deps.createTelegramApi ?? ((token: string, baseUrl: string) =>
-      new TelegramApi(token, baseUrl));
+    const createTelegramApi = this.deps.createTelegramApi ?? ((token: string, baseUrl: string, performanceRecorder?: PerformanceRecorder) =>
+      new TelegramApi(token, baseUrl, performanceRecorder ? { performanceRecorder } : {}));
     const createPoller = this.deps.createPoller ?? ((api, config, paths, logger, onUpdate) =>
       new TelegramPoller(api, config, paths, logger, onUpdate));
+    await this.initializePerformanceMonitoring();
     try {
       this.store = await BridgeStateStore.open(this.paths, this.bootstrapLogger);
     } catch (error) {
@@ -495,7 +504,14 @@ export class BridgeService {
       paths: this.paths,
       logger: this.bootstrapLogger,
       keepAppServer: true,
-      persist: true
+      persist: true,
+      deps: {
+        createAppServer: ({ codexBin, appServerLogPath, logger, experimentalApi }) =>
+          new CodexAppServerClient(codexBin, appServerLogPath, logger, 5000, {
+            experimentalApi,
+            performanceRecorder: this.performanceRecorder
+          })
+      }
     });
 
     this.snapshot = snapshot;
@@ -512,7 +528,7 @@ export class BridgeService {
       throw new Error(`readiness ${snapshot.state}; service will not enter run loop`);
     }
 
-    this.api = createTelegramApi(this.config.telegramBotToken, this.config.telegramApiBaseUrl);
+    this.api = createTelegramApi(this.config.telegramBotToken, this.config.telegramApiBaseUrl, this.performanceRecorder);
     this.poller = createPoller(
       this.api,
       this.config,
@@ -523,6 +539,8 @@ export class BridgeService {
       }
     );
 
+    this.performanceSampler = this.createPerformanceSampler();
+    this.performanceSampler?.start();
     await this.syncTelegramCommands();
     await this.logger.info("bridge service started", { readiness: snapshot.state });
     if (recoverySessions.length > 0) {
@@ -560,6 +578,8 @@ export class BridgeService {
     }
 
     this.stopping = true;
+    this.performanceSampler?.stop();
+    this.performanceSampler = null;
     this.poller?.stop();
     this.threadArchiveReconciler.clear();
     this.runtimeSurfaceController.disposeAllRuntimeHubs();
@@ -1996,15 +2016,7 @@ export class BridgeService {
     await this.turnCoordinator.handleActiveTurnAppServerExit();
 
     try {
-      const client = new CodexAppServerClient(
-        this.config.codexBin,
-        this.paths.appServerLogPath,
-        this.bootstrapLogger,
-        5000,
-        {
-          experimentalApi: true
-        }
-      );
+      const client = this.createAppServerClient();
       await client.initializeAndProbe();
       this.appServer = client;
       this.richInputAdapter.resetRuntimeCaches();
@@ -2048,20 +2060,25 @@ export class BridgeService {
       return;
     }
 
-    const client = new CodexAppServerClient(
-      this.config.codexBin,
-      this.paths.appServerLogPath,
-      this.bootstrapLogger,
-      5000,
-      {
-        experimentalApi: true
-      }
-    );
+    const client = this.createAppServerClient();
     await client.initializeAndProbe();
     this.appServer = client;
     this.richInputAdapter.resetRuntimeCaches();
     this.attachAppServerListeners();
     this.scheduleAutoSessionTitleSyncFromRemoteThreads();
+  }
+
+  private createAppServerClient(): CodexAppServerClient {
+    return new CodexAppServerClient(
+      this.config.codexBin,
+      this.paths.appServerLogPath,
+      this.bootstrapLogger,
+      5000,
+      {
+        experimentalApi: true,
+        performanceRecorder: this.performanceRecorder
+      }
+    );
   }
 
   private scheduleAutoSessionTitleSyncFromRemoteThreads(): void {
@@ -2115,6 +2132,55 @@ export class BridgeService {
         }
       })
     );
+  }
+
+  private async initializePerformanceMonitoring(): Promise<void> {
+    this.performanceSampler?.stop();
+    this.performanceSampler = null;
+    this.performanceRecorder = noopPerformanceRecorder;
+    this.performanceJournal = null;
+
+    if (!this.config.perfMonitorEnabled) {
+      return;
+    }
+
+    try {
+      this.performanceJournal = new PerformanceJournal({
+        perfLogsDir: this.paths.perfLogsDir,
+        retentionDays: this.config.perfMonitorRetentionDays
+      });
+      await this.performanceJournal.pruneExpiredLogs();
+      this.performanceRecorder = this.deps.createPerformanceRecorder?.()
+        ?? new JsonlPerformanceRecorder(this.performanceJournal);
+    } catch (error) {
+      this.performanceRecorder = noopPerformanceRecorder;
+      await this.bootstrapLogger.warn("performance monitoring unavailable", {
+        error: `${error}`
+      });
+    }
+  }
+
+  private createPerformanceSampler(): PerformanceSamplerLike | null {
+    if (!this.config.perfMonitorEnabled) {
+      return null;
+    }
+
+    const baseOptions = {
+      platform: process.platform,
+      sampleIntervalMs: this.config.perfMonitorSampleIntervalMs,
+      logger: {
+        warn: async (message, meta) => this.logger.warn(message, meta)
+      },
+      recorder: this.performanceRecorder,
+      getAppServerPid: () => this.appServer?.pid ?? null,
+      ...(this.performanceJournal ? {
+        pruneLogs: async (): Promise<void> => {
+          await this.performanceJournal?.pruneExpiredLogs();
+        }
+      } : {})
+    } satisfies PerformanceSamplerOptions;
+
+    return this.deps.createPerformanceSampler?.(baseOptions) ?? new PerformanceSampler(baseOptions);
   }
 
   private async appendInteractionCreatedJournal(row: PendingInteractionRow): Promise<void> {
