@@ -17,6 +17,9 @@ export interface BridgeConfig {
   voiceOpenaiApiKey: string;
   voiceOpenaiTranscribeModel: string;
   voiceFfmpegBin: string;
+  perfMonitorEnabled: boolean;
+  perfMonitorSampleIntervalMs: number;
+  perfMonitorRetentionDays: number;
 }
 
 const DEFAULT_CONFIG = {
@@ -27,7 +30,10 @@ const DEFAULT_CONFIG = {
   projectScanRoots: [],
   voiceInputEnabled: false,
   voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
-  voiceFfmpegBin: "ffmpeg"
+  voiceFfmpegBin: "ffmpeg",
+  perfMonitorEnabled: false,
+  perfMonitorSampleIntervalMs: 15_000,
+  perfMonitorRetentionDays: 7
 } as const;
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
@@ -115,7 +121,16 @@ export async function loadConfig(paths: BridgePaths): Promise<BridgeConfig> {
     voiceInputEnabled: parseBooleanEnv(merged.VOICE_INPUT_ENABLED, DEFAULT_CONFIG.voiceInputEnabled),
     voiceOpenaiApiKey: merged.VOICE_OPENAI_API_KEY ?? "",
     voiceOpenaiTranscribeModel: merged.VOICE_OPENAI_TRANSCRIBE_MODEL ?? DEFAULT_CONFIG.voiceOpenaiTranscribeModel,
-    voiceFfmpegBin: merged.VOICE_FFMPEG_BIN ?? DEFAULT_CONFIG.voiceFfmpegBin
+    voiceFfmpegBin: merged.VOICE_FFMPEG_BIN ?? DEFAULT_CONFIG.voiceFfmpegBin,
+    perfMonitorEnabled: parseBooleanEnv(merged.PERF_MONITOR_ENABLED, DEFAULT_CONFIG.perfMonitorEnabled),
+    perfMonitorSampleIntervalMs: Number.parseInt(
+      merged.PERF_MONITOR_SAMPLE_INTERVAL_MS ?? `${DEFAULT_CONFIG.perfMonitorSampleIntervalMs}`,
+      10
+    ),
+    perfMonitorRetentionDays: Number.parseInt(
+      merged.PERF_MONITOR_RETENTION_DAYS ?? `${DEFAULT_CONFIG.perfMonitorRetentionDays}`,
+      10
+    )
   };
 }
 
@@ -130,7 +145,10 @@ export async function writeConfig(paths: BridgePaths, config: BridgeConfig): Pro
     `VOICE_INPUT_ENABLED=${config.voiceInputEnabled ? "1" : "0"}`,
     `VOICE_OPENAI_API_KEY=${config.voiceOpenaiApiKey}`,
     `VOICE_OPENAI_TRANSCRIBE_MODEL=${config.voiceOpenaiTranscribeModel}`,
-    `VOICE_FFMPEG_BIN=${config.voiceFfmpegBin}`
+    `VOICE_FFMPEG_BIN=${config.voiceFfmpegBin}`,
+    `PERF_MONITOR_ENABLED=${config.perfMonitorEnabled ? "1" : "0"}`,
+    `PERF_MONITOR_SAMPLE_INTERVAL_MS=${config.perfMonitorSampleIntervalMs}`,
+    `PERF_MONITOR_RETENTION_DAYS=${config.perfMonitorRetentionDays}`
   ].join("\n");
 
   await writeFile(paths.envPath, `${content}\n`, "utf8");
@@ -150,6 +168,9 @@ export function withInstallOverrides(
     voiceInputEnabled: overrides.voiceInputEnabled ?? current.voiceInputEnabled,
     voiceOpenaiApiKey: overrides.voiceOpenaiApiKey ?? current.voiceOpenaiApiKey,
     voiceOpenaiTranscribeModel: overrides.voiceOpenaiTranscribeModel ?? current.voiceOpenaiTranscribeModel,
-    voiceFfmpegBin: overrides.voiceFfmpegBin ?? current.voiceFfmpegBin
+    voiceFfmpegBin: overrides.voiceFfmpegBin ?? current.voiceFfmpegBin,
+    perfMonitorEnabled: overrides.perfMonitorEnabled ?? current.perfMonitorEnabled,
+    perfMonitorSampleIntervalMs: overrides.perfMonitorSampleIntervalMs ?? current.perfMonitorSampleIntervalMs,
+    perfMonitorRetentionDays: overrides.perfMonitorRetentionDays ?? current.perfMonitorRetentionDays
   };
 }

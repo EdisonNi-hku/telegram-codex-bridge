@@ -2,7 +2,8 @@
 
 import { getBridgePaths } from "./paths.js";
 import { createLogger } from "./logger.js";
-import { parseProjectScanRootsValue } from "./config.js";
+import { loadConfig, parseProjectScanRootsValue } from "./config.js";
+import { buildPerformanceReport, parseReportWindowMs } from "./perf/report.js";
 import { parseBooleanLike } from "./util/boolean.js";
 import {
   clearAuthorization,
@@ -59,10 +60,11 @@ function parseBooleanFlag(value: string | boolean | undefined): boolean | undefi
 
 function printUsage(): void {
   process.stdout.write(`Usage:
-  ctb install --telegram-token <token> [--codex-bin <bin>] [--project-scan-roots <path1:path2:...>] [--voice-input <true|false>] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>]
+  ctb install --telegram-token <token> [--codex-bin <bin>] [--project-scan-roots <path1:path2:...>] [--voice-input <true|false>] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>] [--perf-monitor-enabled <true|false>] [--perf-monitor-sample-interval-ms <ms>] [--perf-monitor-retention-days <days>]
   ctb install-skill
   ctb status
   ctb doctor
+  ctb perf report [--window <5m|1h|24h|7d>]
   ctb start | stop | restart | update
   ctb uninstall [--purge-state]
   ctb authorize pending [--latest | --select <index> | --user-id <id> | --show-expired]
@@ -90,6 +92,9 @@ async function main(): Promise<void> {
         voiceOpenaiApiKey?: string;
         voiceOpenaiTranscribeModel?: string;
         voiceFfmpegBin?: string;
+        perfMonitorEnabled?: boolean;
+        perfMonitorSampleIntervalMs?: number;
+        perfMonitorRetentionDays?: number;
       } = {};
 
       if (typeof flags["telegram-token"] === "string") {
@@ -120,6 +125,16 @@ async function main(): Promise<void> {
       if (typeof flags["voice-ffmpeg-bin"] === "string") {
         installOverrides.voiceFfmpegBin = flags["voice-ffmpeg-bin"];
       }
+      const perfMonitorEnabled = parseBooleanFlag(flags["perf-monitor-enabled"]);
+      if (perfMonitorEnabled !== undefined) {
+        installOverrides.perfMonitorEnabled = perfMonitorEnabled;
+      }
+      if (typeof flags["perf-monitor-sample-interval-ms"] === "string") {
+        installOverrides.perfMonitorSampleIntervalMs = Number.parseInt(flags["perf-monitor-sample-interval-ms"], 10);
+      }
+      if (typeof flags["perf-monitor-retention-days"] === "string") {
+        installOverrides.perfMonitorRetentionDays = Number.parseInt(flags["perf-monitor-retention-days"], 10);
+      }
 
       await installBridge(paths, logger, {
         ...installOverrides
@@ -141,6 +156,32 @@ async function main(): Promise<void> {
 
     case "doctor": {
       process.stdout.write(`${await runDoctor(paths, logger)}\n`);
+      return;
+    }
+
+    case "perf": {
+      if (subcommand !== "report") {
+        printUsage();
+        process.exitCode = 1;
+        return;
+      }
+
+      const config = await loadConfig(paths);
+      const windowMs = typeof flags.window === "string"
+        ? parseReportWindowMs(flags.window)
+        : 60 * 60 * 1000;
+
+      if (windowMs === null) {
+        process.stderr.write("invalid --window value; expected 5m, 1h, 24h, or 7d\n");
+        process.exitCode = 1;
+        return;
+      }
+
+      process.stdout.write(`${await buildPerformanceReport({
+        paths,
+        config,
+        windowMs
+      })}\n`);
       return;
     }
 

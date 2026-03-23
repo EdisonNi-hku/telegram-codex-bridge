@@ -22,6 +22,7 @@ function createCustomPaths(root: string): BridgePaths {
     stateRoot,
     configRoot,
     logsDir,
+    perfLogsDir: join(logsDir, "perf"),
     telegramSessionFlowLogsDir,
     runtimeDir,
     cacheDir,
@@ -48,15 +49,19 @@ async function assertExists(path: string): Promise<void> {
 
 test("ensureBridgeDirectories creates install and state roots for custom path layouts", async () => {
   const root = await mkdtemp(join(tmpdir(), "ctb-paths-test-"));
-  const paths = createCustomPaths(root);
+  const paths = {
+    ...createCustomPaths(root),
+    perfLogsDir: join(root, "var", "logs", "perf")
+  } as BridgePaths & { perfLogsDir: string };
 
   try {
-    await ensureBridgeDirectories(paths);
+    await ensureBridgeDirectories(paths as any);
 
     await assertExists(paths.installRoot);
     await assertExists(paths.stateRoot);
     await assertExists(paths.configRoot);
     await assertExists(paths.logsDir);
+    await assertExists(paths.perfLogsDir);
     await assertExists(paths.telegramSessionFlowLogsDir);
     await assertExists(paths.cacheDir);
     await assertExists(paths.runtimeDir);
@@ -90,4 +95,5 @@ test("getBridgePaths uses Windows-friendly roots and wrappers on win32", () => {
   assert.match(paths.binPath, /codex-telegram-bridge\\bin\\ctb\.cmd$/u);
   assert.equal(paths.taskSchedulerName, "CodexTelegramBridge");
   assert.match(paths.powershellWrapperPath ?? "", /codex-telegram-bridge\\bin\\ctb\.ps1$/u);
+  assert.match((paths as any).perfLogsDir ?? "", /codex-telegram-bridge\\logs\\perf$/u);
 });

@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 
 import type { Logger } from "../logger.js";
+import type { PerformanceRecorder } from "../perf/recorder.js";
 import { buildSpawnPlan } from "../process.js";
 import type { ReasoningEffort } from "../types.js";
 
@@ -432,6 +433,7 @@ export class CodexAppServerClient {
     private readonly startupTimeoutMs = 5000,
     private readonly options: {
       experimentalApi?: boolean;
+      performanceRecorder?: PerformanceRecorder;
     } = {}
   ) {}
 
@@ -790,6 +792,9 @@ export class CodexAppServerClient {
       throw new Error("app-server child is not running");
     }
 
+    const startedAt = new Date().toISOString();
+    const startedMs = Date.now();
+    const pid = this.child.pid ?? null;
     const requestId = this.nextRequestId++;
     const payload = JSON.stringify({
       id: requestId,
@@ -797,43 +802,66 @@ export class CodexAppServerClient {
       params
     });
 
-    return await new Promise<T>((resolve, reject) => {
-      const timeoutMs = options?.timeoutMs ?? this.startupTimeoutMs;
-      const timer = setTimeout(() => {
-        const pending = this.pending.get(requestId);
-        if (!pending) {
-          return;
-        }
+    try {
+      const result = await new Promise<T>((resolve, reject) => {
+        const timeoutMs = options?.timeoutMs ?? this.startupTimeoutMs;
+        const timer = setTimeout(() => {
+          const pending = this.pending.get(requestId);
+          if (!pending) {
+            return;
+          }
 
-        this.pending.delete(requestId);
-        const timeoutError = new Error(`app-server request timed out: ${method}`);
-        reject(timeoutError);
-        if (options?.terminateOnTimeout ?? true) {
-          this.terminateUnresponsiveChild(timeoutError);
-        }
-      }, timeoutMs);
+          this.pending.delete(requestId);
+          const timeoutError = new Error(`app-server request timed out: ${method}`);
+          reject(timeoutError);
+          if (options?.terminateOnTimeout ?? true) {
+            this.terminateUnresponsiveChild(timeoutError);
+          }
+        }, timeoutMs);
 
-      this.pending.set(requestId, {
-        resolve: (value) => resolve(value as T),
-        reject,
-        timer
+        this.pending.set(requestId, {
+          resolve: (value) => resolve(value as T),
+          reject,
+          timer
+        });
+
+        this.child?.stdin.write(`${payload}\n`, "utf8", (error) => {
+          if (!error) {
+            return;
+          }
+
+          const pending = this.pending.get(requestId);
+          if (!pending) {
+            return;
+          }
+
+          clearTimeout(pending.timer);
+          this.pending.delete(requestId);
+          reject(error);
+        });
       });
 
-      this.child?.stdin.write(`${payload}\n`, "utf8", (error) => {
-        if (!error) {
-          return;
-        }
-
-        const pending = this.pending.get(requestId);
-        if (!pending) {
-          return;
-        }
-
-        clearTimeout(pending.timer);
-        this.pending.delete(requestId);
-        reject(error);
+      await this.options.performanceRecorder?.recordOperation({
+        ts: startedAt,
+        category: "app_server_rpc",
+        name: method,
+        durationMs: Date.now() - startedMs,
+        outcome: "ok",
+        pid
       });
-    });
+
+      return result;
+    } catch (error) {
+      await this.options.performanceRecorder?.recordOperation({
+        ts: startedAt,
+        category: "app_server_rpc",
+        name: method,
+        durationMs: Date.now() - startedMs,
+        outcome: `${error}`.includes("request timed out") ? "timeout" : "error",
+        pid
+      });
+      throw error;
+    }
   }
 
   notify(method: string, params: unknown): void {

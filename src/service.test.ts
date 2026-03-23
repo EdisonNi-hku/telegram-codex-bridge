@@ -32,7 +32,10 @@ const testConfig: BridgeConfig = {
   voiceInputEnabled: false,
   voiceOpenaiApiKey: "",
   voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
-  voiceFfmpegBin: "ffmpeg"
+  voiceFfmpegBin: "ffmpeg",
+  perfMonitorEnabled: false,
+  perfMonitorSampleIntervalMs: 15_000,
+  perfMonitorRetentionDays: 7
 };
 
 function createTestPaths(root: string): BridgePaths {
@@ -47,6 +50,7 @@ function createTestPaths(root: string): BridgePaths {
     stateRoot: join(root, "state"),
     configRoot: join(root, "config"),
     logsDir,
+    perfLogsDir: join(logsDir, "perf"),
     telegramSessionFlowLogsDir,
     runtimeDir,
     cacheDir: join(root, "cache"),
@@ -439,6 +443,64 @@ test("service clears bridge restart notices after delayed recovery hub delivery 
     assert.equal(runtimeStore.listRuntimeNotices("chat-1").length, 0);
   } finally {
     runtimeStore?.close();
+    await cleanup();
+  }
+});
+
+test("service starts and stops perf sampling when monitoring is enabled", async () => {
+  const samplerCalls: string[] = [];
+  const samplerOptions: Array<{ getAppServerPid: () => number | null }> = [];
+  const config: BridgeConfig = {
+    ...testConfig,
+    perfMonitorEnabled: true
+  };
+  const fakeAppServer = {
+    pid: 4321,
+    onNotification: () => () => {},
+    onServerRequest: () => () => {},
+    onExit: () => () => {},
+    stop: async () => {}
+  };
+
+  const { service, cleanup } = await createServiceContext({
+    probeReadiness: async () => ({
+      snapshot: createReadinessSnapshot({
+        appServerPid: "4321"
+      }),
+      appServer: fakeAppServer as any
+    }),
+    createPerformanceRecorder: () => ({
+      recordSample: async () => {},
+      recordOperation: async () => {}
+    }),
+    createPerformanceSampler: (options: any) => {
+      samplerOptions.push(options);
+      return {
+        start: () => {
+          samplerCalls.push("start");
+        },
+        stop: () => {
+          samplerCalls.push("stop");
+        }
+      };
+    },
+    createTelegramApi: () => ({
+      setMyCommands: async () => {}
+    }) as any,
+    createPoller: () => ({
+      run: async () => {},
+      stop: () => {}
+    }) as any
+  } as any, config);
+
+  try {
+    await service.run();
+    await service.stop();
+
+    assert.deepEqual(samplerCalls, ["start", "stop"]);
+    assert.equal(samplerOptions.length, 1);
+    assert.equal(samplerOptions[0]?.getAppServerPid(), 4321);
+  } finally {
     await cleanup();
   }
 });

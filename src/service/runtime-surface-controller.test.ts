@@ -29,6 +29,7 @@ function createTestPaths(root: string): BridgePaths {
     stateRoot: join(root, "state"),
     configRoot: join(root, "config"),
     logsDir,
+    perfLogsDir: join(logsDir, "perf"),
     telegramSessionFlowLogsDir: join(logsDir, "telegram-session-flow"),
     runtimeDir,
     cacheDir: join(root, "cache"),

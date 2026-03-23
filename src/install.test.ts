@@ -37,6 +37,7 @@ function createTestPaths(root: string): BridgePaths {
     stateRoot: join(root, "state"),
     configRoot: join(root, "config"),
     logsDir,
+    perfLogsDir: join(logsDir, "perf"),
     telegramSessionFlowLogsDir,
     runtimeDir,
     cacheDir: join(root, "cache"),
@@ -746,6 +747,7 @@ test("uninstallBridge preserves shared Windows state when purgeState is false", 
     stateRoot: installRoot,
     configRoot,
     logsDir,
+    perfLogsDir: join(logsDir, "perf"),
     telegramSessionFlowLogsDir,
     runtimeDir,
     cacheDir,
@@ -803,6 +805,43 @@ test("uninstallBridge preserves shared Windows state when purgeState is false", 
     assert.equal(await pathExists(join(paths.installRoot, "package.json")), false);
     assert.equal(await pathExists(paths.manifestPath), false);
     assert.equal(await pathExists(paths.configRoot), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("uninstallBridge ignores host systemd when the target platform is win32", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+  const binDir = join(root, "bin");
+  const systemctlLogPath = join(root, "systemctl.log");
+
+  try {
+    paths.platform = "win32";
+    await Promise.all([
+      mkdir(paths.installRoot, { recursive: true }),
+      mkdir(paths.configRoot, { recursive: true }),
+      mkdir(binDir, { recursive: true })
+    ]);
+    await writeExecutableFixture(binDir, "systemctl", {
+      posix: `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> ${JSON.stringify(systemctlLogPath)}
+exit 55
+`,
+      win32: `@echo off\r\necho %*>> ${JSON.stringify(systemctlLogPath)}\r\nexit /b 55\r\n`
+    });
+
+    await withEnvironment(
+      {
+        PATH: extendPath(binDir)
+      },
+      async () => {
+        await uninstallBridge(paths, false);
+      }
+    );
+
+    assert.equal(await pathExists(systemctlLogPath), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
