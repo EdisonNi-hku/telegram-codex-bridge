@@ -1,4 +1,23 @@
 import type { TelegramInlineKeyboardMarkup } from "./telegram/api.js";
+import type {
+  FailureReason,
+  PendingInteractionKind,
+  PendingInteractionState,
+  RuntimeNoticeType,
+  SessionStatus,
+  TerminalDeliveryState,
+  TerminalResultKind
+} from "./core/domain/common.js";
+
+export type {
+  FailureReason,
+  PendingInteractionKind,
+  PendingInteractionState,
+  RuntimeNoticeType,
+  SessionStatus,
+  TerminalDeliveryState,
+  TerminalResultKind
+} from "./core/domain/common.js";
 
 export type BridgeReadinessState =
   | "ready"
@@ -11,14 +30,6 @@ export type BridgeReadinessState =
 export function isOperationalReadinessState(state: BridgeReadinessState): boolean {
   return state === "ready" || state === "awaiting_authorization";
 }
-
-export type SessionStatus = "idle" | "running" | "interrupted" | "failed";
-
-export type FailureReason =
-  | "bridge_restart"
-  | "app_server_lost"
-  | "turn_failed"
-  | "unknown";
 
 export type RecentProjectSource = "mru" | "pin" | "scan" | "last_success";
 
@@ -184,7 +195,7 @@ export type InstallSourceMetadata = GitHubArchiveInstallSource;
 export interface RuntimeNotice {
   key: string;
   telegramChatId: string;
-  type: "bridge_restart_recovery" | "app_server_notice" | "terminal_delivery_deferred";
+  type: RuntimeNoticeType;
   message: string;
   parseMode?: "HTML" | null;
   replyMarkup?: TelegramInlineKeyboardMarkup | null;
@@ -200,8 +211,8 @@ export interface FinalAnswerViewRow {
   sessionId: string;
   threadId: string;
   turnId: string;
-  kind: "final_answer" | "plan_result";
-  deliveryState: "pending" | "visible" | "deferred_notice_visible";
+  kind: TerminalResultKind;
+  deliveryState: TerminalDeliveryState;
   previewHtml: string;
   pages: string[];
   primaryActionConsumed: boolean;
@@ -227,20 +238,6 @@ export interface TurnInputSourceRow {
   transcript: string;
   createdAt: string;
 }
-
-export type PendingInteractionKind =
-  | "approval"
-  | "permissions"
-  | "questionnaire"
-  | "elicitation";
-
-export type PendingInteractionState =
-  | "pending"
-  | "awaiting_text"
-  | "answered"
-  | "canceled"
-  | "expired"
-  | "failed";
 
 export interface PendingInteractionRow {
   interactionId: string;

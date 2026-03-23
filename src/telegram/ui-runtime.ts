@@ -5,6 +5,20 @@ import type {
 } from "../types.js";
 import { BRIDGE_EXTENSION_RUNTIME_STATUS_FIELDS, CODEX_CLI_RUNTIME_STATUS_FIELDS } from "../types.js";
 import type { ActivityStatus, CollabAgentStateSnapshot, InspectSnapshot } from "../activity/types.js";
+import type {
+  InteractionApprovalCardView,
+  InteractionExpiredCardView,
+  InteractionQuestionCardView,
+  InteractionResolvedCardView
+} from "../core/interaction-model/interaction.js";
+import type {
+  RuntimeCommandEntryView,
+  RuntimeHubSessionView,
+  RuntimeHubTerminalSummaryView,
+  RuntimeHubView,
+  RuntimeStatusCardView,
+  RuntimeStatusControlsView
+} from "../core/interaction-model/runtime.js";
 import { truncateText } from "../util/text.js";
 import { BLOCKED_PROGRESS_APPROVAL, BLOCKED_PROGRESS_USER_INPUT } from "../util/blocked-progress.js";
 import type { TelegramInlineKeyboardMarkup } from "./api.js";
@@ -46,18 +60,29 @@ import {
   formatRelativeTime
 } from "./ui-shared.js";
 
+export type {
+  InteractionApprovalCardView,
+  InteractionExpiredCardView,
+  InteractionQuestionCardView,
+  InteractionResolvedCardView
+} from "../core/interaction-model/interaction.js";
+export type {
+  RuntimeCommandEntryView,
+  RuntimeHubSessionView,
+  RuntimeHubTerminalSummaryView,
+  RuntimeHubView,
+  RuntimeStatusCardView,
+  RuntimeStatusControlsView
+} from "../core/interaction-model/runtime.js";
+
+type InteractionApprovalCardRenderView = Omit<InteractionApprovalCardView, "kind">;
+type InteractionQuestionCardRenderView = Omit<InteractionQuestionCardView, "kind">;
+type InteractionResolvedCardRenderView = Omit<InteractionResolvedCardView, "kind">;
+type InteractionExpiredCardRenderView = Omit<InteractionExpiredCardView, "kind">;
+
 interface RuntimeCardContext {
   sessionName?: string | null;
   projectName?: string | null;
-}
-
-export interface RuntimeCommandEntryView {
-  commandText: string;
-  state: string;
-  latestSummary?: string | null;
-  cwd?: string | null;
-  exitCode?: number | null;
-  durationMs?: number | null;
 }
 
 export interface RuntimeStatusFieldOptionView {
@@ -73,49 +98,13 @@ export interface RollbackTargetView {
   rollbackCount: number;
 }
 
-export interface RuntimeHubSessionView {
-  sessionId: string;
-  sessionName: string;
-  projectName?: string | null;
-  state: string;
-  progressText?: string | null;
-  slot?: number | null;
-  isFocused: boolean;
-  isActiveInputTarget: boolean;
-}
-
-export interface RuntimeHubTerminalSummaryView {
-  sessionName: string;
-  projectName?: string | null;
-  state: string;
-}
-
 const RUNTIME_FIELD_PAGE_SIZE = 4;
 const ROLLBACK_TARGET_PAGE_SIZE = 6;
 const HUB_COMMAND_REMINDER_TEXT = "💡 提示：需要查看运行卡片时，可发送 /hub。";
 const HUB_SECTION_DIVIDER = "━━━━━━━━━━━━━━━━━━";
 const INSPECT_PAGE_CHAR_LIMIT = 3200;
 
-export function buildRuntimeStatusCard(
-  options: RuntimeCardContext & {
-    language?: UiLanguage;
-    state: string;
-    statusLine?: string | null;
-    optionalFieldLines?: string[];
-    progressText?: string | null;
-    blockedReason?: string | null;
-    planEntries?: string[];
-    planExpanded?: boolean;
-    agentEntries?: CollabAgentStateSnapshot[];
-    agentsExpanded?: boolean;
-    progressTextLimit?: number;
-    expandedPlanEntryLimit?: number;
-    expandedPlanEntryTextLimit?: number;
-    expandedAgentLimit?: number;
-    expandedAgentProgressTextLimit?: number;
-    includeFooter?: boolean;
-  }
-): string {
+export function buildRuntimeStatusCard(options: RuntimeStatusCardView): string {
   const language = options.language ?? "zh";
   const progressTextLimit = options.progressTextLimit ?? 240;
   const expandedPlanEntryLimit = options.expandedPlanEntryLimit ?? 10;
@@ -163,14 +152,7 @@ export function buildRuntimeStatusCard(
   return lines.join("\n");
 }
 
-export function buildRuntimeStatusReplyMarkup(options: {
-  sessionId: string;
-  language?: UiLanguage;
-  planEntries: string[];
-  planExpanded: boolean;
-  agentEntries: CollabAgentStateSnapshot[];
-  agentsExpanded: boolean;
-}): TelegramInlineKeyboardMarkup | undefined {
+export function buildRuntimeStatusReplyMarkup(options: RuntimeStatusControlsView): TelegramInlineKeyboardMarkup | undefined {
   const language = options.language ?? "zh";
   const rows: TelegramInlineKeyboardMarkup["inline_keyboard"] = [];
 
@@ -212,36 +194,7 @@ export function buildRuntimeStatusReplyMarkup(options: {
   };
 }
 
-export function buildRuntimeHubMessage(options: {
-  language?: UiLanguage;
-  windowIndex: number;
-  totalWindows: number;
-  totalSessions?: number;
-  sessions?: RuntimeHubSessionView[];
-  activeInputSession?: RuntimeHubSessionView | null;
-  sessionCollectionKind?: "running" | "generic";
-  planEntries?: string[];
-  planExpanded?: boolean;
-  agentEntries?: CollabAgentStateSnapshot[];
-  agentsExpanded?: boolean;
-  terminalSummaries?: RuntimeHubTerminalSummaryView[];
-  currentViewedSession?: RuntimeHubSessionView | null;
-  otherSessions?: RuntimeHubSessionView[];
-  recentEndedSessions?: RuntimeHubSessionView[];
-  isMainHub?: boolean;
-  completed?: boolean;
-  sessionProgressTextLimit?: number;
-  currentViewedSessionProgressTextLimit?: number;
-  otherSessionProgressTextLimit?: number;
-  recentEndedSessionProgressTextLimit?: number;
-  genericSessionLayout?: "detailed" | "compact";
-  genericVisibleSessionLimit?: number;
-  hubPlanEntryLimit?: number;
-  hubPlanEntryTextLimit?: number;
-  hubAgentEntryLimit?: number;
-  hubAgentProgressTextLimit?: number;
-  reminderText?: string | null;
-}): string {
+export function buildRuntimeHubMessage(options: RuntimeHubView): string {
   const language = options.language ?? "zh";
   const sessionProgressTextLimit = options.sessionProgressTextLimit ?? 120;
   const currentViewedSessionProgressTextLimit = options.currentViewedSessionProgressTextLimit ?? sessionProgressTextLimit;
@@ -1096,18 +1049,7 @@ function appendInteractionHubHint(lines: string[], hubHint?: string | null): voi
   lines.push("", escapeHtml(hubHint));
 }
 
-export function buildInteractionApprovalCard(options: {
-  interactionId: string;
-  title: string;
-  subtitle: string;
-  body?: string | null;
-  detail?: string | null;
-  hubHint?: string | null;
-  actions: Array<{
-    text: string;
-    decisionKey: string;
-  }>;
-}): {
+export function buildInteractionApprovalCard(options: InteractionApprovalCardRenderView): {
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
 } {
@@ -1136,20 +1078,7 @@ export function buildInteractionApprovalCard(options: {
   };
 }
 
-export function buildInteractionQuestionCard(options: {
-  interactionId: string;
-  title: string;
-  questionId: string;
-  header: string;
-  question: string;
-  questionIndex: number;
-  totalQuestions: number;
-  options: Array<{ label: string; description: string }> | null;
-  isOther: boolean;
-  isSecret: boolean;
-  awaitingText?: boolean;
-  hubHint?: string | null;
-}): {
+export function buildInteractionQuestionCard(options: InteractionQuestionCardRenderView): {
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
 } {
@@ -1217,16 +1146,7 @@ export function buildInteractionQuestionCard(options: {
   };
 }
 
-export function buildInteractionResolvedCard(options: {
-  title: string;
-  state: "answered" | "canceled" | "failed";
-  summary?: string | null;
-  details?: string[];
-  expandable?: boolean;
-  expanded?: boolean;
-  interactionId?: string;
-  hubHint?: string | null;
-}): {
+export function buildInteractionResolvedCard(options: InteractionResolvedCardRenderView): {
   text: string;
   replyMarkup?: TelegramInlineKeyboardMarkup;
 } {
@@ -1267,10 +1187,7 @@ export function buildInteractionResolvedCard(options: {
   };
 }
 
-export function buildInteractionExpiredCard(options: {
-  title: string;
-  reason?: string | null;
-}): {
+export function buildInteractionExpiredCard(options: InteractionExpiredCardRenderView): {
   text: string;
   replyMarkup?: TelegramInlineKeyboardMarkup;
 } {

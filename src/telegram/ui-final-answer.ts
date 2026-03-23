@@ -1,4 +1,5 @@
 import type { StreamBlock, StreamSnapshot } from "../activity/types.js";
+import type { TerminalResultControlView } from "../core/interaction-model/terminal.js";
 import { truncateText } from "../util/text.js";
 import type { TelegramInlineKeyboardMarkup } from "./api.js";
 import {
@@ -11,6 +12,8 @@ import {
   encodePlanResultPageCallback
 } from "./ui-callbacks.js";
 import { escapeHtml } from "./ui-shared.js";
+
+export type { TerminalResultControlView } from "../core/interaction-model/terminal.js";
 
 type FinalAnswerBlock =
   | { kind: "heading"; text: string }
@@ -130,13 +133,11 @@ export function buildCollapsibleFinalAnswerView(
   };
 }
 
-export function buildFinalAnswerReplyMarkup(options: {
-  answerId: string;
-  totalPages: number;
-  expanded: boolean;
-  currentPage?: number;
-  extraRows?: Array<Array<{ text: string; callback_data: string }>>;
-}): TelegramInlineKeyboardMarkup {
+export function buildFinalAnswerReplyMarkup(
+  options: TerminalResultControlView & {
+    extraRows?: Array<Array<{ text: string; callback_data: string }>>;
+  }
+): TelegramInlineKeyboardMarkup {
   if (!options.expanded) {
     return {
       inline_keyboard: [
@@ -183,13 +184,7 @@ export function buildPlanResultActionRows(answerId: string): Array<Array<{ text:
   ]];
 }
 
-export function buildPlanResultReplyMarkup(options: {
-  answerId: string;
-  totalPages: number;
-  expanded: boolean;
-  currentPage?: number;
-  primaryActionConsumed?: boolean;
-}): TelegramInlineKeyboardMarkup {
+export function buildPlanResultReplyMarkup(options: TerminalResultControlView): TelegramInlineKeyboardMarkup {
   const actionRows = options.primaryActionConsumed ? [] : buildPlanResultActionRows(options.answerId);
   if (!options.expanded) {
     return {

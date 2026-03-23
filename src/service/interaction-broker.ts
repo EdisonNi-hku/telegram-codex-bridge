@@ -1,6 +1,8 @@
 import type { Logger } from "../logger.js";
 import type { ActivityStatus, InspectSnapshot } from "../activity/types.js";
 import type { JsonRpcRequestId, JsonRpcServerRequest } from "../codex/app-server.js";
+import type { InteractionCardView } from "../core/interaction-model/interaction.js";
+import { createInteractionCardView } from "../core/workflow/interaction-workflow.js";
 import type { BridgeStateStore } from "../state/store.js";
 import type { TelegramInlineKeyboardMarkup, TelegramMessage } from "../telegram/api.js";
 import {
@@ -898,109 +900,25 @@ function buildPendingInteractionSurface(
   text: string;
   replyMarkup?: TelegramInlineKeyboardMarkup;
 } {
-  if (row.state === "answered") {
-    const details = buildAnsweredInteractionDetails(row, interaction);
-    return buildInteractionResolvedCard({
-      title: interaction.title,
-      state: "answered",
-      summary: summarizeAnsweredInteraction(row, interaction),
-      details,
-      expandable: details.length > 0,
-      expanded: options?.answeredExpanded ?? false,
-      interactionId: row.interactionId,
-      hubHint: INTERACTION_HUB_HINT
-    });
-  }
+  return renderInteractionCardView(createInteractionCardView(row, interaction, {
+    ...(options?.answeredExpanded !== undefined ? { answeredExpanded: options.answeredExpanded } : {}),
+    hubHint: INTERACTION_HUB_HINT
+  }));
+}
 
-  if (row.state === "canceled") {
-    return buildInteractionResolvedCard({
-      title: interaction.title,
-      state: "canceled",
-      summary: "已取消",
-      hubHint: INTERACTION_HUB_HINT
-    });
-  }
-
-  if (row.state === "failed") {
-    return buildInteractionResolvedCard({
-      title: interaction.title,
-      state: "failed",
-      summary: formatPendingInteractionTerminalReason(row.errorReason)
-    });
-  }
-
-  if (row.state === "expired") {
-    return buildInteractionExpiredCard({
-      title: interaction.title,
-      reason: formatPendingInteractionTerminalReason(row.errorReason)
-    });
-  }
-
-  switch (interaction.kind) {
+function renderInteractionCardView(view: InteractionCardView): {
+  text: string;
+  replyMarkup?: TelegramInlineKeyboardMarkup;
+} {
+  switch (view.kind) {
     case "approval":
-      return buildInteractionApprovalCard({
-        interactionId: row.interactionId,
-        title: interaction.title,
-        subtitle: interaction.subtitle,
-        body: interaction.body,
-        detail: interaction.detail,
-        hubHint: INTERACTION_HUB_HINT,
-        actions: buildApprovalActions(interaction)
-      });
-    case "permissions":
-      return buildInteractionApprovalCard({
-        interactionId: row.interactionId,
-        title: interaction.title,
-        subtitle: interaction.subtitle,
-        body: summarizePermissions(interaction.requestedPermissions),
-        detail: interaction.detail,
-        hubHint: INTERACTION_HUB_HINT,
-        actions: [
-          { text: "批准本次权限", decisionKey: "accept" },
-          { text: "本会话内总是批准", decisionKey: "acceptForSession" },
-          { text: "拒绝", decisionKey: "decline" }
-        ]
-      });
-    case "elicitation":
-      return buildInteractionApprovalCard({
-        interactionId: row.interactionId,
-        title: interaction.title,
-        subtitle: `MCP: ${interaction.serverName}`,
-        body: interaction.message,
-        detail: interaction.detail,
-        hubHint: INTERACTION_HUB_HINT,
-        actions: [
-          { text: "接受", decisionKey: "accept" },
-          { text: "拒绝", decisionKey: "decline" }
-        ]
-      });
-    case "questionnaire": {
-      const draft = parseQuestionnaireDraft(row.responseJson);
-      const currentQuestion = getCurrentQuestion(interaction, draft);
-      if (!currentQuestion) {
-        return buildInteractionResolvedCard({
-          title: interaction.title,
-          state: "answered",
-          summary: summarizeAnsweredInteraction(row, interaction),
-          hubHint: INTERACTION_HUB_HINT
-        });
-      }
-
-      return buildInteractionQuestionCard({
-        interactionId: row.interactionId,
-        title: interaction.title,
-        questionId: currentQuestion.id,
-        header: currentQuestion.header,
-        question: currentQuestion.question,
-        questionIndex: findQuestionIndex(interaction, currentQuestion.id) + 1,
-        totalQuestions: interaction.questions.length,
-        options: currentQuestion.options,
-        isOther: currentQuestion.isOther,
-        isSecret: currentQuestion.isSecret,
-        awaitingText: row.state === "awaiting_text",
-        hubHint: INTERACTION_HUB_HINT
-      });
-    }
+      return buildInteractionApprovalCard(view);
+    case "question":
+      return buildInteractionQuestionCard(view);
+    case "resolved":
+      return buildInteractionResolvedCard(view);
+    case "expired":
+      return buildInteractionExpiredCard(view);
   }
 }
 

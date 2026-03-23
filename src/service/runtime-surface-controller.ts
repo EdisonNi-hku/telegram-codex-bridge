@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import type { ActivityStatus, CollabAgentStateSnapshot, InspectSnapshot } from "../activity/types.js";
+import {
+  createRuntimeStatusCardView,
+  createRuntimeStatusControlsView
+} from "../core/workflow/runtime-workflow.js";
 import type { Logger } from "../logger.js";
 import type { BridgeStateStore } from "../state/store.js";
 import type { TelegramInlineKeyboardMarkup, TelegramMessage } from "../telegram/api.js";
@@ -875,25 +879,26 @@ export class RuntimeSurfaceController {
     replyMarkup?: TelegramInlineKeyboardMarkup;
   } {
     const inspect = tracker.getInspectSnapshot();
-    const text = buildRuntimeStatusCard({
-      ...this.deps.getRuntimeCardContext(sessionId),
+    const cardView = createRuntimeStatusCardView({
+      sessionId,
+      context: {
+        sessionId,
+        ...this.deps.getRuntimeCardContext(sessionId)
+      },
       language: this.deps.getUiLanguage(),
+      inspect,
       optionalFieldLines: this.deps.buildRuntimeStatusLine(sessionId, inspect),
-      state: formatVisibleRuntimeState(inspect),
-      progressText: selectStatusProgressText(inspect, inspect.completedCommentary.at(-1) ?? null),
-      planEntries: inspect.planSnapshot,
       planExpanded: statusCard.planExpanded,
-      agentEntries: inspect.agentSnapshot,
       agentsExpanded: statusCard.agentsExpanded
     });
-    const replyMarkup = buildRuntimeStatusReplyMarkup({
+    const text = buildRuntimeStatusCard(cardView);
+    const replyMarkup = buildRuntimeStatusReplyMarkup(createRuntimeStatusControlsView({
       sessionId,
       language: this.deps.getUiLanguage(),
-      planEntries: inspect.planSnapshot,
+      inspect,
       planExpanded: statusCard.planExpanded,
-      agentEntries: inspect.agentSnapshot,
       agentsExpanded: statusCard.agentsExpanded
-    });
+    }));
 
     return replyMarkup ? { text, replyMarkup } : { text };
   }

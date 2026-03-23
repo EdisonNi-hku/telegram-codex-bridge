@@ -5,6 +5,10 @@ import type { ActivityStatus } from "../activity/types.js";
 import { getDebugRuntimeDir, type BridgePaths } from "../paths.js";
 import type { JsonRpcRequestId, JsonRpcServerRequest, UserInput, CodexAppServerClient } from "../codex/app-server.js";
 import { classifyNotification } from "../codex/notification-classifier.js";
+import {
+  createDeferredTerminalNoticeView,
+  createTerminalResultDeliveryView
+} from "../core/workflow/terminal-workflow.js";
 import { normalizeServerRequest } from "../interactions/normalize.js";
 import {
   buildCollapsibleFinalAnswerView,
@@ -1007,9 +1011,9 @@ export class TurnCoordinator {
       pages: rendered.pages
     });
 
-    const directMarkup = this.buildTerminalResultReplyMarkup(saved, rendered.truncated);
-    const directHtml = this.buildTerminalResultHtml(saved, rendered.truncated);
-    const sent = await this.deps.safeSendHtmlMessageResult(activeTurn.chatId, directHtml, directMarkup);
+    const directDelivery = createTerminalResultDeliveryView(saved, rendered.truncated);
+    const directMarkup = this.buildTerminalResultReplyMarkup(saved, directDelivery.controls);
+    const sent = await this.deps.safeSendHtmlMessageResult(activeTurn.chatId, directDelivery.html, directMarkup);
     if (sent) {
       store.setFinalAnswerMessageId(saved.answerId, sent.message_id);
       store.setFinalAnswerDeliveryState(saved.answerId, "visible");
@@ -1056,10 +1060,11 @@ export class TurnCoordinator {
       pages: rendered.pages
     });
 
+    const directDelivery = createTerminalResultDeliveryView(saved, rendered.truncated);
     const sent = await this.deps.safeSendHtmlMessageResult(
       activeTurn.chatId,
-      this.buildTerminalResultHtml(saved, rendered.truncated),
-      this.buildTerminalResultReplyMarkup(saved, rendered.truncated)
+      directDelivery.html,
+      this.buildTerminalResultReplyMarkup(saved, directDelivery.controls)
     );
     if (sent) {
       store.setFinalAnswerMessageId(saved.answerId, sent.message_id);
@@ -1083,73 +1088,32 @@ export class TurnCoordinator {
     };
   }
 
-  private buildTerminalResultHtml(
-    saved: ReturnType<BridgeStateStore["saveFinalAnswerView"]>,
-    truncated: boolean
-  ): string {
-    return truncated || saved.pages.length > 1
-      ? saved.previewHtml
-      : (saved.pages[0] ?? saved.previewHtml);
-  }
-
   private buildTerminalResultReplyMarkup(
     saved: ReturnType<BridgeStateStore["saveFinalAnswerView"]>,
-    truncated: boolean
+    controls: {
+      answerId: string;
+      totalPages: number;
+      collapsible?: boolean;
+      expanded: boolean;
+      currentPage?: number;
+      primaryActionConsumed?: boolean;
+    }
   ): {
     inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
   } | undefined {
     if (saved.kind === "plan_result") {
-      return truncated || saved.pages.length > 1
-        ? buildPlanResultReplyMarkup({
-          answerId: saved.answerId,
-          totalPages: saved.pages.length,
-          expanded: false,
-          primaryActionConsumed: saved.primaryActionConsumed
-        })
+      return controls.collapsible
+        ? buildPlanResultReplyMarkup(controls)
         : {
           inline_keyboard: buildPlanResultActionRows(saved.answerId)
         };
     }
 
-    if (!truncated && saved.pages.length <= 1) {
+    if (!controls.collapsible) {
       return undefined;
     }
 
-    return buildFinalAnswerReplyMarkup({
-      answerId: saved.answerId,
-      totalPages: saved.pages.length,
-      expanded: false
-    });
-  }
-
-  private buildDeferredTerminalNotice(
-    saved: ReturnType<BridgeStateStore["saveFinalAnswerView"]>
-  ): {
-    html: string;
-    replyMarkup: {
-      inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
-    };
-  } {
-    if (saved.kind === "plan_result") {
-      return {
-        html: "<i>方案结果暂未送达。点击“展开方案”重新渲染。</i>",
-        replyMarkup: buildPlanResultReplyMarkup({
-          answerId: saved.answerId,
-          totalPages: saved.pages.length,
-          expanded: false,
-          primaryActionConsumed: saved.primaryActionConsumed
-        })
-      };
-    }
-
-    return {
-      html: "<i>最终答复暂未送达。点击“展开全文”重新渲染。</i>",
-      replyMarkup: buildFinalAnswerReplyMarkup({
-        answerId: saved.answerId,
-        totalPages: saved.pages.length,
-        expanded: false
-      })
-    };
+    return buildFinalAnswerReplyMarkup(controls);
   }
 
   private async sendDeferredTerminalNotice(
@@ -1161,20 +1125,24 @@ export class TurnCoordinator {
       return false;
     }
 
-    const renderedNotice = this.buildDeferredTerminalNotice(saved);
+    const renderedNotice = createDeferredTerminalNoticeView(saved);
     const notice = store.createRuntimeNotice({
       telegramChatId: activeTurn.chatId,
       type: "terminal_delivery_deferred",
       message: renderedNotice.html,
       parseMode: "HTML",
-      replyMarkup: renderedNotice.replyMarkup,
+      replyMarkup: saved.kind === "plan_result"
+        ? buildPlanResultReplyMarkup(renderedNotice.controls)
+        : buildFinalAnswerReplyMarkup(renderedNotice.controls),
       sessionId: activeTurn.sessionId,
       turnId: activeTurn.turnId
     });
     const sent = await this.deps.safeSendHtmlMessageResult(
       activeTurn.chatId,
       renderedNotice.html,
-      renderedNotice.replyMarkup
+      saved.kind === "plan_result"
+        ? buildPlanResultReplyMarkup(renderedNotice.controls)
+        : buildFinalAnswerReplyMarkup(renderedNotice.controls)
     );
     if (!sent) {
       return false;
