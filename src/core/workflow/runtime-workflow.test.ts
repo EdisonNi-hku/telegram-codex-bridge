@@ -2,7 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import type { InspectSnapshot } from "../../activity/types.js";
-import { createRuntimeStatusCardView, createRuntimeStatusControlsView } from "./runtime-workflow.js";
+import {
+  createRuntimeStatusCardView,
+  createRuntimeStatusControlsView,
+  formatVisibleRuntimeState,
+  selectStatusProgressText
+} from "./runtime-workflow.js";
 
 function createInspectSnapshot(overrides: Partial<InspectSnapshot> = {}): InspectSnapshot {
   return {
@@ -102,4 +107,25 @@ test("createRuntimeStatusControlsView keeps plan and agent controls in semantic 
     agentEntries: inspect.agentSnapshot,
     agentsExpanded: true
   });
+});
+
+test("runtime summary helpers stay Core-owned and preserve runtime semantics", () => {
+  const blocked = createInspectSnapshot({
+    turnStatus: "blocked",
+    threadRuntimeState: "active",
+    threadBlockedReason: "waitingOnApproval",
+    latestProgress: "",
+    lastHighValueEventType: "found",
+    lastHighValueDetail: "发现可复用的适配层",
+    completedCommentary: []
+  });
+  const reconnecting = createInspectSnapshot({
+    latestProgress: "Reconnecting to app-server",
+    completedCommentary: []
+  });
+
+  assert.equal(formatVisibleRuntimeState(blocked), "Blocked");
+  assert.equal(selectStatusProgressText(blocked, blocked.completedCommentary.at(-1) ?? null), "发现可复用的适配层");
+  assert.equal(formatVisibleRuntimeState(reconnecting), "Reconnecting");
+  assert.equal(selectStatusProgressText(reconnecting, null), "Reconnecting to app-server");
 });

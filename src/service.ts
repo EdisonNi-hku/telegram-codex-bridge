@@ -30,13 +30,15 @@ import {
   type PendingThreadArchiveOp
 } from "./service/thread-archive-reconciler.js";
 import {
-  formatVisibleRuntimeState,
   formatRuntimeBlockedReason,
+  formatVisibleRuntimeState,
+  selectStatusProgressText
+} from "./core/workflow/runtime-workflow.js";
+import {
   type ErrorCardState,
   isTelegramDeleteCommitted,
   isTelegramEditCommitted,
   type RuntimeCardMessageState,
-  selectStatusProgressText,
   type StatusCardState,
   type TelegramDeleteResult,
   type TelegramEditResult

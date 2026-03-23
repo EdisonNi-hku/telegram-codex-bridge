@@ -16,6 +16,7 @@ import type {
   RuntimeHubSessionView,
   RuntimeHubTerminalSummaryView,
   RuntimeHubView,
+  RollbackTargetView,
   RuntimeStatusCardView,
   RuntimeStatusControlsView
 } from "../core/interaction-model/runtime.js";
@@ -71,6 +72,7 @@ export type {
   RuntimeHubSessionView,
   RuntimeHubTerminalSummaryView,
   RuntimeHubView,
+  RollbackTargetView,
   RuntimeStatusCardView,
   RuntimeStatusControlsView
 } from "../core/interaction-model/runtime.js";
@@ -89,13 +91,6 @@ export interface RuntimeStatusFieldOptionView {
   field: RuntimeStatusField;
   label: string;
   selected: boolean;
-}
-
-export interface RollbackTargetView {
-  index: number;
-  sequenceNumber: number;
-  label: string;
-  rollbackCount: number;
 }
 
 const RUNTIME_FIELD_PAGE_SIZE = 4;

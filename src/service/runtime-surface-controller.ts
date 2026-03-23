@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import type { ActivityStatus, CollabAgentStateSnapshot, InspectSnapshot } from "../activity/types.js";
 import {
+  createRecentOutputControlsView,
+  createRecentOutputEntryView
+} from "../core/workflow/terminal-workflow.js";
+import {
+  formatVisibleRuntimeState,
+  selectStatusProgressText,
   createRuntimeStatusCardView,
   createRuntimeStatusControlsView
 } from "../core/workflow/runtime-workflow.js";
@@ -43,13 +49,11 @@ import {
   cleanRuntimeErrorMessage,
   createErrorCardMessageState,
   type ErrorCardState,
-  formatVisibleRuntimeState,
   getRuntimeCardThrottleMs,
   isTelegramDeleteCommitted,
   isTelegramEditCommitted,
   type RuntimeCardMessageState,
   type RuntimeCommandState,
-  selectStatusProgressText,
   serializeReplyMarkup,
   summarizeRuntimeCardSurface,
   summarizeRuntimeCommands,
@@ -3069,19 +3073,16 @@ export class RuntimeSurfaceController {
       : null;
 
     if (!mode.expanded) {
+      const entryView = createRecentOutputEntryView({
+        sessionName,
+        projectName,
+        hasResult: true
+      });
       const result = await this.deps.safeEditHtmlMessageText(
         chatId,
         messageId,
-        buildRecentOutputEntryHtml({
-          sessionName,
-          projectName,
-          hasResult: true
-        }),
-        buildRecentOutputReplyMarkup({
-          answerId,
-          totalPages: view.pages.length,
-          expanded: false
-        })
+        buildRecentOutputEntryHtml(entryView),
+        buildRecentOutputReplyMarkup(createRecentOutputControlsView(view))
       );
       await this.finishBridgeOwnedCallbackRender(callbackQueryId, result);
       return;
@@ -3098,12 +3099,10 @@ export class RuntimeSurfaceController {
       chatId,
       messageId,
       view.kind === "plan_result" ? this.buildPlanResultHtml(pageHtml, view.primaryActionConsumed) : pageHtml,
-      buildRecentOutputReplyMarkup({
-        answerId,
-        totalPages: view.pages.length,
+      buildRecentOutputReplyMarkup(createRecentOutputControlsView(view, {
         expanded: true,
         currentPage: page
-      })
+      }))
     );
     await this.finishBridgeOwnedCallbackRender(callbackQueryId, result);
   }
@@ -3303,19 +3302,16 @@ export class RuntimeSurfaceController {
 
     const latestView = store.listFinalAnswerViews(chatId).find((candidate) => candidate.sessionId === sessionId) ?? null;
     const previousMessageId = this.recentOutputMessageIds.get(chatId) ?? null;
+    const entryView = createRecentOutputEntryView({
+      sessionName: session.displayName,
+      projectName: session.projectAlias?.trim() || session.projectName,
+      hasResult: latestView !== null
+    });
     const sent = await this.deps.safeSendHtmlMessageResult(
       chatId,
-      buildRecentOutputEntryHtml({
-        sessionName: session.displayName,
-        projectName: session.projectAlias?.trim() || session.projectName,
-        hasResult: latestView !== null
-      }),
+      buildRecentOutputEntryHtml(entryView),
       latestView
-        ? buildRecentOutputReplyMarkup({
-          answerId: latestView.answerId,
-          totalPages: latestView.pages.length,
-          expanded: false
-        })
+        ? buildRecentOutputReplyMarkup(createRecentOutputControlsView(latestView))
         : undefined
     );
     if (!sent) {

@@ -1,10 +1,84 @@
 import type { InspectSnapshot } from "../../activity/types.js";
-import { formatVisibleRuntimeState, selectStatusProgressText } from "../../service/runtime-surface-state.js";
 import type { SessionPresentationContext } from "../domain/context.js";
 import type {
   RuntimeStatusCardView,
   RuntimeStatusControlsView
 } from "../interaction-model/runtime.js";
+
+export function formatVisibleRuntimeState(status: InspectSnapshot): string {
+  if (status.latestProgress && /^Reconnecting/i.test(status.latestProgress)) {
+    return "Reconnecting";
+  }
+
+  switch (status.turnStatus) {
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    case "interrupted":
+      return "Interrupted";
+    default:
+      break;
+  }
+
+  if (status.threadBlockedReason || status.turnStatus === "blocked") {
+    return "Blocked";
+  }
+
+  if (status.threadRuntimeState === "systemError") {
+    return "Failed";
+  }
+
+  if (status.threadRuntimeState === "active") {
+    return "Running";
+  }
+
+  switch (status.turnStatus) {
+    case "starting":
+      return "Starting";
+    case "running":
+      return "Running";
+    case "idle":
+      return "Idle";
+    default:
+      return "Unknown";
+  }
+}
+
+export function formatRuntimeBlockedReason(reason: InspectSnapshot["threadBlockedReason"]): string | null {
+  switch (reason) {
+    case "waitingOnApproval":
+      return "approval";
+    case "waitingOnUserInput":
+      return "user input";
+    default:
+      return null;
+  }
+}
+
+export function selectStatusProgressText(status: InspectSnapshot, latestProgressUnit: string | null): string | null {
+  if (latestProgressUnit) {
+    return latestProgressUnit;
+  }
+
+  if (status.latestProgress && /^Reconnecting/i.test(status.latestProgress)) {
+    return status.latestProgress;
+  }
+
+  if (status.turnStatus === "failed") {
+    return null;
+  }
+
+  if (status.latestProgress) {
+    return status.latestProgress;
+  }
+
+  if (status.lastHighValueEventType === "found" && status.lastHighValueDetail) {
+    return status.lastHighValueDetail;
+  }
+
+  return null;
+}
 
 export function createRuntimeStatusCardView(options: {
   sessionId: string;

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import type { PendingInteractionRow } from "../../types.js";
+import type { PersistedInteractionRecord } from "../domain/records.js";
 import type {
   NormalizedApprovalInteraction,
   NormalizedPermissionsInteraction,
@@ -10,8 +10,8 @@ import type {
 import { createInteractionCardView } from "./interaction-workflow.js";
 
 function createPendingInteractionRow(
-  overrides: Partial<Pick<PendingInteractionRow, "interactionId" | "state" | "responseJson" | "errorReason">> = {}
-): Pick<PendingInteractionRow, "interactionId" | "state" | "responseJson" | "errorReason"> {
+  overrides: Partial<PersistedInteractionRecord> = {}
+): PersistedInteractionRecord {
   return {
     interactionId: overrides.interactionId ?? "ix-1",
     state: overrides.state ?? "pending",

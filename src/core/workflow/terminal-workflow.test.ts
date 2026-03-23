@@ -1,28 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import type { FinalAnswerViewRow } from "../../types.js";
+import type { PersistedTerminalResultRecord } from "../domain/records.js";
 import {
   createDeferredTerminalNoticeView,
+  createRecentOutputControlsView,
+  createRecentOutputEntryView,
   createTerminalResultDeliveryView
 } from "./terminal-workflow.js";
 
 function createFinalAnswerViewRow(
-  overrides: Partial<FinalAnswerViewRow> = {}
-): FinalAnswerViewRow {
+  overrides: Partial<PersistedTerminalResultRecord> = {}
+): PersistedTerminalResultRecord {
   return {
     answerId: overrides.answerId ?? "answer-1",
-    telegramChatId: overrides.telegramChatId ?? "chat-1",
-    telegramMessageId: "telegramMessageId" in overrides ? overrides.telegramMessageId ?? null : null,
-    sessionId: overrides.sessionId ?? "session-1",
-    threadId: overrides.threadId ?? "thread-1",
-    turnId: overrides.turnId ?? "turn-1",
     kind: overrides.kind ?? "final_answer",
     deliveryState: overrides.deliveryState ?? "pending",
     previewHtml: overrides.previewHtml ?? "<b>Preview</b>",
     pages: overrides.pages ?? ["<b>Full answer</b>"],
-    primaryActionConsumed: overrides.primaryActionConsumed ?? false,
-    createdAt: overrides.createdAt ?? "2026-03-23T00:00:00.000Z"
+    primaryActionConsumed: overrides.primaryActionConsumed ?? false
   };
 }
 
@@ -85,4 +81,40 @@ test("createDeferredTerminalNoticeView creates semantic notice copy without Tele
       primaryActionConsumed: false
     }
   });
+});
+
+test("createRecentOutputEntryView keeps recent-output identity in semantic form", () => {
+  assert.deepEqual(createRecentOutputEntryView({
+    sessionName: "Session Beta",
+    projectName: "Project Two",
+    hasResult: true
+  }), {
+    sessionName: "Session Beta",
+    projectName: "Project Two",
+    hasResult: true
+  });
+});
+
+test("createRecentOutputControlsView reuses terminal controls for persisted recent output", () => {
+  assert.deepEqual(
+    createRecentOutputControlsView(
+      createFinalAnswerViewRow({
+        kind: "final_answer",
+        pages: ["<b>One</b>", "<b>Two</b>"],
+        primaryActionConsumed: true
+      }),
+      {
+        expanded: true,
+        currentPage: 2
+      }
+    ),
+    {
+      answerId: "answer-1",
+      totalPages: 2,
+      collapsible: true,
+      expanded: true,
+      currentPage: 2,
+      primaryActionConsumed: true
+    }
+  );
 });

@@ -14,6 +14,9 @@ Then return here only when you need to compare that target with the current impl
 
 Do **not** start with `src/service.ts` unless the question is specifically about bootstrap wiring, top-level startup flow, or a cross-cutting service boundary.
 
+When the task is about the **current internal Core seam that already exists in code**, prefer `src/core/` before broad service files.
+Use `src/service/` only after you know which part of the Core contract the Telegram shell is adapting.
+
 If you need a prose map of ownership before reading code, use:
 
 - `docs/architecture/current-code-organization.md`
@@ -31,6 +34,11 @@ Then return here and choose a narrow file.
 | startup gating, readiness floors, degraded states | `src/readiness.ts` |
 | top-level bridge bootstrap and wiring | `src/service.ts` |
 | compare the future Core direction against today's Telegram-first shell | `docs/future/multi-platform-core-prd.md` then `src/service.ts` |
+| current Core domain terms and persisted-record seam | `src/core/domain/common.ts` or `src/core/domain/records.ts` |
+| current Core context and bridge-owned references | `src/core/domain/context.ts` |
+| current Core interaction semantics | `src/core/interaction-model/interaction.ts` |
+| current Core runtime or terminal semantic view contracts | `src/core/interaction-model/runtime.ts` or `src/core/interaction-model/terminal.ts` |
+| current Core workflow reduction for interaction, runtime, or terminal delivery | `src/core/workflow/interaction-workflow.ts`, `src/core/workflow/runtime-workflow.ts`, or `src/core/workflow/terminal-workflow.ts` |
 | Telegram command registry and help-surface truth | `src/telegram/commands.ts` |
 | Telegram polling ingress | `src/telegram/poller.ts` |
 | Telegram Bot API wrapper | `src/telegram/api.ts` |
@@ -86,10 +94,17 @@ Then return here and choose a narrow file.
 
 ### Runtime surfaces or delivery
 
-1. `src/service/runtime-surface-controller.ts`
-2. one Telegram presentation file:
+1. `src/core/workflow/runtime-workflow.ts` or `src/core/workflow/terminal-workflow.ts`
+2. `src/service/runtime-surface-controller.ts` or `src/service/turn-coordinator.ts`
+3. one Telegram presentation file:
    - `src/telegram/ui-runtime.ts`
    - `src/telegram/ui-final-answer.ts`
+
+### Core seam or abstraction questions
+
+1. one narrow file under `src/core/domain/`, `src/core/interaction-model/`, or `src/core/workflow/`
+2. one adapting owner under `src/service/`
+3. one Telegram renderer only if the task is specifically about visible Telegram behavior
 
 ### Protocol adoption
 

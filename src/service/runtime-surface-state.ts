@@ -2,6 +2,11 @@ import type { ActivityStatus } from "../activity/types.js";
 import { classifyNotification } from "../codex/notification-classifier.js";
 import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 import { normalizeAndTruncate, normalizeNullableText, truncateText } from "../util/text.js";
+export {
+  formatRuntimeBlockedReason,
+  formatVisibleRuntimeState,
+  selectStatusProgressText
+} from "../core/workflow/runtime-workflow.js";
 
 const RUNTIME_CARD_THROTTLE_MS = 2000;
 const RUNTIME_COMMAND_OUTPUT_LINE_SNAPSHOT_LIMIT = 1024;
@@ -159,80 +164,6 @@ export function getRuntimeCardThrottleMs(_surface: RuntimeCardMessageState["surf
   return RUNTIME_CARD_THROTTLE_MS;
 }
 
-export function formatVisibleRuntimeState(status: ActivityStatus): string {
-  if (status.latestProgress && /^Reconnecting/i.test(status.latestProgress)) {
-    return "Reconnecting";
-  }
-
-  switch (status.turnStatus) {
-    case "completed":
-      return "Completed";
-    case "failed":
-      return "Failed";
-    case "interrupted":
-      return "Interrupted";
-    default:
-      break;
-  }
-
-  if (status.threadBlockedReason || status.turnStatus === "blocked") {
-    return "Blocked";
-  }
-
-  if (status.threadRuntimeState === "systemError") {
-    return "Failed";
-  }
-
-  if (status.threadRuntimeState === "active") {
-    return "Running";
-  }
-
-  switch (status.turnStatus) {
-    case "starting":
-      return "Starting";
-    case "running":
-      return "Running";
-    case "idle":
-      return "Idle";
-    default:
-      return "Unknown";
-  }
-}
-
-export function formatRuntimeBlockedReason(reason: ActivityStatus["threadBlockedReason"]): string | null {
-  switch (reason) {
-    case "waitingOnApproval":
-      return "approval";
-    case "waitingOnUserInput":
-      return "user input";
-    default:
-      return null;
-  }
-}
-
-export function selectStatusProgressText(status: ActivityStatus, latestProgressUnit: string | null): string | null {
-  if (latestProgressUnit) {
-    return latestProgressUnit;
-  }
-
-  if (status.latestProgress && /^Reconnecting/i.test(status.latestProgress)) {
-    return status.latestProgress;
-  }
-
-  if (status.turnStatus === "failed") {
-    return null;
-  }
-
-  if (status.latestProgress) {
-    return status.latestProgress;
-  }
-
-  if (status.lastHighValueEventType === "found" && status.lastHighValueDetail) {
-    return status.lastHighValueDetail;
-  }
-
-  return null;
-}
 
 export function applyRuntimeCommandDelta(
   statusCard: StatusCardState,

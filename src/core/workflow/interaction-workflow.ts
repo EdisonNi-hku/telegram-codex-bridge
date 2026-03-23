@@ -1,4 +1,3 @@
-import type { PendingInteractionRow } from "../../types.js";
 import type {
   NormalizedApprovalInteraction,
   NormalizedInteraction,
@@ -6,6 +5,7 @@ import type {
   NormalizedQuestionnaireInteraction
 } from "../../interactions/normalize.js";
 import { asRecord, getString, getStringArray } from "../../util/untyped.js";
+import type { PersistedInteractionRecord } from "../domain/records.js";
 import type { InteractionCardView } from "../interaction-model/interaction.js";
 
 interface QuestionnaireDraft {
@@ -13,13 +13,8 @@ interface QuestionnaireDraft {
   awaitingQuestionId?: string | null;
 }
 
-type InteractionWorkflowRow = Pick<
-  PendingInteractionRow,
-  "interactionId" | "state" | "responseJson" | "errorReason"
->;
-
 export function createInteractionCardView(
-  row: InteractionWorkflowRow,
+  row: PersistedInteractionRecord,
   interaction: NormalizedInteraction,
   options?: {
     answeredExpanded?: boolean;
@@ -166,7 +161,7 @@ function buildApprovalActions(interaction: NormalizedApprovalInteraction): Array
 }
 
 function buildAnsweredInteractionDetails(
-  row: InteractionWorkflowRow,
+  row: PersistedInteractionRecord,
   interaction: NormalizedInteraction
 ): string[] {
   if (interaction.kind !== "questionnaire") {
@@ -196,7 +191,7 @@ function buildAnsweredInteractionDetails(
 }
 
 function summarizeAnsweredInteractionForSurface(
-  row: InteractionWorkflowRow,
+  row: PersistedInteractionRecord,
   interaction: NormalizedInteraction
 ): string | null {
   if (interaction.kind !== "questionnaire") {
@@ -230,7 +225,7 @@ function summarizeAnsweredInteractionForSurface(
 }
 
 function summarizeAnsweredInteraction(
-  row: InteractionWorkflowRow,
+  row: PersistedInteractionRecord,
   interaction: NormalizedInteraction
 ): string | null {
   const payload = parseJsonRecord(row.responseJson);

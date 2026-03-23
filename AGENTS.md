@@ -60,6 +60,7 @@ Do not treat protocol capability as proof that Telegram UX already exposes it.
 | callback payload families and stale/duplicate callback handling | `docs/AGENTS.md` | `docs/product/callback-contract.md` |
 | runtime lifecycle, SQLite state, recovery, degraded behavior | `docs/AGENTS.md` | `docs/architecture/runtime-and-state.md` |
 | where ownership lives in `src/` today | `docs/AGENTS.md` or `src/AGENTS.md` | `docs/architecture/current-code-organization.md` |
+| current internal Core seam, semantic view contracts, or workflow adapters | `src/AGENTS.md` | one narrow file under `src/core/` |
 | future multi-platform Core direction, platform packs, Web/App control surface goals | `docs/AGENTS.md` | `docs/future/multi-platform-core-prd.md` |
 | install, config, service, update, diagnostics | `docs/AGENTS.md` | `docs/operations/install-and-admin.md` |
 | volatile versions, counts, current size snapshot | `docs/AGENTS.md` | `docs/generated/current-snapshot.md` |

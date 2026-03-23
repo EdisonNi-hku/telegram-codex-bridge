@@ -1,5 +1,5 @@
 import type { StreamBlock, StreamSnapshot } from "../activity/types.js";
-import type { TerminalResultControlView } from "../core/interaction-model/terminal.js";
+import type { RecentOutputEntryView, TerminalResultControlView } from "../core/interaction-model/terminal.js";
 import { truncateText } from "../util/text.js";
 import type { TelegramInlineKeyboardMarkup } from "./api.js";
 import {
@@ -16,7 +16,7 @@ import {
 } from "./ui-callbacks.js";
 import { escapeHtml } from "./ui-shared.js";
 
-export type { TerminalResultControlView } from "../core/interaction-model/terminal.js";
+export type { RecentOutputEntryView, TerminalResultControlView } from "../core/interaction-model/terminal.js";
 
 type FinalAnswerBlock =
   | { kind: "heading"; text: string }
@@ -187,11 +187,7 @@ export function buildPlanResultActionRows(answerId: string): Array<Array<{ text:
   ]];
 }
 
-export function buildRecentOutputEntryHtml(options: {
-  sessionName?: string | null;
-  projectName?: string | null;
-  hasResult: boolean;
-}): string {
+export function buildRecentOutputEntryHtml(options: RecentOutputEntryView): string {
   const identity = buildFinalAnswerIdentityHeader({
     ...(options.sessionName !== undefined ? { sessionName: options.sessionName } : {}),
     ...(options.projectName !== undefined ? { projectName: options.projectName } : {})
@@ -206,12 +202,7 @@ export function buildRecentOutputEntryHtml(options: {
   ].filter((part) => part.length > 0).join("\n\n");
 }
 
-export function buildRecentOutputReplyMarkup(options: {
-  answerId: string;
-  totalPages: number;
-  expanded: boolean;
-  currentPage?: number;
-}): TelegramInlineKeyboardMarkup {
+export function buildRecentOutputReplyMarkup(options: TerminalResultControlView): TelegramInlineKeyboardMarkup {
   if (!options.expanded) {
     return {
       inline_keyboard: [[{

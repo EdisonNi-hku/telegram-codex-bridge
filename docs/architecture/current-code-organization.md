@@ -1,6 +1,6 @@
 # Current Code Organization
 
-Verified against the current `src/` tree on 2026-03-21.
+Verified against the current `src/` tree on 2026-03-23.
 
 This is a code-derived implementation map.
 It is not a roadmap and it is not a product spec.
@@ -31,6 +31,10 @@ The main remaining concentration points are:
 ## Top-Level Layout
 
 - `src/cli.ts` is the `ctb` entrypoint. It routes install/admin commands into `src/install.ts` and service startup into `runBridgeService`.
+- `src/core/` now holds the first internal multi-platform seam:
+  - `domain/` for bridge-owned terms and persisted-record contracts
+  - `interaction-model/` for semantic runtime, interaction, and terminal view contracts
+  - `workflow/` for bridge-owned reduction helpers that feed the Telegram shell without importing Telegram types
 - `src/service.ts` is still the bridge shell. It owns bootstrap, readiness/store/api wiring, authorization gating, Telegram ingress, top-level command and callback routing, app-server lifecycle wiring, and safe Telegram send/edit helpers.
 - `src/service/` holds the extracted runtime-domain owners plus a few small helper modules used by those owners.
 - `src/telegram/ui.ts` is only a barrel. Real Telegram UI logic lives in `src/telegram/ui-*.ts`.
@@ -41,6 +45,12 @@ The main remaining concentration points are:
 ## Bridge Service Ownership
 
 `src/service.ts` is still the runtime entry shell, but it is no longer the single owner of every domain.
+
+The most important recent boundary is:
+
+- `src/core/` decides bridge meaning and semantic delivery contracts
+- `src/service/` adapts store rows, activity snapshots, and app-server events into those contracts
+- `src/telegram/ui-*.ts` renders Telegram text, buttons, and callback payloads
 
 Current extracted collaborators under `src/service/`:
 
@@ -60,7 +70,7 @@ Current extracted collaborators under `src/service/`:
 
 Small supporting modules under `src/service/` that are still worth knowing about:
 
-- `runtime-surface-state.ts`: shared runtime-card and hub state helpers plus Telegram edit/delete outcome handling.
+- `runtime-surface-state.ts`: shared runtime-card and hub message-state helpers plus Telegram edit/delete outcome handling.
 - `turn-artifacts.ts`: focused helpers for extracting final-answer artifacts from thread history.
 
 A few bridge-level behaviors still live in `src/service.ts` itself because they need direct access to shell-level state:
@@ -82,8 +92,13 @@ Current UI ownership:
 - `ui-callbacks.ts`: Telegram command parsing plus callback encoding and decoding.
 - `ui-messages.ts`: project picker, session list, model picker, status, where, and other non-runtime command replies.
 - `ui-runtime.ts`: runtime hubs, runtime cards, inspect views, interaction cards, rollback picker, project-browser surfaces, and runtime-field labels.
-- `ui-final-answer.ts`: Markdown-to-Telegram HTML rendering, collapsible final answers, streamed message formatting, and plan-result views.
+- `ui-final-answer.ts`: Markdown-to-Telegram HTML rendering, collapsible terminal-result views, streamed message formatting, recent-output entry rendering, and plan-result views.
 - `ui-shared.ts`: HTML escaping, relative time, reasoning-effort labels, button chunking, and shared formatting helpers.
+
+Important rule:
+
+- Telegram UI files should consume semantic view contracts from `src/core/interaction-model/` whenever those contracts already exist
+- if a UI file is inventing bridge-owned semantics directly, that is still a likely future slimming target
 
 The test layout has caught up in some places, but not everywhere.
 Focused tests now exist for collaborators such as `project-browser-coordinator.ts`, `runtime-surface-controller.ts`, `turn-coordinator.ts`, and `codex-command-coordinator.ts`, while `src/telegram/ui.test.ts` and especially `src/service.test.ts` still carry broad cross-module regression coverage.
@@ -116,6 +131,12 @@ These are the real remaining concentration points:
 - `src/service.test.ts`: still provides very broad end-to-end regression coverage.
 - `src/telegram/ui.test.ts`: still spans multiple UI subdomains.
 
+The main Phase-1 boundary that now exists but is still incomplete at the repo level is:
+
+- `src/core/` is real and should be treated as the first stop for bridge-owned semantics
+- `src/service/` still contains the heaviest adaptation hotspots
+- persistence and installer flows are still intentionally Telegram-first outside the current Core seam
+
 These are intentionally not automatic slimming targets unless scope changes:
 
 - `src/activity/tracker.ts`: large but still cohesive.
@@ -125,6 +146,7 @@ These are intentionally not automatic slimming targets unless scope changes:
 ## How To Read The Code Now
 
 - operator/admin commands: `src/cli.ts` -> `src/install.ts`
+- Core semantics: one narrow file under `src/core/domain/`, `src/core/interaction-model/`, or `src/core/workflow/`
 - runtime startup and Telegram ingress: `src/service.ts`
 - session and project behavior: `src/service/session-project-coordinator.ts`
 - project browsing: `src/service/project-browser-coordinator.ts`
