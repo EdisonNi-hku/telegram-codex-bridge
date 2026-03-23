@@ -8,6 +8,7 @@ import { nowIso } from "../util/time.js";
 import type {
   AuthorizedUserRow,
   ChatBindingRow,
+  CurrentSessionCardRow,
   FailureReason,
   FinalAnswerViewRow,
   PendingInteractionKind,
@@ -227,6 +228,7 @@ export class BridgeStateStore {
       if (previousChatIds.length > 0) {
         this.sessions.rebindSessionsChatIds(candidate.telegramChatId, previousChatIds);
         this.runtimeArtifacts.rebindRuntimeNoticesChatIds(candidate.telegramChatId, previousChatIds);
+        this.runtimeArtifacts.rebindCurrentSessionCardsChatIds(candidate.telegramChatId, previousChatIds);
         this.runtimeArtifacts.rebindFinalAnswerViewsChatIds(candidate.telegramChatId, previousChatIds);
 
         if (appliedTableExists(this.db, "pending_interaction")) {
@@ -284,6 +286,7 @@ export class BridgeStateStore {
       this.auth.clearAuthorizedUsers();
       this.auth.clearChatBindings();
       this.auth.clearPendingAuthorizations();
+      this.runtimeArtifacts.clearAllCurrentSessionCards();
       this.runtimeArtifacts.clearAllFinalAnswerViews();
       if (appliedTableExists(this.db, "pending_interaction")) {
         this.pendingInteractions.clearAllPendingInteractions();
@@ -579,6 +582,22 @@ export class BridgeStateStore {
 
   setUiLanguage(language: UiLanguage): UiLanguage {
     return this.runtimeArtifacts.setUiLanguage(language);
+  }
+
+  getCurrentSessionCard(telegramChatId: string): CurrentSessionCardRow | null {
+    return this.runtimeArtifacts.getCurrentSessionCard(telegramChatId);
+  }
+
+  upsertCurrentSessionCard(options: {
+    telegramChatId: string;
+    telegramMessageId: number | null;
+    sessionId: string;
+  }): CurrentSessionCardRow {
+    return this.runtimeArtifacts.upsertCurrentSessionCard(options);
+  }
+
+  deleteCurrentSessionCard(telegramChatId: string): void {
+    this.runtimeArtifacts.deleteCurrentSessionCard(telegramChatId);
   }
 
   saveFinalAnswerView(options: {

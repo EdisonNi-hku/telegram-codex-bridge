@@ -277,6 +277,27 @@ export class TelegramApi {
     }, 20_000);
   }
 
+  async pinChatMessage(
+    chatId: string,
+    messageId: number,
+    options?: {
+      disableNotification?: boolean;
+    }
+  ): Promise<boolean> {
+    return await this.call<boolean>("pinChatMessage", {
+      chat_id: chatId,
+      message_id: messageId,
+      disable_notification: options?.disableNotification
+    }, 20_000);
+  }
+
+  async unpinChatMessage(chatId: string, messageId?: number): Promise<boolean> {
+    return await this.call<boolean>("unpinChatMessage", {
+      chat_id: chatId,
+      message_id: messageId
+    }, 20_000);
+  }
+
   async answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
     await this.call("answerCallbackQuery", {
       callback_query_id: callbackQueryId,

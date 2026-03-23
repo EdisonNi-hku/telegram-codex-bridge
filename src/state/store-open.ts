@@ -190,6 +190,13 @@ function initialSchema(): string {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS current_session_card (
+      telegram_chat_id TEXT PRIMARY KEY,
+      telegram_message_id INTEGER NULL,
+      session_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS runtime_card_preferences (
       key TEXT PRIMARY KEY,
       fields_json TEXT NOT NULL,

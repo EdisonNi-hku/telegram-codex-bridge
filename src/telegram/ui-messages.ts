@@ -3,7 +3,8 @@ import type {
   ProjectPickerResult,
   ReasoningEffort,
   ReadinessSnapshot,
-  SessionRow
+  SessionRow,
+  UiLanguage
 } from "../types.js";
 import { truncateText } from "../util/text.js";
 import type { TelegramInlineKeyboardMarkup } from "./api.js";
@@ -301,6 +302,26 @@ export function buildWhereText(session: SessionRow | null): string {
   }
 
   return lines.join("\n");
+}
+
+export function buildCurrentSessionCardText(session: SessionRow, language: UiLanguage): string {
+  const projectName = displayProjectName(session.projectName, session.projectAlias);
+
+  if (language === "en") {
+    return [
+      formatHtmlHeading("Current Session"),
+      formatHtmlField("Session:", session.displayName),
+      formatHtmlField("Project:", projectName),
+      "Use /sessions, /use, or /where to inspect or switch."
+    ].join("\n");
+  }
+
+  return [
+    formatHtmlHeading("当前会话"),
+    formatHtmlField("会话名：", session.displayName),
+    formatHtmlField("项目：", projectName),
+    "使用 /sessions、/use 或 /where 查看和切换。"
+  ].join("\n");
 }
 
 export function buildSessionsText(options: {

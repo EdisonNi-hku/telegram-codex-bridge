@@ -620,7 +620,11 @@ test("flushRuntimeNotices clears notices after a successful Telegram delivery", 
 test("service startup keeps bridge restart notices when the recovery hub cannot be delivered", async () => {
   const { service, store, cleanup } = await createServiceContext({
     probeReadiness: async () => ({
-      snapshot: createReadinessSnapshot(),
+      snapshot: createReadinessSnapshot({
+        details: {
+          authorizedUserBound: true
+        }
+      }),
       appServer: null
     }),
     createTelegramApi: () => ({
@@ -689,6 +693,55 @@ test("service clears bridge restart notices after delayed recovery hub delivery 
     await (service as any).runtimeSurfaceController.flushHubRender(recoveryHub);
 
     assert.equal(runtimeStore.listRuntimeNotices("chat-1").length, 0);
+  } finally {
+    runtimeStore?.close();
+    await cleanup();
+  }
+});
+
+test("service startup restores and pins the current session card for the active chat", async () => {
+  const sent: Array<{ chatId: string; text: string; parseMode?: string }> = [];
+  const pinned: Array<{ chatId: string; messageId: number }> = [];
+  const { service, store, cleanup } = await createServiceContext({
+    probeReadiness: async () => ({
+      snapshot: createReadinessSnapshot({
+        details: {
+          authorizedUserBound: true
+        }
+      }),
+      appServer: null
+    }),
+    createTelegramApi: () => ({
+      sendMessage: async (chatId: string, text: string, options?: any) => {
+        sent.push({ chatId, text, parseMode: options?.parseMode });
+        return createFakeTelegramMessage(1701, text);
+      },
+      pinChatMessage: async (chatId: string, messageId: number) => {
+        pinned.push({ chatId, messageId });
+        return true;
+      },
+      setMyCommands: async () => {}
+    }) as any,
+    createPoller: () => ({
+      run: async () => {},
+      stop: () => {}
+    }) as any
+  });
+
+  let runtimeStore: BridgeStateStore | null = null;
+  try {
+    authorizeChat(store, "chat-1");
+    const session = createSession(store, "chat-1");
+    store.setActiveSession("chat-1", session.sessionId);
+
+    await service.run();
+
+    runtimeStore = (service as any).store as BridgeStateStore;
+    assert.equal(sent.length, 1);
+    assert.match(sent[0]?.text ?? "", /^<b>当前会话<\/b>/u);
+    assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 1701 }]);
+    assert.equal(runtimeStore.getCurrentSessionCard("chat-1")?.telegramMessageId, 1701);
+    assert.equal(runtimeStore.getCurrentSessionCard("chat-1")?.sessionId, session.sessionId);
   } finally {
     runtimeStore?.close();
     await cleanup();
@@ -4977,6 +5030,11 @@ test("use command leaves the existing runtime hub in place when another session 
 
     const initialStatusMessageId = sent[0]?.messageId;
     assert.ok(initialStatusMessageId);
+    store.upsertCurrentSessionCard({
+      telegramChatId: "chat-1",
+      telegramMessageId: 7001,
+      sessionId: runningSession.sessionId
+    });
 
     const idleSessionIndex = store.listSessions("chat-1").findIndex((entry) => entry.sessionId === idleSession.sessionId) + 1;
     await (service as any).routeCommand("chat-1", "use", `${idleSessionIndex}`);
@@ -5038,6 +5096,11 @@ test("use command does not reanchor a background running session after it become
 
     const initialStatusMessageId = sent[0]?.messageId;
     assert.ok(initialStatusMessageId);
+    store.upsertCurrentSessionCard({
+      telegramChatId: "chat-1",
+      telegramMessageId: 7002,
+      sessionId: idleSession.sessionId
+    });
 
     store.setActiveSession("chat-1", idleSession.sessionId);
     const runningSessionIndex = store.listSessions("chat-1").findIndex((entry) => entry.sessionId === runningSession.sessionId) + 1;
@@ -5132,6 +5195,11 @@ test("runtime and language pickers keep focus while a turn is active", async () 
   try {
     const session = authorizeChatWithSession(store, "chat-1");
     store.setActiveSession("chat-1", session.sessionId);
+    store.upsertCurrentSessionCard({
+      telegramChatId: "chat-1",
+      telegramMessageId: 777,
+      sessionId: session.sessionId
+    });
 
     (service as any).api = {
       sendMessage: async (_chatId: string, text: string, options?: any) => {
@@ -5180,6 +5248,56 @@ test("runtime and language pickers keep focus while a turn is active", async () 
     assert.equal(sent.length, 3);
     assert.deepEqual(deleted, []);
     assert.equal((service as any).activeTurn?.statusCard.messageId, initialStatusMessageId);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("language callback refreshes the current session card in the selected language", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const sent: Array<{ messageId: number; text: string; parseMode?: string; replyMarkup?: any }> = [];
+  const edited: Array<{ messageId: number; text: string; parseMode?: string; replyMarkup?: any }> = [];
+  const pinned: Array<{ messageId: number }> = [];
+  const callbackAnswers: Array<string | undefined> = [];
+
+  try {
+    const session = authorizeChatWithSession(store, "chat-1");
+    store.setActiveSession("chat-1", session.sessionId);
+    store.upsertCurrentSessionCard({
+      telegramChatId: "chat-1",
+      telegramMessageId: 777,
+      sessionId: session.sessionId
+    });
+
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        const messageId = 980 + sent.length;
+        sent.push({ messageId, text, parseMode: options?.parseMode, replyMarkup: options?.replyMarkup });
+        return createFakeTelegramMessage(messageId, text);
+      },
+      editMessageText: async (_chatId: string, messageId: number, text: string, options?: any) => {
+        edited.push({ messageId, text, parseMode: options?.parseMode, replyMarkup: options?.replyMarkup });
+        return createFakeTelegramMessage(messageId, text);
+      },
+      pinChatMessage: async (_chatId: string, messageId: number) => {
+        pinned.push({ messageId });
+        return true;
+      },
+      deleteMessage: async () => true,
+      answerCallbackQuery: async (_callbackQueryId: string, text?: string) => {
+        callbackAnswers.push(text);
+      },
+      setMyCommands: async () => {}
+    };
+
+    await (service as any).routeCommand("chat-1", "language", "");
+    await (service as any).handleLanguageSetCallback("cb-1", "chat-1", sent[0]!.messageId, "en");
+
+    assert.equal(callbackAnswers.at(-1), "Saved.");
+    const cardEdit = edited.find((entry) => entry.messageId === 777);
+    assert.ok(cardEdit);
+    assert.match(cardEdit?.text ?? "", /^<b>Current Session<\/b>/u);
+    assert.deepEqual(pinned, [{ messageId: 777 }]);
   } finally {
     await cleanup();
   }

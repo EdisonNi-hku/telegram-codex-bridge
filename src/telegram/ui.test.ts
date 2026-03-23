@@ -36,6 +36,7 @@ import {
   buildRuntimeStatusCard,
   buildSessionsText,
   buildCollapsibleFinalAnswerView,
+  buildCurrentSessionCardText,
   parseCallbackData,
   renderFinalAnswerHtmlChunks
 } from "./ui.js";
@@ -343,6 +344,47 @@ test("buildWhereText explains when the Codex thread has not been created yet", (
       "<b>Bridge 会话 ID：</b> session-pending-thread",
       "<b>Codex 线程 ID：</b> 尚未创建（首次发送任务后生成）",
       "<b>最近 Turn ID：</b> 暂无"
+    ].join("\n")
+  );
+});
+
+test("buildCurrentSessionCardText renders a compact Chinese current-session card", () => {
+  const text = buildCurrentSessionCardText(
+    createSession({
+      displayName: "Session <Alpha>",
+      projectName: "Project & One",
+      projectAlias: "Alias & One"
+    }),
+    "zh"
+  );
+
+  assert.equal(
+    text,
+    [
+      "<b>当前会话</b>",
+      "<b>会话名：</b> Session &lt;Alpha&gt;",
+      "<b>项目：</b> Alias &amp; One",
+      "使用 /sessions、/use 或 /where 查看和切换。"
+    ].join("\n")
+  );
+});
+
+test("buildCurrentSessionCardText renders the English current-session card", () => {
+  const text = buildCurrentSessionCardText(
+    createSession({
+      displayName: "Session <Alpha>",
+      projectName: "Project & One"
+    }),
+    "en"
+  );
+
+  assert.equal(
+    text,
+    [
+      "<b>Current Session</b>",
+      "<b>Session:</b> Session &lt;Alpha&gt;",
+      "<b>Project:</b> Project &amp; One",
+      "Use /sessions, /use, or /where to inspect or switch."
     ].join("\n")
   );
 });

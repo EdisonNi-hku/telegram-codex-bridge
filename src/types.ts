@@ -208,6 +208,13 @@ export interface FinalAnswerViewRow {
   createdAt: string;
 }
 
+export interface CurrentSessionCardRow {
+  telegramChatId: string;
+  telegramMessageId: number | null;
+  sessionId: string;
+  updatedAt: string;
+}
+
 export interface RuntimeCardPreferencesRow {
   key: "global";
   fields: RuntimeStatusField[];

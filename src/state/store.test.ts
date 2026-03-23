@@ -854,6 +854,42 @@ test("saveFinalAnswerView keeps only the 50 most recent answers per chat", async
   }
 });
 
+test("current session card records persist across reopen and can be removed", async () => {
+  const { paths, store, cleanup } = await openStore();
+
+  try {
+    store.upsertCurrentSessionCard({
+      telegramChatId: "chat-card",
+      telegramMessageId: 321,
+      sessionId: "session-card"
+    });
+
+    const saved = store.getCurrentSessionCard("chat-card");
+    assert.ok(saved);
+    assert.equal(saved.telegramChatId, "chat-card");
+    assert.equal(saved.telegramMessageId, 321);
+    assert.equal(saved.sessionId, "session-card");
+
+    store.close();
+
+    const reopened = await BridgeStateStore.open(paths, testLogger);
+    try {
+      const restored = reopened.getCurrentSessionCard("chat-card");
+      assert.ok(restored);
+      assert.equal(restored.telegramChatId, "chat-card");
+      assert.equal(restored.telegramMessageId, 321);
+      assert.equal(restored.sessionId, "session-card");
+
+      reopened.deleteCurrentSessionCard("chat-card");
+      assert.equal(reopened.getCurrentSessionCard("chat-card"), null);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
 test("confirmPendingAuthorization migrates persisted final answers to the rebound chat", async () => {
   const { store, cleanup } = await openStore();
 

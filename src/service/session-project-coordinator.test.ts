@@ -58,6 +58,7 @@ async function createCoordinatorContext() {
   const reanchorCalls: Array<{ chatId: string; sessionId: string; reason: string }> = [];
   const archiveHookCalls: Array<{ chatId: string; sessionId: string; reason: string }> = [];
   const unarchiveHookCalls: Array<{ chatId: string; sessionId: string; reason: string }> = [];
+  const currentSessionCardCalls: Array<{ chatId: string; reason: string }> = [];
   const sentMessages: Array<{ messageId: number; text: string; html: boolean }> = [];
   const deletedMessages: number[] = [];
   const editedMessages: Array<{ messageId: number; text: string; html: boolean }> = [];
@@ -113,6 +114,9 @@ async function createCoordinatorContext() {
     reanchorRuntimeAfterBridgeReply: async (chatId, sessionId, reason) => {
       reanchorCalls.push({ chatId, sessionId, reason });
     },
+    syncCurrentSessionCard: async (chatId, reason) => {
+      currentSessionCardCalls.push({ chatId, reason });
+    },
     handleSessionArchived: async (chatId, sessionId, reason) => {
       archiveHookCalls.push({ chatId, sessionId, reason });
     },
@@ -127,6 +131,7 @@ async function createCoordinatorContext() {
     reanchorCalls,
     archiveHookCalls,
     unarchiveHookCalls,
+    currentSessionCardCalls,
     sentMessages,
     deletedMessages,
     editedMessages,
@@ -317,7 +322,14 @@ test("stale picker message ids expire after a newer picker is sent", async () =>
 });
 
 test("handleArchive calls the runtime-surface archive hook after local persistence succeeds", async () => {
-  const { coordinator, store, archiveHookCalls, unarchiveHookCalls, cleanup } = await createCoordinatorContext();
+  const {
+    coordinator,
+    store,
+    archiveHookCalls,
+    unarchiveHookCalls,
+    currentSessionCardCalls,
+    cleanup
+  } = await createCoordinatorContext();
 
   try {
     authorizeChat(store, "chat-1");
@@ -338,13 +350,24 @@ test("handleArchive calls the runtime-surface archive hook after local persisten
       reason: "telegram_archive"
     }]);
     assert.deepEqual(unarchiveHookCalls, []);
+    assert.deepEqual(currentSessionCardCalls, [{
+      chatId: "chat-1",
+      reason: "session_archived"
+    }]);
   } finally {
     await cleanup();
   }
 });
 
 test("handleUnarchive calls only the lightweight runtime-surface unarchive hook", async () => {
-  const { coordinator, store, archiveHookCalls, unarchiveHookCalls, cleanup } = await createCoordinatorContext();
+  const {
+    coordinator,
+    store,
+    archiveHookCalls,
+    unarchiveHookCalls,
+    currentSessionCardCalls,
+    cleanup
+  } = await createCoordinatorContext();
 
   try {
     authorizeChat(store, "chat-1");
@@ -364,6 +387,72 @@ test("handleUnarchive calls only the lightweight runtime-surface unarchive hook"
       chatId: "chat-1",
       sessionId: session.sessionId,
       reason: "telegram_unarchive"
+    }]);
+    assert.deepEqual(currentSessionCardCalls, [{
+      chatId: "chat-1",
+      reason: "session_unarchived"
+    }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("handleUse refreshes the current session card after switching foreground session", async () => {
+  const { coordinator, store, currentSessionCardCalls, cleanup } = await createCoordinatorContext();
+
+  try {
+    authorizeChat(store, "chat-1");
+    const first = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+    const second = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project Two",
+      projectPath: "/tmp/project-two",
+      displayName: "Session Two"
+    });
+    store.setActiveSession("chat-1", first.sessionId);
+
+    await coordinator.handleUse("chat-1", "1");
+
+    assert.equal(store.getActiveSession("chat-1")?.sessionId, second.sessionId);
+    assert.deepEqual(currentSessionCardCalls, [{
+      chatId: "chat-1",
+      reason: "session_switched"
+    }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("handleRenameInput refreshes the current session card after renaming the active session", async () => {
+  const { coordinator, store, currentSessionCardCalls, cleanup } = await createCoordinatorContext();
+
+  try {
+    authorizeChat(store, "chat-1");
+    const session = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+    store.setActiveSession("chat-1", session.sessionId);
+    (coordinator as any).pendingRenameStates.set("chat-1", {
+      kind: "session",
+      sessionId: session.sessionId,
+      projectPath: session.projectPath,
+      sourceMessageId: null
+    });
+
+    await coordinator.handleRenameInput("chat-1", "Renamed Session");
+
+    assert.equal(store.getSessionById(session.sessionId)?.displayName, "Renamed Session");
+    assert.deepEqual(currentSessionCardCalls, [{
+      chatId: "chat-1",
+      reason: "session_renamed"
     }]);
   } finally {
     await cleanup();
