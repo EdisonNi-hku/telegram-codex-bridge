@@ -2,6 +2,10 @@
 
 Agent router for `telegram-codex-bridge`.
 
+Current shipped truth in this repo is still **Telegram-first**.
+Future repository direction may describe a broader **Codex Bridge Core** with additional platform packs.
+Keep those two truths separated.
+
 Goal: let a coding agent build a useful mental index of the repo **without preloading the repo**.
 The default path is:
 
@@ -56,6 +60,7 @@ Do not treat protocol capability as proof that Telegram UX already exposes it.
 | callback payload families and stale/duplicate callback handling | `docs/AGENTS.md` | `docs/product/callback-contract.md` |
 | runtime lifecycle, SQLite state, recovery, degraded behavior | `docs/AGENTS.md` | `docs/architecture/runtime-and-state.md` |
 | where ownership lives in `src/` today | `docs/AGENTS.md` or `src/AGENTS.md` | `docs/architecture/current-code-organization.md` |
+| future multi-platform Core direction, platform packs, Web/App control surface goals | `docs/AGENTS.md` | `docs/future/multi-platform-core-prd.md` |
 | install, config, service, update, diagnostics | `docs/AGENTS.md` | `docs/operations/install-and-admin.md` |
 | volatile versions, counts, current size snapshot | `docs/AGENTS.md` | `docs/generated/current-snapshot.md` |
 | command registry or Telegram UI implementation | `src/AGENTS.md` | `src/telegram/commands.ts` or one narrow `src/telegram/ui-*.ts` file |
@@ -88,6 +93,7 @@ Only go beyond that when:
 - If current docs are clearly newer intent, update code to match the active spec when the task is implementation.
 - If code is the confirmed shipped behavior and docs lag, update docs to match the code when the task is documentation.
 - If `docs/research/` shows a protocol capability, still verify bridge adoption before claiming Telegram support.
+- If `docs/future/multi-platform-core-prd.md` describes a broader Core direction, treat it as future intent only unless the task is explicitly about that future direction.
 
 ## Stop Rules
 
@@ -109,6 +115,7 @@ Avoid these mistakes:
 - reading protocol research when the question is purely about current Telegram UX
 - reading roadmap/future/plans/archive before current docs and code
 - mixing intended behavior, observed behavior, and future intent into one unsupported answer
+- answering multi-platform architecture questions from current Telegram implementation alone without checking `docs/future/multi-platform-core-prd.md`
 
 ## Final Reminder
 

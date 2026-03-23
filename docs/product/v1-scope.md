@@ -1,5 +1,9 @@
 # Telegram Codex Bridge v1 Scope
 
+Current truth note:
+- this file describes the **current shipped Telegram-first product**
+- future repository direction beyond Telegram belongs in `docs/future/multi-platform-core-prd.md`
+
 ## Goal
 
 Build a VPS-hosted Telegram bridge that wakes and controls the Codex installation that already exists on the server.
@@ -34,6 +38,7 @@ The bridge is not a second Codex environment, not a provider-management layer, a
 - optional Telegram voice-message adaptation into transcribed text input when voice input is enabled
 - one-line install plus local self-check
 - operator-managed full-access runtime with adapted Telegram UX instead of a raw terminal
+- current repository direction may later grow into a broader Core, but that is not part of shipped v1 behavior
 
 ## Out Of Scope
 
@@ -51,6 +56,8 @@ The bridge is not a second Codex environment, not a provider-management layer, a
 - client-managed ChatGPT token refresh via `account/chatgptAuthTokens/refresh`, because the bridge does not own ChatGPT access tokens or workspace ids and Telegram is not the provider-setup UX
 - `command/exec*`, `feedback/upload`, `fuzzyFileSearch*`, and `externalAgentConfig/*`
 - a first-class Telegram transport inside Codex core
+- multi-platform packs such as Slack or Discord
+- a first-class Web or App control console
 
 ## Runtime Assumption
 

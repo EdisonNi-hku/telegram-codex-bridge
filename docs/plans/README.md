@@ -5,6 +5,11 @@ This directory contains implementation plans, design sequencing notes, and hando
 Current active repo-wide follow-up tracker:
 
 - `2026-03-18-v5-5-post-v5-slimming-plan.md` - active V5.5 follow-up for docs cleanup, AGENTS routing, install/admin slimming, and UI test redistribution
+- `2026-03-23-multi-platform-core-pending-task-tracker.md` - active backlog lock for deferred multi-platform Core work beyond the first abstraction wave
+
+Current task-scoped implementation planning:
+
+- `2026-03-23-multi-platform-core-phase-1-implementation-plan.md` - approved first implementation plan for the Domain + Workflow + Interaction Model phase, to be executed in the dedicated worktree without auto-merging back to main
 
 Recent task-scoped plans whose outcomes are now reflected in current docs and code:
 

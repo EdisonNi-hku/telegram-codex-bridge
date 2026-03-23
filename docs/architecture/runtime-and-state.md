@@ -12,6 +12,11 @@ It owns:
 
 This keeps Telegram-specific logic outside Codex core and avoids an extra network-facing transport for v1.
 
+Current boundary note:
+- the protocol wrapper and workflow logic now reach further than the earliest v1 shell did
+- but the runtime shell, delivery model, and persisted UI state are still primarily shaped around Telegram concepts
+- future platform-neutral Core direction is tracked separately in `docs/future/multi-platform-core-prd.md`
+
 For the current code-derived ownership map of the service shell, extracted collaborators, UI modules, and store internals, read `docs/architecture/current-code-organization.md`.
 
 ## Codex App-Server Integration Contract
@@ -45,6 +50,7 @@ Integration assumptions:
 - the bridge uses a persisted interaction broker for current server-request surfaces such as approvals, structured user input, elicitation, and blocked-turn continuation
 - the bridge now also uses stable long-tail client requests where Telegram has a clear adapted UX, including plugin/app discovery, MCP admin discovery plus reload/login-link, account diagnostics, and background-terminal cleanup
 - when voice input is enabled, the bridge may create short-lived helper threads for realtime transcription fallback, then archive those helper threads after extracting the transcript
+- current state and delivery persistence still use Telegram-owned identifiers and message surfaces; a platform-neutral Core is a future direction, not a shipped reality
 
 ## Runtime Surface Reduction And Final-Answer Rule
 

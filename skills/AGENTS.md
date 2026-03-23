@@ -30,3 +30,6 @@ Read order:
 ## Boundary Rule
 
 Do not read this directory when the task is about current bridge behavior in Telegram, runtime state, or install/admin flows unless the question is explicitly about the bundled Codex skill path.
+
+Current bundled skills are still Telegram-first.
+Future repository direction may describe broader platform-pack skills, but do not assume those skills exist in this repo unless they are actually present on disk.

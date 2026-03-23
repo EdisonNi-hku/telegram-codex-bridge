@@ -63,6 +63,7 @@ Read the smallest matching leaf doc.
 | authoritative Codex app-server protocol reference | `docs/research/codex-app-server-authoritative-reference.md` |
 | method-by-method protocol lookup | `docs/research/codex-app-server-api-quick-reference.md` |
 | earlier protocol verification details | `docs/research/app-server-phase-0-verification.md` |
+| future multi-platform Core direction, platform packs, Web/App control surface goals | `docs/future/multi-platform-core-prd.md` |
 | roadmap or future-phase intent | the smallest relevant file under `docs/roadmap/` or `docs/future/` |
 | active implementation planning or handoff context | the smallest relevant file under `docs/plans/` |
 | historical reconstruction only | the smallest relevant file under `docs/archive/` |
@@ -75,6 +76,7 @@ Stay in **Tier 1** unless one of these is true:
 - you need an exact protocol payload or method name
 - the task is explicitly about roadmap, future work, or historical reasoning
 - Tier 1 and code disagree and you need historical or planning context to explain why
+- the task is explicitly about the future repository direction beyond the current Telegram-first bridge
 
 ## Verification Rules
 
@@ -89,6 +91,7 @@ Typical examples:
 - runtime doc -> `src/service/runtime-surface-controller.ts` or `src/telegram/ui-runtime.ts`
 - session/project doc -> `src/service/session-project-coordinator.ts` or `src/service/project-browser-coordinator.ts`
 - operations doc -> `src/install.ts`, `src/readiness.ts`, `src/config.ts`, or `src/paths.ts`
+- future Core direction doc -> current code only after you already understand that the doc is future intent, not current truth
 
 ## Human vs Agent Entry Points
 
