@@ -103,6 +103,7 @@ interface SessionProjectCoordinatorDeps {
   safeDeleteMessage: (chatId: string, messageId: number) => Promise<TelegramDeleteResult>;
   getActiveRuntimeStatusText: (chatId: string) => string | null;
   reanchorRuntimeAfterBridgeReply: (chatId: string, sessionId: string, reason: string) => Promise<void>;
+  syncCurrentSessionCard: (chatId: string, reason: string) => Promise<void>;
   handleSessionArchived: (chatId: string, sessionId: string, reason: string) => Promise<void>;
   handleSessionUnarchived: (chatId: string, sessionId: string, reason: string) => Promise<void>;
 }
@@ -211,6 +212,7 @@ export class SessionProjectCoordinator {
       buildSessionCreatedText(candidate.displayName, candidate.projectPath),
       { html: true }
     );
+    await this.deps.syncCurrentSessionCard(chatId, "session_created");
   }
 
   async handleScanMore(chatId: string, messageId: number): Promise<void> {
@@ -343,6 +345,7 @@ export class SessionProjectCoordinator {
       buildSessionCreatedText(candidate.displayName, candidate.projectPath),
       { html: true }
     );
+    await this.deps.syncCurrentSessionCard(chatId, "session_created");
   }
 
   async returnToProjectPicker(chatId: string, messageId?: number): Promise<void> {
@@ -441,7 +444,11 @@ export class SessionProjectCoordinator {
     }
 
     store.setActiveSession(chatId, target.sessionId);
-    await this.deps.safeSendHtmlMessage(chatId, buildSessionSwitchedText(this.projectDisplayName(target)));
+    await this.deps.syncCurrentSessionCard(chatId, "session_switched");
+    await this.deps.safeSendHtmlMessage(
+      chatId,
+      buildSessionSwitchedText(target.displayName, this.projectDisplayName(target))
+    );
   }
 
   async handleArchive(chatId: string): Promise<void> {
@@ -489,11 +496,16 @@ export class SessionProjectCoordinator {
           error: `${error}`
         });
       }
+      await this.deps.syncCurrentSessionCard(chatId, "session_archived");
       const nextActiveSession = store.getActiveSession(chatId);
       await this.deps.safeSendHtmlMessage(
         chatId,
         buildArchiveSuccessText(
-          this.projectDisplayName(activeSession),
+          {
+            displayName: activeSession.displayName,
+            projectName: activeSession.projectName,
+            projectAlias: activeSession.projectAlias
+          },
           nextActiveSession
             ? {
                 displayName: nextActiveSession.displayName,
@@ -571,7 +583,11 @@ export class SessionProjectCoordinator {
           error: `${error}`
         });
       }
-      await this.deps.safeSendHtmlMessage(chatId, buildUnarchiveSuccessText(this.projectDisplayName(target)));
+      await this.deps.syncCurrentSessionCard(chatId, "session_unarchived");
+      await this.deps.safeSendHtmlMessage(
+        chatId,
+        buildUnarchiveSuccessText(target.displayName, this.projectDisplayName(target))
+      );
     } catch {
       if (target.threadId && pendingOpId !== null) {
         this.deps.dropPendingThreadArchiveOp(target.threadId, pendingOpId);
@@ -621,6 +637,7 @@ export class SessionProjectCoordinator {
 
     const pendingRename = this.pendingRenameStates.get(chatId);
     store.renameSession(activeSession.sessionId, name);
+    await this.deps.syncCurrentSessionCard(chatId, "session_renamed");
     this.pendingRenameStates.delete(chatId);
     this.renameSurfaceMessageIds.delete(chatId);
     if (pendingRename?.sourceMessageId) {
@@ -697,6 +714,7 @@ export class SessionProjectCoordinator {
     }
 
     store.clearProjectAlias(activeSession.projectPath);
+    await this.deps.syncCurrentSessionCard(chatId, "project_alias_cleared");
     this.pendingRenameStates.delete(chatId);
     this.renameSurfaceMessageIds.delete(chatId);
     await this.consumeEphemeralMessage(
@@ -745,6 +763,7 @@ export class SessionProjectCoordinator {
         projectAlias: name,
         sessionId: session.sessionId
       });
+      await this.deps.syncCurrentSessionCard(chatId, "project_alias_updated");
       this.pendingRenameStates.delete(chatId);
       this.renameSurfaceMessageIds.delete(chatId);
       if (pendingRename.sourceMessageId) {
@@ -761,6 +780,7 @@ export class SessionProjectCoordinator {
     }
 
     store.renameSession(session.sessionId, name);
+    await this.deps.syncCurrentSessionCard(chatId, "session_renamed");
     this.pendingRenameStates.delete(chatId);
     this.renameSurfaceMessageIds.delete(chatId);
     if (pendingRename.sourceMessageId) {
@@ -819,7 +839,7 @@ export class SessionProjectCoordinator {
     const suffix = activeSession.status === "running"
       ? "当前任务不受影响，下次任务开始时生效。"
       : "下次任务开始时生效。";
-    await this.deps.safeSendMessage(chatId, `已为当前会话${verb} Plan mode。${suffix}`);
+    await this.deps.safeSendMessage(chatId, `已为会话「${activeSession.displayName}」${verb} Plan mode。${suffix}`);
   }
 
   private async requireActivePickerState(chatId: string, messageId: number): Promise<PickerState | null> {

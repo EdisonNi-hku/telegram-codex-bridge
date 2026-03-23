@@ -40,10 +40,10 @@ Behavior:
 - does not change the current running turn in place; the new mode applies on the next `turn/start`
 
 Responses:
-- switched on while idle: `已为当前会话开启 Plan mode。下次任务开始时生效。`
-- switched off while idle: `已为当前会话关闭 Plan mode。下次任务开始时生效。`
-- switched on while running: `已为当前会话开启 Plan mode。当前任务不受影响，下次任务开始时生效。`
-- switched off while running: `已为当前会话关闭 Plan mode。当前任务不受影响，下次任务开始时生效。`
+- switched on while idle: `已为会话「{session_name}」开启 Plan mode。下次任务开始时生效。`
+- switched off while idle: `已为会话「{session_name}」关闭 Plan mode。下次任务开始时生效。`
+- switched on while running: `已为会话「{session_name}」开启 Plan mode。当前任务不受影响，下次任务开始时生效。`
+- switched off while running: `已为会话「{session_name}」关闭 Plan mode。当前任务不受影响，下次任务开始时生效。`
 - no active session: `当前没有活动会话。`
 
 ### `/model` and `/model <model_id>`
@@ -59,11 +59,12 @@ Rules:
 - selection is stored on the bridge session and applied on the next `thread/start` or `turn/start`
 - the bridge stores model and reasoning effort separately; `默认` means "do not pin an override for this field"
 - the bridge does not expose provider setup or arbitrary config editing through Telegram
+- confirmation uses `已为会话「{session_name}」设置模型：{model_and_effort}`
 
 ### `/skills`
 
 Shows:
-- the current project's available skills from `skills/list`
+- the active session and project context, followed by the current project's available skills from `skills/list`
 - each skill's enabled state and concise description when present
 
 ### `/skill <name> :: <prompt>`
@@ -76,7 +77,7 @@ Behavior:
 ### `/plugins`
 
 Shows:
-- the current project's discovered plugin marketplaces plus plugin summaries from `plugin/list`
+- the active session and project context, followed by the current project's discovered plugin marketplaces plus plugin summaries from `plugin/list`
 - installed and enabled state per plugin when available
 - install and uninstall command hints
 
@@ -92,15 +93,15 @@ Behavior:
 - calls `plugin/uninstall` with the provided plugin id
 
 Responses:
-- install success: `已安装插件：{plugin_name}`
-- uninstall success: `已卸载插件：{plugin_id}`
+- install success: `已为项目「{project_name}」安装插件：{plugin_name}`
+- uninstall success: `已为项目「{project_name}」卸载插件：{plugin_id}`
 - install or uninstall failure: compact Telegram error text rather than raw protocol frames
 - when install returns `appsNeedingAuth`, include a short follow-up list of affected app names and install URLs when present
 
 ### `/apps`
 
 Shows:
-- the current app list from `app/list`
+- the active session and project context, followed by the current app list from `app/list`
 - app accessibility and enabled state
 - concise plugin linkage and install URL data when present
 
@@ -151,30 +152,35 @@ Behavior:
 - `/rollback <n>` remains as a direct compatibility path
 - updates the active session's latest turn pointer to the returned thread state
 - reminds the user that local file edits are not auto-reverted
+- success copy names the affected session explicitly
 
 ### `/compact`
 
 Behavior:
 - requests `thread/compact/start`
 - keeps the Telegram UX at the session level instead of exposing raw compact protocol detail
+- success copy names the affected session explicitly
 
 ### `/thread name <name>`
 
 Behavior:
 - calls `thread/name/set`
 - mirrors the new thread name into the bridge session display name
+- success copy confirms the new bridge-visible session title directly
 
 ### `/thread meta branch=<branch> sha=<sha> origin=<url>`
 
 Behavior:
 - calls `thread/metadata/update`
 - supports `-` as a clear value for any provided field
+- success copy names the affected session explicitly
 
 ### `/thread clean-terminals`
 
 Behavior:
 - calls `thread/backgroundTerminals/clean`
 - keeps the response compact at the thread level instead of exposing terminal-session internals
+- success copy names the affected session explicitly
 
 ### `/local_image <path> :: <prompt>`
 

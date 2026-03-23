@@ -421,3 +421,43 @@ test("CodexAppServerClient terminates the child when a request times out", async
   assert.deepEqual(killSignals, ["SIGTERM"]);
   assert.equal(client.isRunning, false);
 });
+
+test("request records app-server RPC perf events", async () => {
+  const operations: unknown[] = [];
+  const client = new CodexAppServerClient(
+    "codex",
+    "/tmp/app-server.log",
+    testLogger,
+    5000,
+    {
+      performanceRecorder: {
+        recordOperation: async (event: unknown) => {
+          operations.push(event);
+        }
+      }
+    } as any
+  );
+
+  (client as any).child = {
+    stdin: {
+      write: (chunk: string, _encoding: string, callback?: (error?: Error | null) => void) => {
+        callback?.(null);
+        const payload = JSON.parse(chunk);
+        queueMicrotask(() => {
+          (client as any).handleMessage(JSON.stringify({
+            id: payload.id,
+            result: { ok: true }
+          }));
+        });
+      }
+    }
+  };
+
+  const result = await client.request("thread/list", {});
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(operations.length, 1);
+  assert.match(JSON.stringify(operations[0]), /"category":"app_server_rpc"/u);
+  assert.match(JSON.stringify(operations[0]), /"name":"thread\/list"/u);
+  assert.match(JSON.stringify(operations[0]), /"outcome":"ok"/u);
+});

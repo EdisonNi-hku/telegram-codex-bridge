@@ -155,6 +155,7 @@ interface TurnCoordinatorDeps {
     sessionId: string,
     kind: "text" | "structured"
   ) => Promise<void>;
+  syncCurrentSessionCardForSession: (sessionId: string, reason: string) => Promise<void>;
   reanchorRuntimeAfterBridgeReply: (chatId: string, reason: string, sessionId?: string) => Promise<void>;
   finalizeTerminalRuntimeHandoff: (chatId: string, sessionId: string) => Promise<void>;
   disposeRuntimeCards: (activeTurn: ActiveTurnState) => void;
@@ -695,6 +696,9 @@ export class TurnCoordinator {
         sessionTitleUpdated
         && (classified.kind === "thread_started" || classified.kind === "thread_name_updated")
       );
+    if (sessionTitleUpdated) {
+      await this.deps.syncCurrentSessionCardForSession(activeTurn.sessionId, classified.kind);
+    }
     await this.deps.logger.info("turn event processed", {
       sessionId: activeTurn.sessionId,
       chatId: activeTurn.chatId,
@@ -1488,10 +1492,13 @@ export class TurnCoordinator {
         timeoutMs: COMPLETED_TURN_TITLE_SYNC_TIMEOUT_MS,
         terminateOnTimeout: false
       });
-      store.syncSessionTitleFromThread(activeTurn.threadId, {
+      const updated = store.syncSessionTitleFromThread(activeTurn.threadId, {
         name: result.thread.name,
         preview: result.thread.preview
       });
+      if (updated) {
+        await this.deps.syncCurrentSessionCardForSession(activeTurn.sessionId, "turn_completed");
+      }
     } catch (error) {
       await this.deps.logger.warn("session title sync after turn completion failed", {
         sessionId: activeTurn.sessionId,

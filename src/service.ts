@@ -4,11 +4,15 @@ import { createLogger, type Logger } from "./logger.js";
 import { TurnDebugJournal, type DebugJournalWriter } from "./activity/debug-journal.js";
 import { ensureBridgeDirectories, getBridgePaths, getDebugRuntimeDir, type BridgePaths } from "./paths.js";
 import { loadConfig, type BridgeConfig } from "./config.js";
+import { PerformanceJournal } from "./perf/journal.js";
+import { JsonlPerformanceRecorder, noopPerformanceRecorder, type PerformanceRecorder } from "./perf/recorder.js";
+import { PerformanceSampler, type PerformanceSamplerLike, type PerformanceSamplerOptions } from "./perf/sampler.js";
 import { probeReadiness } from "./readiness.js";
 import { recordServiceShutdownContext } from "./service-audit.js";
 import { routeBridgeCallback } from "./service/callback-router.js";
 import { CodexCommandCoordinator } from "./service/codex-command-coordinator.js";
 import { routeBridgeCommand } from "./service/command-router.js";
+import { CurrentSessionCardController } from "./service/current-session-card-controller.js";
 import {
   InteractionBroker,
   type InteractionResolutionSource,
@@ -113,7 +117,7 @@ const CODEX_CLI_STATUS_LINE_BASELINE_TOKENS = 12_000;
 
 interface BridgeServiceDependencies {
   probeReadiness?: typeof probeReadiness;
-  createTelegramApi?: (token: string, baseUrl: string) => TelegramApi;
+  createTelegramApi?: (token: string, baseUrl: string, performanceRecorder?: PerformanceRecorder) => TelegramApi;
   createPoller?: (
     api: TelegramApi,
     config: BridgeConfig,
@@ -121,6 +125,8 @@ interface BridgeServiceDependencies {
     logger: Logger,
     onUpdate: (update: TelegramUpdate) => Promise<void>
   ) => TelegramPoller;
+  createPerformanceRecorder?: () => PerformanceRecorder;
+  createPerformanceSampler?: (options: PerformanceSamplerOptions) => PerformanceSamplerLike;
   sleep?: (delayMs: number) => Promise<void>;
 }
 
@@ -166,6 +172,7 @@ export class BridgeService {
   private readonly runtimeNoticeBroadcaster: RuntimeNoticeBroadcaster;
   private readonly runtimeSurfaceController: RuntimeSurfaceController;
   private readonly runtimeSurfaceTraceSink: RuntimeSurfaceTraceSink;
+  private readonly currentSessionCardController: CurrentSessionCardController;
   private readonly sessionProjectCoordinator: SessionProjectCoordinator;
   private readonly subagentIdentityBackfiller: SubagentIdentityBackfiller;
   private readonly threadArchiveReconciler: ThreadArchiveReconciler;
@@ -176,6 +183,9 @@ export class BridgeService {
   private snapshot: ReadinessSnapshot | null = null;
   private appServer: CodexAppServerClient | null = null;
   private autoSessionTitleSyncPromise: Promise<void> | null = null;
+  private performanceJournal: PerformanceJournal | null = null;
+  private performanceRecorder: PerformanceRecorder = noopPerformanceRecorder;
+  private performanceSampler: PerformanceSamplerLike | null = null;
   private readonly unauthorizedReplyAt = new Map<string, number>();
   private stopping = false;
 
@@ -224,6 +234,18 @@ export class BridgeService {
       appendInteractionCreatedJournal: async (row) => this.appendInteractionCreatedJournal(row),
       appendInteractionResolvedJournal: async (row, resolution) => this.appendInteractionResolvedJournal(row, resolution)
     });
+    this.currentSessionCardController = new CurrentSessionCardController({
+      logger: {
+        warn: async (message, meta) => this.logger.warn(message, meta)
+      },
+      getStore: () => this.store,
+      getUiLanguage: () => this.getUiLanguage(),
+      safeSendHtmlMessageResult: async (chatId, html) => this.safeSendHtmlMessageResult(chatId, html),
+      safeEditHtmlMessageText: async (chatId, messageId, html) => this.safeEditHtmlMessageText(chatId, messageId, html),
+      safeDeleteMessage: async (chatId, messageId) => this.safeDeleteMessageResult(chatId, messageId),
+      safePinChatMessage: async (chatId, messageId) => this.safePinChatMessage(chatId, messageId),
+      safeUnpinChatMessage: async (chatId, messageId) => this.safeUnpinChatMessage(chatId, messageId)
+    });
     this.sessionProjectCoordinator = new SessionProjectCoordinator({
       logger: {
         warn: async (message, meta) => this.logger.warn(message, meta)
@@ -252,6 +274,8 @@ export class BridgeService {
       getActiveRuntimeStatusText: (chatId) => this.buildActiveRuntimeStatusText(chatId),
       reanchorRuntimeAfterBridgeReply: async (chatId, sessionId, reason) =>
         this.reanchorRuntimeAfterBridgeReply(chatId, reason, sessionId),
+      syncCurrentSessionCard: async (chatId, reason) =>
+        this.currentSessionCardController.syncForChat(chatId, reason),
       handleSessionArchived: async (chatId, sessionId, reason) =>
         this.runtimeSurfaceController.handleSessionArchived(chatId, sessionId, reason),
       handleSessionUnarchived: async (chatId, sessionId, reason) =>
@@ -336,6 +360,8 @@ export class BridgeService {
           kind === "text" ? "accepted_user_work" : "accepted_structured_work",
           sessionId
         ),
+      syncCurrentSessionCardForSession: async (sessionId, reason) =>
+        this.syncCurrentSessionCardForSession(sessionId, reason),
       reanchorRuntimeAfterBridgeReply: async (chatId, reason, sessionId) =>
         this.reanchorRuntimeAfterBridgeReply(chatId, reason, sessionId),
       finalizeTerminalRuntimeHandoff: async (chatId, sessionId) =>
@@ -454,10 +480,11 @@ export class BridgeService {
 
   async run(): Promise<void> {
     const readinessProbe = this.deps.probeReadiness ?? probeReadiness;
-    const createTelegramApi = this.deps.createTelegramApi ?? ((token: string, baseUrl: string) =>
-      new TelegramApi(token, baseUrl));
+    const createTelegramApi = this.deps.createTelegramApi ?? ((token: string, baseUrl: string, performanceRecorder?: PerformanceRecorder) =>
+      new TelegramApi(token, baseUrl, performanceRecorder ? { performanceRecorder } : {}));
     const createPoller = this.deps.createPoller ?? ((api, config, paths, logger, onUpdate) =>
       new TelegramPoller(api, config, paths, logger, onUpdate));
+    await this.initializePerformanceMonitoring();
     try {
       this.store = await BridgeStateStore.open(this.paths, this.bootstrapLogger);
     } catch (error) {
@@ -495,7 +522,14 @@ export class BridgeService {
       paths: this.paths,
       logger: this.bootstrapLogger,
       keepAppServer: true,
-      persist: true
+      persist: true,
+      deps: {
+        createAppServer: ({ codexBin, appServerLogPath, logger, experimentalApi }) =>
+          new CodexAppServerClient(codexBin, appServerLogPath, logger, 5000, {
+            experimentalApi,
+            performanceRecorder: this.performanceRecorder
+          })
+      }
     });
 
     this.snapshot = snapshot;
@@ -512,7 +546,7 @@ export class BridgeService {
       throw new Error(`readiness ${snapshot.state}; service will not enter run loop`);
     }
 
-    this.api = createTelegramApi(this.config.telegramBotToken, this.config.telegramApiBaseUrl);
+    this.api = createTelegramApi(this.config.telegramBotToken, this.config.telegramApiBaseUrl, this.performanceRecorder);
     this.poller = createPoller(
       this.api,
       this.config,
@@ -523,7 +557,10 @@ export class BridgeService {
       }
     );
 
+    this.performanceSampler = this.createPerformanceSampler();
+    this.performanceSampler?.start();
     await this.syncTelegramCommands();
+    await this.restoreCurrentSessionCardsAtStartup();
     await this.logger.info("bridge service started", { readiness: snapshot.state });
     if (recoverySessions.length > 0) {
       const recoveryChatId = recoverySessions[0]?.telegramChatId;
@@ -560,6 +597,8 @@ export class BridgeService {
     }
 
     this.stopping = true;
+    this.performanceSampler?.stop();
+    this.performanceSampler = null;
     this.poller?.stop();
     this.threadArchiveReconciler.clear();
     this.runtimeSurfaceController.disposeAllRuntimeHubs();
@@ -761,6 +800,13 @@ export class BridgeService {
         mode
       ),
       renderPersistedPlanResult: async (answerId, mode) => this.renderPersistedPlanResult(
+        callbackQuery.id,
+        chatId,
+        message.message_id,
+        answerId,
+        mode
+      ),
+      renderRecentOutputEntry: async (answerId, mode) => this.renderRecentOutputEntry(
         callbackQuery.id,
         chatId,
         message.message_id,
@@ -1090,6 +1136,25 @@ export class BridgeService {
     }
   ): Promise<void> {
     await this.runtimeSurfaceController.renderPersistedPlanResult(
+      callbackQueryId,
+      chatId,
+      messageId,
+      answerId,
+      mode
+    );
+  }
+
+  private async renderRecentOutputEntry(
+    callbackQueryId: string,
+    chatId: string,
+    messageId: number,
+    answerId: string,
+    mode: {
+      expanded: boolean;
+      page?: number;
+    }
+  ): Promise<void> {
+    await this.runtimeSurfaceController.renderRecentOutputEntry(
       callbackQueryId,
       chatId,
       messageId,
@@ -1970,15 +2035,7 @@ export class BridgeService {
     await this.turnCoordinator.handleActiveTurnAppServerExit();
 
     try {
-      const client = new CodexAppServerClient(
-        this.config.codexBin,
-        this.paths.appServerLogPath,
-        this.bootstrapLogger,
-        5000,
-        {
-          experimentalApi: true
-        }
-      );
+      const client = this.createAppServerClient();
       await client.initializeAndProbe();
       this.appServer = client;
       this.richInputAdapter.resetRuntimeCaches();
@@ -2022,20 +2079,25 @@ export class BridgeService {
       return;
     }
 
-    const client = new CodexAppServerClient(
-      this.config.codexBin,
-      this.paths.appServerLogPath,
-      this.bootstrapLogger,
-      5000,
-      {
-        experimentalApi: true
-      }
-    );
+    const client = this.createAppServerClient();
     await client.initializeAndProbe();
     this.appServer = client;
     this.richInputAdapter.resetRuntimeCaches();
     this.attachAppServerListeners();
     this.scheduleAutoSessionTitleSyncFromRemoteThreads();
+  }
+
+  private createAppServerClient(): CodexAppServerClient {
+    return new CodexAppServerClient(
+      this.config.codexBin,
+      this.paths.appServerLogPath,
+      this.bootstrapLogger,
+      5000,
+      {
+        experimentalApi: true,
+        performanceRecorder: this.performanceRecorder
+      }
+    );
   }
 
   private scheduleAutoSessionTitleSyncFromRemoteThreads(): void {
@@ -2076,10 +2138,13 @@ export class BridgeService {
           const result = await appServer.readThread(session.threadId, false, {
             terminateOnTimeout: false
           });
-          store.syncSessionTitleFromThread(session.threadId, {
+          const updated = store.syncSessionTitleFromThread(session.threadId, {
             name: result.thread.name,
             preview: result.thread.preview
           });
+          if (updated) {
+            await this.syncCurrentSessionCardForSession(session.sessionId, "startup_title_sync");
+          }
         } catch (error) {
           await this.logger.warn("session title sync from remote thread failed", {
             sessionId: session.sessionId,
@@ -2089,6 +2154,55 @@ export class BridgeService {
         }
       })
     );
+  }
+
+  private async initializePerformanceMonitoring(): Promise<void> {
+    this.performanceSampler?.stop();
+    this.performanceSampler = null;
+    this.performanceRecorder = noopPerformanceRecorder;
+    this.performanceJournal = null;
+
+    if (!this.config.perfMonitorEnabled) {
+      return;
+    }
+
+    try {
+      this.performanceJournal = new PerformanceJournal({
+        perfLogsDir: this.paths.perfLogsDir,
+        retentionDays: this.config.perfMonitorRetentionDays
+      });
+      await this.performanceJournal.pruneExpiredLogs();
+      this.performanceRecorder = this.deps.createPerformanceRecorder?.()
+        ?? new JsonlPerformanceRecorder(this.performanceJournal);
+    } catch (error) {
+      this.performanceRecorder = noopPerformanceRecorder;
+      await this.bootstrapLogger.warn("performance monitoring unavailable", {
+        error: `${error}`
+      });
+    }
+  }
+
+  private createPerformanceSampler(): PerformanceSamplerLike | null {
+    if (!this.config.perfMonitorEnabled) {
+      return null;
+    }
+
+    const baseOptions = {
+      platform: process.platform,
+      sampleIntervalMs: this.config.perfMonitorSampleIntervalMs,
+      logger: {
+        warn: async (message, meta) => this.logger.warn(message, meta)
+      },
+      recorder: this.performanceRecorder,
+      getAppServerPid: () => this.appServer?.pid ?? null,
+      ...(this.performanceJournal ? {
+        pruneLogs: async (): Promise<void> => {
+          await this.performanceJournal?.pruneExpiredLogs();
+        }
+      } : {})
+    } satisfies PerformanceSamplerOptions;
+
+    return this.deps.createPerformanceSampler?.(baseOptions) ?? new PerformanceSampler(baseOptions);
   }
 
   private async appendInteractionCreatedJournal(row: PendingInteractionRow): Promise<void> {
@@ -2714,6 +2828,7 @@ export class BridgeService {
     await this.replaceBridgeOwnedMessage(chatId, messageId, this.buildLanguageClosedMessage(nextLanguage), {
       html: true
     });
+    await this.currentSessionCardController.syncForChat(chatId, "language_changed");
   }
 
   private async handleLanguageCloseCallback(
@@ -2773,6 +2888,57 @@ export class BridgeService {
 
   private async safeDeleteMessage(chatId: string, messageId: number): Promise<boolean> {
     return isTelegramDeleteCommitted(await this.safeDeleteMessageResult(chatId, messageId));
+  }
+
+  private async safePinChatMessage(chatId: string, messageId: number): Promise<boolean> {
+    if (!this.api?.pinChatMessage) {
+      return false;
+    }
+
+    try {
+      await this.api.pinChatMessage(chatId, messageId, { disableNotification: true });
+      await this.logger.info("telegram message pinned", { chatId, messageId });
+      return true;
+    } catch (error) {
+      await this.logger.warn("telegram message pin failed", { chatId, messageId, error: `${error}` });
+      return false;
+    }
+  }
+
+  private async safeUnpinChatMessage(chatId: string, messageId: number): Promise<boolean> {
+    if (!this.api?.unpinChatMessage) {
+      return false;
+    }
+
+    try {
+      await this.api.unpinChatMessage(chatId, messageId);
+      await this.logger.info("telegram message unpinned", { chatId, messageId });
+      return true;
+    } catch (error) {
+      await this.logger.warn("telegram message unpin failed", { chatId, messageId, error: `${error}` });
+      return false;
+    }
+  }
+
+  private async syncCurrentSessionCardForSession(sessionId: string, reason: string): Promise<void> {
+    const session = this.store?.getSessionById(sessionId);
+    if (!session) {
+      return;
+    }
+
+    const activeSession = this.store?.getActiveSession(session.telegramChatId);
+    if (!activeSession || activeSession.sessionId !== sessionId) {
+      return;
+    }
+
+    await this.currentSessionCardController.syncForChat(session.telegramChatId, reason);
+  }
+
+  private async restoreCurrentSessionCardsAtStartup(): Promise<void> {
+    const bindings = this.store?.listChatBindings() ?? [];
+    for (const binding of bindings) {
+      await this.currentSessionCardController.syncForChat(binding.telegramChatId, "startup_restore");
+    }
   }
 
   private async syncTelegramCommands(): Promise<void> {

@@ -21,6 +21,7 @@ Versioned callback families currently emitted by the bridge:
 - `v4` runtime and long-tail UI callbacks: `plan:open|close|page:{answer_id}[:{page}]`, `rt:p|t|s|r|c:{token}[:{value}]`, `lg:s:{zh|en}` and `lg:c`, `in:e|c|p|x:{session_id}[:{page36}]`, `rb:p|k|c|b|x:{session_id}:...`, `pr:i:{answer_id}`
 - `v5` targeted runtime status and project-browser callbacks: `st:i|x:{session_id}`, `br:o|p|u|r|f|b|c:{token}[:{value36}]`
 - `v6` runtime-hub slot selector callbacks: `hb:s:{token}:{version36}:{slot36}`
+- `v7` recent-output entry callbacks: `rr:o|c|p:{answer_id}[:{page36}]`
 
 Rules:
 - `project_key` is a stable short hash of the project path, never the raw path
@@ -33,4 +34,4 @@ Rules:
 - stale callbacks must return a compact expiry notice; generic interaction flows use `这个按钮已过期，请重新操作。`, while surface-specific flows may ask the user to re-send `/browse`, `/runtime`, `/inspect`, or `/rollback`
 - list-based session switching and pinning remain text commands (`/use <n>` and `/pin`); runtime-hub slot selection is a separate bridge-owned callback action
 - interaction callbacks are bridge-owned UX for persisted pending interactions, not raw protocol passthrough
-- rename, model, runtime, language, inspect, rollback, plan-result, and hub-selector callbacks are bridge-owned UI contracts, not raw Codex callback passthrough
+- rename, model, runtime, language, inspect, rollback, plan-result, recent-output, and hub-selector callbacks are bridge-owned UI contracts, not raw Codex callback passthrough

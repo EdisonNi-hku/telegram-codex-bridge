@@ -8,6 +8,7 @@ import type { ActivityStatus, InspectSnapshot } from "../activity/types.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import type { TelegramInlineKeyboardMarkup, TelegramMessage } from "../telegram/api.js";
+import { parseCallbackData } from "../telegram/ui.js";
 import { BridgeStateStore } from "../state/store.js";
 import type { TelegramDeleteResult, TelegramEditResult } from "./runtime-surface-state.js";
 import { RuntimeSurfaceController } from "./runtime-surface-controller.js";
@@ -29,6 +30,7 @@ function createTestPaths(root: string): BridgePaths {
     stateRoot: join(root, "state"),
     configRoot: join(root, "config"),
     logsDir,
+    perfLogsDir: join(logsDir, "perf"),
     telegramSessionFlowLogsDir: join(logsDir, "telegram-session-flow"),
     runtimeDir,
     cacheDir: join(root, "cache"),
@@ -887,12 +889,147 @@ test("RuntimeSurfaceController commits hub focus changes when Telegram reports t
     );
 
     const committedHubState = runtimeHubStates.get("chat-1")?.liveHubs.get(0);
-    assert.equal(sentHtml.length, 1);
+    assert.equal(sentHtml.length, 2);
     assert.equal(editedHtml.length, 1);
     assert.equal(deletedMessages.length, 0);
     assert.equal(committedHubState?.messageId, sentHtml[0]?.messageId ?? 0);
     assert.equal(committedHubState?.visibleState.focusedSessionId, sessionTwo.sessionId);
     assert.equal((committedHubState?.visibleState.callbackVersion ?? 0) > 0, true);
+    assert.match(sentHtml[1]?.html ?? "", /最近输出/u);
+    assert.match(sentHtml[1]?.html ?? "", /该会话还没有最近输出/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RuntimeSurfaceController hub selection sends and replaces a recent-output entry for the selected session", async () => {
+  const activeTurns: unknown[] = [];
+  const { controller, store, sentHtml, callbackAnswers, deletedMessages, cleanup } = await createControllerContext({
+    listActiveTurns: () => activeTurns
+  });
+
+  try {
+    const sessionOne = await store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    const sessionTwo = await store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project Two",
+      projectPath: "/tmp/project-two"
+    });
+    store.renameSession(sessionOne.sessionId, "Session Alpha");
+    store.renameSession(sessionTwo.sessionId, "Session Beta");
+    store.setActiveSession("chat-1", sessionOne.sessionId);
+
+    activeTurns.push(
+      {
+        sessionId: sessionOne.sessionId,
+        chatId: "chat-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        tracker: {
+          getInspectSnapshot: () => createInspectSnapshot(),
+          getStatus: () => createActivityStatus()
+        },
+        statusCard: createStatusCard(),
+        latestStatusProgressText: null,
+        latestPlanFingerprint: "",
+        latestAgentFingerprint: "",
+        subagentIdentityBackfillStates: new Map(),
+        errorCards: [],
+        nextErrorCardId: 1,
+        surfaceQueue: Promise.resolve()
+      },
+      {
+        sessionId: sessionTwo.sessionId,
+        chatId: "chat-1",
+        threadId: "thread-2",
+        turnId: "turn-2",
+        tracker: {
+          getInspectSnapshot: () => createInspectSnapshot(),
+          getStatus: () => createActivityStatus()
+        },
+        statusCard: createStatusCard(),
+        latestStatusProgressText: null,
+        latestPlanFingerprint: "",
+        latestAgentFingerprint: "",
+        subagentIdentityBackfillStates: new Map(),
+        errorCards: [],
+        nextErrorCardId: 1,
+        surfaceQueue: Promise.resolve()
+      }
+    );
+
+    store.saveFinalAnswerView({
+      answerId: "answer-session-1",
+      telegramChatId: "chat-1",
+      sessionId: sessionOne.sessionId,
+      threadId: "thread-1",
+      turnId: "turn-1",
+      previewHtml: "<b>Session Alpha / Project One</b>",
+      pages: ["<b>Session Alpha / Project One</b>\n\nFirst output"]
+    });
+    store.saveFinalAnswerView({
+      answerId: "answer-session-2",
+      telegramChatId: "chat-1",
+      sessionId: sessionTwo.sessionId,
+      threadId: "thread-2",
+      turnId: "turn-2",
+      previewHtml: "<b>Session Beta / Project Two</b>",
+      pages: ["<b>Session Beta / Project Two</b>\n\nSecond output"]
+    });
+
+    await controller.refreshLiveRuntimeHubs("chat-1", "turn_initialized", sessionOne.sessionId, undefined, {
+      forcePreferredFocus: true
+    });
+
+    const runtimeHubStates = (controller as unknown as {
+      runtimeHubStates: Map<string, {
+        liveHubs: Map<number, {
+          token: string;
+          messageId: number;
+          visibleState: { callbackVersion: number };
+        }>;
+      }>;
+    }).runtimeHubStates;
+    const hubState = runtimeHubStates.get("chat-1")?.liveHubs.get(0);
+    assert.ok(hubState);
+
+    await controller.handleHubSelectCallback(
+      "callback-hub-select-1",
+      "chat-1",
+      hubState!.messageId,
+      hubState!.token,
+      hubState!.visibleState.callbackVersion,
+      2
+    );
+
+    assert.equal(callbackAnswers.at(-1), "已切换到会话：Session Beta");
+    assert.equal(sentHtml.length, 2);
+    assert.match(sentHtml[1]?.html ?? "", /最近输出/u);
+    assert.match(sentHtml[1]?.html ?? "", /Session Beta/u);
+    assert.deepEqual(
+      parseCallbackData(
+        ((sentHtml[1]?.replyMarkup as TelegramInlineKeyboardMarkup | undefined)?.inline_keyboard[0]?.[0]?.callback_data) ?? ""
+      ),
+      { kind: "recent_output_open", answerId: "answer-session-2" }
+    );
+
+    await controller.handleHubSelectCallback(
+      "callback-hub-select-2",
+      "chat-1",
+      hubState!.messageId,
+      hubState!.token,
+      (runtimeHubStates.get("chat-1")?.liveHubs.get(0)?.visibleState.callbackVersion) ?? 0,
+      1
+    );
+
+    assert.equal(callbackAnswers.at(-1), "已切换到会话：Session Alpha");
+    assert.equal(sentHtml.length, 3);
+    assert.match(sentHtml[2]?.html ?? "", /Session Alpha/u);
+    assert.deepEqual(deletedMessages, [sentHtml[1]?.messageId ?? 0]);
   } finally {
     await cleanup();
   }

@@ -272,7 +272,10 @@ function buildInstallEnvironment(
     VOICE_INPUT_ENABLED: config.voiceInputEnabled ? "1" : "0",
     VOICE_OPENAI_API_KEY: config.voiceOpenaiApiKey,
     VOICE_OPENAI_TRANSCRIBE_MODEL: config.voiceOpenaiTranscribeModel,
-    VOICE_FFMPEG_BIN: config.voiceFfmpegBin
+    VOICE_FFMPEG_BIN: config.voiceFfmpegBin,
+    PERF_MONITOR_ENABLED: config.perfMonitorEnabled ? "1" : "0",
+    PERF_MONITOR_SAMPLE_INTERVAL_MS: `${config.perfMonitorSampleIntervalMs}`,
+    PERF_MONITOR_RETENTION_DAYS: `${config.perfMonitorRetentionDays}`
   }, installSource);
 }
 
@@ -858,6 +861,9 @@ export async function installBridge(
     voiceOpenaiApiKey?: string;
     voiceOpenaiTranscribeModel?: string;
     voiceFfmpegBin?: string;
+    perfMonitorEnabled?: boolean;
+    perfMonitorSampleIntervalMs?: number;
+    perfMonitorRetentionDays?: number;
   },
   deps: InstallDependencies = {}
 ): Promise<void> {
@@ -895,6 +901,15 @@ export async function installBridge(
   }
   if (overrides.voiceFfmpegBin !== undefined) {
     overrideConfig.voiceFfmpegBin = overrides.voiceFfmpegBin;
+  }
+  if (overrides.perfMonitorEnabled !== undefined) {
+    overrideConfig.perfMonitorEnabled = overrides.perfMonitorEnabled;
+  }
+  if (overrides.perfMonitorSampleIntervalMs !== undefined) {
+    overrideConfig.perfMonitorSampleIntervalMs = overrides.perfMonitorSampleIntervalMs;
+  }
+  if (overrides.perfMonitorRetentionDays !== undefined) {
+    overrideConfig.perfMonitorRetentionDays = overrides.perfMonitorRetentionDays;
   }
 
   const config = withInstallOverrides(await loadConfig(paths), overrideConfig);

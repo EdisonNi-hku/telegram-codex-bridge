@@ -44,6 +44,7 @@ function createTestPaths(root: string): BridgePaths {
     stateRoot: join(root, "state"),
     configRoot: join(root, "config"),
     logsDir,
+    perfLogsDir: join(logsDir, "perf"),
     telegramSessionFlowLogsDir,
     runtimeDir,
     cacheDir: join(root, "cache"),
@@ -848,6 +849,42 @@ test("saveFinalAnswerView keeps only the 50 most recent answers per chat", async
     assert.equal(views.at(-1)?.answerId, "answer-5");
     assert.equal(store.getFinalAnswerView("answer-0", "chat-final-answer-limit"), null);
     assert.equal(store.getFinalAnswerView("answer-54", "chat-final-answer-limit")?.telegramMessageId, 1054);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("current session card records persist across reopen and can be removed", async () => {
+  const { paths, store, cleanup } = await openStore();
+
+  try {
+    store.upsertCurrentSessionCard({
+      telegramChatId: "chat-card",
+      telegramMessageId: 321,
+      sessionId: "session-card"
+    });
+
+    const saved = store.getCurrentSessionCard("chat-card");
+    assert.ok(saved);
+    assert.equal(saved.telegramChatId, "chat-card");
+    assert.equal(saved.telegramMessageId, 321);
+    assert.equal(saved.sessionId, "session-card");
+
+    store.close();
+
+    const reopened = await BridgeStateStore.open(paths, testLogger);
+    try {
+      const restored = reopened.getCurrentSessionCard("chat-card");
+      assert.ok(restored);
+      assert.equal(restored.telegramChatId, "chat-card");
+      assert.equal(restored.telegramMessageId, 321);
+      assert.equal(restored.sessionId, "session-card");
+
+      reopened.deleteCurrentSessionCard("chat-card");
+      assert.equal(reopened.getCurrentSessionCard("chat-card"), null);
+    } finally {
+      reopened.close();
+    }
   } finally {
     await cleanup();
   }

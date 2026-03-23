@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -43,6 +44,7 @@ async function writeCurlStub(binDir: string): Promise<void> {
 test("TelegramApi surfaces curl transport failures before JSON parsing", async () => {
   const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-test-"));
   const binDir = join(root, "bin");
+  const operations: unknown[] = [];
 
   try {
     await mkdir(binDir, { recursive: true });
@@ -58,7 +60,13 @@ test("TelegramApi surfaces curl transport failures before JSON parsing", async (
         HTTPS_PROXY: "http://proxy.internal:8080"
       },
       async () => {
-        const api = new TelegramApi("test-token", "https://api.telegram.org");
+        const api = new TelegramApi("test-token", "https://api.telegram.org", {
+          performanceRecorder: {
+            recordOperation: async (event: unknown) => {
+              operations.push(event);
+            }
+          }
+        } as any);
 
         await assert.rejects(api.getMe(), (error: unknown) => {
           const message = String(error);
@@ -66,9 +74,104 @@ test("TelegramApi surfaces curl transport failures before JSON parsing", async (
           assert.doesNotMatch(message, /Unexpected end of JSON input/u);
           return true;
         });
+
+        assert.equal(operations.length, 1);
+        assert.match(JSON.stringify(operations[0]), /"category":"telegram_api"/u);
+        assert.match(JSON.stringify(operations[0]), /"name":"getMe"/u);
+        assert.match(JSON.stringify(operations[0]), /"outcome":"error"/u);
       }
     );
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TelegramApi sends pin and unpin requests with the expected payload", async () => {
+  const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+  const server = createServer(async (req, res) => {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+
+    const bodyText = Buffer.concat(chunks).toString("utf8");
+    requests.push({
+      method: req.url?.split("/").pop() ?? "",
+      body: JSON.parse(bodyText)
+    });
+
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, result: true }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  try {
+    const api = new TelegramApi("test-token", `http://127.0.0.1:${address.port}`);
+
+    await api.pinChatMessage("chat-1", 123, { disableNotification: true });
+    await api.unpinChatMessage("chat-1", 123);
+
+    assert.deepEqual(requests, [
+      {
+        method: "pinChatMessage",
+        body: {
+          chat_id: "chat-1",
+          message_id: 123,
+          disable_notification: true
+        }
+      },
+      {
+        method: "unpinChatMessage",
+        body: {
+          chat_id: "chat-1",
+          message_id: 123
+        }
+      }
+    ]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
+test("TelegramApi records successful fetch operations", async () => {
+  const operations: unknown[] = [];
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      result: {
+        id: 1,
+        is_bot: true,
+        first_name: "BridgeBot"
+      }
+    })
+  })) as unknown as typeof fetch;
+
+  try {
+    const api = new TelegramApi("test-token", "https://api.telegram.org", {
+      performanceRecorder: {
+        recordOperation: async (event: unknown) => {
+          operations.push(event);
+        }
+      }
+    } as any);
+
+    const user = await api.getMe();
+
+    assert.equal(user.id, 1);
+    assert.equal(operations.length, 1);
+    assert.match(JSON.stringify(operations[0]), /"category":"telegram_api"/u);
+    assert.match(JSON.stringify(operations[0]), /"name":"getMe"/u);
+    assert.match(JSON.stringify(operations[0]), /"transport":"fetch"/u);
+    assert.match(JSON.stringify(operations[0]), /"outcome":"ok"/u);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });

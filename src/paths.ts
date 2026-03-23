@@ -20,6 +20,7 @@ export interface BridgePaths {
   stateRoot: string;
   configRoot: string;
   logsDir: string;
+  perfLogsDir: string;
   telegramSessionFlowLogsDir: string;
   runtimeDir: string;
   cacheDir: string;
@@ -67,6 +68,7 @@ export function getBridgePaths(
     ? join(getWindowsRoamingAppData(homeDir, env), "codex-telegram-bridge")
     : join(homeDir, ".config", "codex-telegram-bridge");
   const logsDir = join(stateRoot, "logs");
+  const perfLogsDir = join(logsDir, "perf");
   const telegramSessionFlowLogsDir = join(logsDir, "telegram-session-flow");
   const runtimeDir = join(stateRoot, "runtime");
   const cacheDir = join(stateRoot, "cache");
@@ -79,6 +81,7 @@ export function getBridgePaths(
     stateRoot,
     configRoot,
     logsDir,
+    perfLogsDir,
     telegramSessionFlowLogsDir,
     runtimeDir,
     cacheDir,
@@ -115,6 +118,7 @@ export async function ensureBridgeDirectories(paths: BridgePaths): Promise<void>
     mkdir(paths.stateRoot, { recursive: true }),
     mkdir(paths.configRoot, { recursive: true }),
     mkdir(paths.logsDir, { recursive: true }),
+    mkdir(paths.perfLogsDir, { recursive: true }),
     mkdir(paths.telegramSessionFlowLogsDir, { recursive: true }),
     mkdir(paths.cacheDir, { recursive: true }),
     mkdir(getDebugRuntimeDir(paths.runtimeDir), { recursive: true }),

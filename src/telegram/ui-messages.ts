@@ -3,7 +3,8 @@ import type {
   ProjectPickerResult,
   ReasoningEffort,
   ReadinessSnapshot,
-  SessionRow
+  SessionRow,
+  UiLanguage
 } from "../types.js";
 import { truncateText } from "../util/text.js";
 import type { TelegramInlineKeyboardMarkup } from "./api.js";
@@ -33,6 +34,14 @@ import {
 
 function displayProjectName(projectName: string, projectAlias: string | null | undefined): string {
   return projectAlias?.trim() || projectName;
+}
+
+function buildSessionProjectContextBlock(title: string, sessionName: string, projectName: string): string {
+  return [
+    formatHtmlHeading(title),
+    formatHtmlField("会话名：", sessionName),
+    formatHtmlField("项目：", projectName)
+  ].join("\n");
 }
 
 function buildProjectBadgeLabels(candidate: ProjectCandidate): string[] {
@@ -295,6 +304,26 @@ export function buildWhereText(session: SessionRow | null): string {
   return lines.join("\n");
 }
 
+export function buildCurrentSessionCardText(session: SessionRow, language: UiLanguage): string {
+  const projectName = displayProjectName(session.projectName, session.projectAlias);
+
+  if (language === "en") {
+    return [
+      formatHtmlHeading("Current Session"),
+      formatHtmlField("Session:", session.displayName),
+      formatHtmlField("Project:", projectName),
+      "Use /sessions, /use, or /where to inspect or switch."
+    ].join("\n");
+  }
+
+  return [
+    formatHtmlHeading("当前会话"),
+    formatHtmlField("会话名：", session.displayName),
+    formatHtmlField("项目：", projectName),
+    "使用 /sessions、/use 或 /where 查看和切换。"
+  ].join("\n");
+}
+
 export function buildSessionsText(options: {
   sessions: SessionRow[];
   activeSessionId: string | null;
@@ -334,19 +363,27 @@ export function buildSessionCreatedText(sessionName: string, projectPath: string
   ].join("\n");
 }
 
-export function buildSessionSwitchedText(projectName: string): string {
-  return formatHtmlField("已切换到项目：", projectName);
+export function buildSessionSwitchedText(sessionName: string, projectName: string): string {
+  return buildSessionProjectContextBlock("已切换会话", sessionName, projectName);
 }
 
 export function buildArchiveSuccessText(
-  projectName: string,
+  session: {
+    displayName: string;
+    projectName: string;
+    projectAlias?: string | null;
+  },
   nextActiveSession?: {
     displayName: string;
     projectName: string;
     projectAlias?: string | null;
   } | null
 ): string {
-  const lines = [formatHtmlField("已归档当前会话：", projectName)];
+  const lines = [
+    formatHtmlHeading("已归档会话"),
+    formatHtmlField("会话名：", session.displayName),
+    formatHtmlField("项目：", displayProjectName(session.projectName, session.projectAlias ?? null))
+  ];
   if (nextActiveSession) {
     lines.push(formatHtmlField("当前会话：", nextActiveSession.displayName));
     lines.push(
@@ -362,8 +399,8 @@ export function buildArchiveSuccessText(
   return lines.join("\n");
 }
 
-export function buildUnarchiveSuccessText(projectName: string): string {
-  return formatHtmlField("已恢复会话：", projectName);
+export function buildUnarchiveSuccessText(sessionName: string, projectName: string): string {
+  return buildSessionProjectContextBlock("已恢复会话", sessionName, projectName);
 }
 
 export function buildSessionRenamedText(name: string): string {

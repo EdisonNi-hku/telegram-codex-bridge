@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import type { InspectSnapshot } from "../activity/types.js";
 import type { ProjectCandidate, ReadinessSnapshot, SessionRow } from "../types.js";
 import {
+  buildArchiveSuccessText,
   buildInteractionApprovalCard,
   buildInteractionExpiredCard,
   buildInteractionQuestionCard,
@@ -24,6 +25,8 @@ import {
   buildRuntimePreferencesAppliedMessage,
   buildRuntimePreferencesMessage,
   buildSessionCreatedText,
+  buildSessionSwitchedText,
+  buildUnarchiveSuccessText,
   buildWhereText,
   buildStatusText,
   buildInspectViewMessage,
@@ -33,6 +36,7 @@ import {
   buildRuntimeStatusCard,
   buildSessionsText,
   buildCollapsibleFinalAnswerView,
+  buildCurrentSessionCardText,
   parseCallbackData,
   renderFinalAnswerHtmlChunks
 } from "./ui.js";
@@ -344,6 +348,47 @@ test("buildWhereText explains when the Codex thread has not been created yet", (
   );
 });
 
+test("buildCurrentSessionCardText renders a compact Chinese current-session card", () => {
+  const text = buildCurrentSessionCardText(
+    createSession({
+      displayName: "Session <Alpha>",
+      projectName: "Project & One",
+      projectAlias: "Alias & One"
+    }),
+    "zh"
+  );
+
+  assert.equal(
+    text,
+    [
+      "<b>当前会话</b>",
+      "<b>会话名：</b> Session &lt;Alpha&gt;",
+      "<b>项目：</b> Alias &amp; One",
+      "使用 /sessions、/use 或 /where 查看和切换。"
+    ].join("\n")
+  );
+});
+
+test("buildCurrentSessionCardText renders the English current-session card", () => {
+  const text = buildCurrentSessionCardText(
+    createSession({
+      displayName: "Session <Alpha>",
+      projectName: "Project & One"
+    }),
+    "en"
+  );
+
+  assert.equal(
+    text,
+    [
+      "<b>Current Session</b>",
+      "<b>Session:</b> Session &lt;Alpha&gt;",
+      "<b>Project:</b> Project &amp; One",
+      "Use /sessions, /use, or /where to inspect or switch."
+    ].join("\n")
+  );
+});
+
 test("buildManualPathConfirmMessage renders bold field labels and keeps the keyboard", () => {
   const rendered = buildManualPathConfirmMessage(
     createProjectCandidate({
@@ -379,6 +424,48 @@ test("project creation and alias replies render bold field labels", () => {
   );
   assert.equal(buildProjectAliasRenamedText("Alias & One"), "<b>当前项目别名已更新为：</b> Alias &amp; One");
   assert.equal(buildProjectAliasClearedText("Project & One"), "<b>已清除项目别名：</b> Project &amp; One");
+});
+
+test("session management replies render explicit session and project context", () => {
+  assert.equal(
+    (buildSessionSwitchedText as any)("Session & One", "Project & One"),
+    [
+      "<b>已切换会话</b>",
+      "<b>会话名：</b> Session &amp; One",
+      "<b>项目：</b> Project &amp; One"
+    ].join("\n")
+  );
+
+  assert.equal(
+    (buildArchiveSuccessText as any)(
+      {
+        displayName: "Session & One",
+        projectName: "Project & One",
+        projectAlias: null
+      },
+      {
+        displayName: "Session Two",
+        projectName: "Project Two",
+        projectAlias: "Alias Two"
+      }
+    ),
+    [
+      "<b>已归档会话</b>",
+      "<b>会话名：</b> Session &amp; One",
+      "<b>项目：</b> Project &amp; One",
+      "<b>当前会话：</b> Session Two",
+      "<b>当前项目：</b> Alias Two"
+    ].join("\n")
+  );
+
+  assert.equal(
+    (buildUnarchiveSuccessText as any)("Session & One", "Project & One"),
+    [
+      "<b>已恢复会话</b>",
+      "<b>会话名：</b> Session &amp; One",
+      "<b>项目：</b> Project &amp; One"
+    ].join("\n")
+  );
 });
 
 test("buildProjectPickerMessage renders grouped candidates with path hints", () => {
@@ -1456,6 +1543,19 @@ test("parseCallbackData understands compact and legacy v3 interaction callbacks"
   assert.deepEqual(parseCallbackData("v5:br:c:tok123"), {
     kind: "browse_close",
     token: "tok123"
+  });
+  assert.deepEqual(parseCallbackData("v7:rr:o:answer-1"), {
+    kind: "recent_output_open",
+    answerId: "answer-1"
+  });
+  assert.deepEqual(parseCallbackData("v7:rr:c:answer-1"), {
+    kind: "recent_output_close",
+    answerId: "answer-1"
+  });
+  assert.deepEqual(parseCallbackData("v7:rr:p:answer-1:2"), {
+    kind: "recent_output_page",
+    answerId: "answer-1",
+    page: 2
   });
 });
 

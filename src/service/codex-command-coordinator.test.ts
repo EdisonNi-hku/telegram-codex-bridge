@@ -27,6 +27,7 @@ function createTestPaths(root: string): BridgePaths {
     stateRoot: join(root, "state"),
     configRoot: join(root, "config"),
     logsDir,
+    perfLogsDir: join(logsDir, "perf"),
     telegramSessionFlowLogsDir: join(logsDir, "telegram-session-flow"),
     runtimeDir,
     cacheDir: join(root, "cache"),
@@ -214,7 +215,9 @@ test("CodexCommandCoordinator lists skills and turns /skill into structured inpu
     await coordinator.handleSkills("1");
     await coordinator.handleSkill("1", "deploy :: ship it");
 
-    assert.match(sentMessages[0] ?? "", /当前项目可用技能/u);
+    assert.match(sentMessages[0] ?? "", /当前会话：Project One/u);
+    assert.match(sentMessages[0] ?? "", /当前项目：Project One/u);
+    assert.match(sentMessages[0] ?? "", /可用技能/u);
     assert.match(sentMessages[0] ?? "", /\[启用\] deploy \| Deploy the current project/u);
     assert.deepEqual(submittedInputs, [{
       chatId: "1",
@@ -258,7 +261,7 @@ test("CodexCommandCoordinator owns model picker selection and persists the chose
     assert.match(sentMessages[0] ?? "", /选择模型/u);
     assert.equal(store.getActiveSession("1")?.selectedModel, "gpt-4.1");
     assert.equal(store.getActiveSession("1")?.selectedReasoningEffort, null);
-    assert.match(editedMessages.at(-1)?.text ?? "", /已设置当前会话模型：gpt-4.1 \+ 默认/u);
+    assert.match(editedMessages.at(-1)?.text ?? "", /已为会话「Project One」设置模型：gpt-4.1 \+ 默认/u);
     assert.deepEqual(answeredCallbackQueries, [{ callbackQueryId: "cb-model" }]);
   } finally {
     await cleanup();
@@ -324,7 +327,9 @@ test("CodexCommandCoordinator lists plugins and handles install and uninstall fl
     await coordinator.handlePlugin("1", "install repo-market/deploy");
     await coordinator.handlePlugin("1", "uninstall repo.logs");
 
-    assert.match(sentMessages[0] ?? "", /当前项目可用插件/u);
+    assert.match(sentMessages[0] ?? "", /当前会话：Project One/u);
+    assert.match(sentMessages[0] ?? "", /当前项目：Project One/u);
+    assert.match(sentMessages[0] ?? "", /可用插件/u);
     assert.match(sentMessages[0] ?? "", /\[已安装\]\[启用\] repo\.logs \| Logs/u);
     assert.match(sentMessages[0] ?? "", /repo-market\/deploy/u);
     assert.deepEqual(installCalls, [{
@@ -332,9 +337,9 @@ test("CodexCommandCoordinator lists plugins and handles install and uninstall fl
       pluginName: "deploy"
     }]);
     assert.deepEqual(uninstallCalls, ["repo.logs"]);
-    assert.match(sentMessages[1] ?? "", /已安装插件：deploy/u);
+    assert.match(sentMessages[1] ?? "", /已为项目「Project One」安装插件：deploy/u);
     assert.match(sentMessages[1] ?? "", /Slack/u);
-    assert.match(sentMessages[2] ?? "", /已卸载插件：repo\.logs/u);
+    assert.match(sentMessages[2] ?? "", /已为项目「Project One」卸载插件：repo\.logs/u);
   } finally {
     await cleanup();
   }
@@ -410,7 +415,7 @@ test("CodexCommandCoordinator direct rollback updates session head and clears re
     assert.deepEqual(clearedRecentActivity, [session.sessionId]);
     assert.equal(store.getSessionById(session.sessionId)?.lastTurnId, "turn-after-rollback");
     assert.equal(store.getSessionById(session.sessionId)?.lastTurnStatus, "completed");
-    assert.match(sentMessages.at(-1) ?? "", /已回滚最近 1 个 turn/u);
+    assert.match(sentMessages.at(-1) ?? "", /已为会话「Project One」回滚最近 1 个 turn/u);
   } finally {
     await cleanup();
   }
