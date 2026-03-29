@@ -175,6 +175,111 @@ test("CurrentSessionCardController edits the existing card in place when possibl
   }
 });
 
+test("CurrentSessionCardController recreates the card on session switch to re-anchor the current session surface", async () => {
+  const { controller, store, sent, edited, deleted, pinned, unpinned, cleanup } = await createControllerContext();
+
+  try {
+    authorizeChat(store, "chat-1");
+    const previousSession = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project Zero",
+      projectPath: "/tmp/project-zero",
+      displayName: "Session Zero"
+    });
+    const session = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+    store.setActiveSession("chat-1", session.sessionId);
+    store.upsertCurrentSessionCard({
+      telegramChatId: "chat-1",
+      telegramMessageId: 812,
+      sessionId: previousSession.sessionId
+    });
+
+    await controller.syncForChat("chat-1", "session_switched");
+
+    assert.deepEqual(edited, []);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 700 }]);
+    assert.deepEqual(unpinned, [{ chatId: "chat-1", messageId: 812 }]);
+    assert.deepEqual(deleted, [{ chatId: "chat-1", messageId: 812 }]);
+    assert.equal(store.getCurrentSessionCard("chat-1")?.telegramMessageId, 700);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("CurrentSessionCardController recreates the card on startup restore to avoid reusing a stale pinned surface", async () => {
+  const { controller, store, sent, edited, deleted, pinned, unpinned, cleanup } = await createControllerContext();
+
+  try {
+    authorizeChat(store, "chat-1");
+    const session = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+    store.setActiveSession("chat-1", session.sessionId);
+    store.upsertCurrentSessionCard({
+      telegramChatId: "chat-1",
+      telegramMessageId: 812,
+      sessionId: session.sessionId
+    });
+
+    await controller.syncForChat("chat-1", "startup_restore");
+
+    assert.deepEqual(edited, []);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 700 }]);
+    assert.deepEqual(unpinned, [{ chatId: "chat-1", messageId: 812 }]);
+    assert.deepEqual(deleted, [{ chatId: "chat-1", messageId: 812 }]);
+    assert.equal(store.getCurrentSessionCard("chat-1")?.telegramMessageId, 700);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("CurrentSessionCardController recreates the card when a new session becomes current", async () => {
+  const { controller, store, sent, edited, deleted, pinned, unpinned, cleanup } = await createControllerContext();
+
+  try {
+    authorizeChat(store, "chat-1");
+    const previousSession = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project Zero",
+      projectPath: "/tmp/project-zero",
+      displayName: "Session Zero"
+    });
+    const session = store.createSession({
+      telegramChatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+    store.setActiveSession("chat-1", session.sessionId);
+    store.upsertCurrentSessionCard({
+      telegramChatId: "chat-1",
+      telegramMessageId: 812,
+      sessionId: previousSession.sessionId
+    });
+
+    await controller.syncForChat("chat-1", "session_created");
+
+    assert.deepEqual(edited, []);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 700 }]);
+    assert.deepEqual(unpinned, [{ chatId: "chat-1", messageId: 812 }]);
+    assert.deepEqual(deleted, [{ chatId: "chat-1", messageId: 812 }]);
+    assert.equal(store.getCurrentSessionCard("chat-1")?.telegramMessageId, 700);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("CurrentSessionCardController replaces and cleans up the old card when edit fails", async () => {
   const {
     controller,

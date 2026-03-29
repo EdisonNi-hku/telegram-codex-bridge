@@ -632,6 +632,10 @@ export class BridgeService {
       return;
     }
 
+    if (message.from.is_bot) {
+      return;
+    }
+
     const authResult = await this.authorizeMessageSender(message);
     if (!authResult.authorized) {
       return;

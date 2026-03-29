@@ -141,6 +141,22 @@ Avoid these mistakes:
 - mixing intended behavior, observed behavior, and future intent into one unsupported answer
 - answering multi-platform architecture questions from current Telegram implementation alone without checking `docs/future/multi-platform-core-prd.md`
 
+## User-Facing Output Contract
+
+This section only constrains the final user-visible wording.
+It must not change retrieval, planning, verification, editing, or testing behavior.
+
+Unless the user explicitly asks for sources or exact file locations, do **not** put in the final reply:
+
+- `docs/...` or `src/...` paths
+- markdown links to local repo files
+- directory trees or file inventories
+- AGENTS routing steps or retrieval breadcrumbs
+- doc citation lists when plain-language synthesis is enough
+
+Prefer a plain-language answer.
+If file paths appear in a draft, remove them unless they are strictly necessary to resolve a real conflict or make an edit.
+
 ## Final Reminder
 
 Default traversal for this repo is:

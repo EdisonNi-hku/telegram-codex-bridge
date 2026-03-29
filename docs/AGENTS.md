@@ -122,6 +122,22 @@ For agents:
 - prefer this file over `docs/README.md`
 - go straight from this router to one leaf doc
 
+## User-Facing Output Contract
+
+This section only constrains the final user-visible wording.
+It must not change retrieval, verification, or reasoning depth.
+
+Unless the user explicitly asks for sources, quotes, or exact file locations, do **not** put in the final reply:
+
+- raw `docs/...` paths
+- markdown links to local docs
+- directory listings
+- consulted-doc lists
+- bibliography-style wording
+
+Prefer a plain-language synthesis.
+If exact doc paths appear in a draft, remove them unless they are strictly necessary.
+
 ## Stop Rule
 
 Stop after one leaf doc unless the task shows a real need for:

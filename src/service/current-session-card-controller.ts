@@ -44,8 +44,9 @@ export class CurrentSessionCardController {
 
     const html = buildCurrentSessionCardText(activeSession, this.deps.getUiLanguage());
     let nextMessageId = existingMessageId;
+    const shouldRecreate = this.shouldRecreateCard(existing?.sessionId ?? null, activeSession.sessionId, reason);
 
-    if (existingMessageId && existingMessageId > 0) {
+    if (existingMessageId && existingMessageId > 0 && !shouldRecreate) {
       const result = await this.deps.safeEditHtmlMessageText(chatId, existingMessageId, html);
       if (isTelegramEditCommitted(result)) {
         nextMessageId = existingMessageId;
@@ -75,5 +76,17 @@ export class CurrentSessionCardController {
       await this.deps.safeUnpinChatMessage(chatId, existingMessageId);
       await this.deps.safeDeleteMessage(chatId, existingMessageId);
     }
+  }
+
+  private shouldRecreateCard(
+    existingSessionId: string | null,
+    activeSessionId: string,
+    reason: string
+  ): boolean {
+    if (reason === "startup_restore") {
+      return true;
+    }
+
+    return existingSessionId !== null && existingSessionId !== activeSessionId;
   }
 }

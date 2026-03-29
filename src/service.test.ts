@@ -749,6 +749,41 @@ test("service startup restores and pins the current session card for the active 
   }
 });
 
+test("bot-authored private service messages do not trigger unauthorized replies", async () => {
+  const sent: Array<{ chatId: string; text: string }> = [];
+  const { service, store, cleanup } = await createServiceContext();
+
+  try {
+    authorizeChat(store, "1");
+    (service as any).api = {
+      sendMessage: async (chatId: string, text: string) => {
+        sent.push({ chatId, text });
+        return createFakeTelegramMessage(1800 + sent.length, text);
+      }
+    };
+
+    await (service as any).handleMessage({
+      message_id: 901,
+      from: {
+        id: 999,
+        is_bot: true,
+        first_name: "Bridge Bot",
+        username: "bridge_bot"
+      },
+      chat: {
+        id: 1,
+        type: "private"
+      },
+      date: 0,
+      pinned_message: createFakeTelegramMessage(700, "Pinned session card")
+    });
+
+    assert.deepEqual(sent, []);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("service starts and stops perf sampling when monitoring is enabled", async () => {
   const samplerCalls: string[] = [];
   const samplerOptions: Array<{ getAppServerPid: () => number | null }> = [];
@@ -5040,17 +5075,19 @@ test("use command leaves the existing runtime hub in place when another session 
     const idleSessionIndex = store.listSessions("chat-1").findIndex((entry) => entry.sessionId === idleSession.sessionId) + 1;
     await (service as any).routeCommand("chat-1", "use", `${idleSessionIndex}`);
 
+    assert.equal(sent[1]?.text, "Project Idle / Project Idle\n空闲 · 默认模型 + 默认");
     assert.equal(sent[1]?.parseMode, "HTML");
     assert.equal(
-      sent[1]?.text,
+      sent[2]?.text,
       [
         "<b>已切换会话</b>",
         "<b>会话名：</b> Project Idle",
         "<b>项目：</b> Project Idle"
       ].join("\n")
     );
-    assert.equal(sent.length, 2);
-    assert.deepEqual(deleted, []);
+    assert.equal(sent[2]?.parseMode, "HTML");
+    assert.equal(sent.length, 3);
+    assert.deepEqual(deleted, [7001]);
     assert.equal(store.getActiveSession("chat-1")?.sessionId, idleSession.sessionId);
     assert.equal(store.getSessionById(runningSession.sessionId)?.status, "running");
     assert.equal((service as any).activeTurn?.statusCard.messageId, initialStatusMessageId);
@@ -5107,17 +5144,19 @@ test("use command does not reanchor a background running session after it become
     const runningSessionIndex = store.listSessions("chat-1").findIndex((entry) => entry.sessionId === runningSession.sessionId) + 1;
     await (service as any).routeCommand("chat-1", "use", `${runningSessionIndex}`);
 
+    assert.equal(sent[1]?.text, "Project One / Project One\n执行中 · 默认模型 + 默认");
     assert.equal(sent[1]?.parseMode, "HTML");
     assert.equal(
-      sent[1]?.text,
+      sent[2]?.text,
       [
         "<b>已切换会话</b>",
         "<b>会话名：</b> Project One",
         "<b>项目：</b> Project One"
       ].join("\n")
     );
-    assert.equal(sent.length, 2);
-    assert.deepEqual(deleted, []);
+    assert.equal(sent[2]?.parseMode, "HTML");
+    assert.equal(sent.length, 3);
+    assert.deepEqual(deleted, [7002]);
     assert.equal(store.getActiveSession("chat-1")?.sessionId, runningSession.sessionId);
     assert.equal(
       (service as any).turnCoordinator.getActiveTurnBySessionId(runningSession.sessionId)?.statusCard.messageId,
