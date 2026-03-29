@@ -275,7 +275,12 @@ function buildInstallEnvironment(
     VOICE_FFMPEG_BIN: config.voiceFfmpegBin,
     PERF_MONITOR_ENABLED: config.perfMonitorEnabled ? "1" : "0",
     PERF_MONITOR_SAMPLE_INTERVAL_MS: `${config.perfMonitorSampleIntervalMs}`,
-    PERF_MONITOR_RETENTION_DAYS: `${config.perfMonitorRetentionDays}`
+    PERF_MONITOR_RETENTION_DAYS: `${config.perfMonitorRetentionDays}`,
+    APP_SERVER_GUARD_ENABLED: config.appServerGuardEnabled ? "1" : "0",
+    APP_SERVER_GUARD_SAMPLE_INTERVAL_MS: `${config.appServerGuardSampleIntervalMs ?? 30_000}`,
+    APP_SERVER_GUARD_MCP_WORKER_THRESHOLD: `${config.appServerGuardMcpWorkerThreshold ?? 6}`,
+    APP_SERVER_GUARD_CONSECUTIVE_WINDOWS: `${config.appServerGuardConsecutiveWindows ?? 3}`,
+    APP_SERVER_GUARD_COOLDOWN_MS: `${config.appServerGuardCooldownMs ?? 900_000}`
   }, installSource);
 }
 
@@ -864,6 +869,11 @@ export async function installBridge(
     perfMonitorEnabled?: boolean;
     perfMonitorSampleIntervalMs?: number;
     perfMonitorRetentionDays?: number;
+    appServerGuardEnabled?: boolean;
+    appServerGuardSampleIntervalMs?: number;
+    appServerGuardMcpWorkerThreshold?: number;
+    appServerGuardConsecutiveWindows?: number;
+    appServerGuardCooldownMs?: number;
   },
   deps: InstallDependencies = {}
 ): Promise<void> {
@@ -910,6 +920,21 @@ export async function installBridge(
   }
   if (overrides.perfMonitorRetentionDays !== undefined) {
     overrideConfig.perfMonitorRetentionDays = overrides.perfMonitorRetentionDays;
+  }
+  if (overrides.appServerGuardEnabled !== undefined) {
+    overrideConfig.appServerGuardEnabled = overrides.appServerGuardEnabled;
+  }
+  if (overrides.appServerGuardSampleIntervalMs !== undefined) {
+    overrideConfig.appServerGuardSampleIntervalMs = overrides.appServerGuardSampleIntervalMs;
+  }
+  if (overrides.appServerGuardMcpWorkerThreshold !== undefined) {
+    overrideConfig.appServerGuardMcpWorkerThreshold = overrides.appServerGuardMcpWorkerThreshold;
+  }
+  if (overrides.appServerGuardConsecutiveWindows !== undefined) {
+    overrideConfig.appServerGuardConsecutiveWindows = overrides.appServerGuardConsecutiveWindows;
+  }
+  if (overrides.appServerGuardCooldownMs !== undefined) {
+    overrideConfig.appServerGuardCooldownMs = overrides.appServerGuardCooldownMs;
   }
 
   const config = withInstallOverrides(await loadConfig(paths), overrideConfig);

@@ -24,6 +24,7 @@ import { RuntimeNoticeBroadcaster } from "./service/runtime-notice-broadcaster.j
 import { RuntimeSurfaceController } from "./service/runtime-surface-controller.js";
 import { RuntimeSurfaceTraceSink } from "./service/runtime-surface-trace-sink.js";
 import { SessionProjectCoordinator } from "./service/session-project-coordinator.js";
+import { AppServerHealthGuard, type AppServerHealthGuardLike } from "./service/app-server-health-guard.js";
 import { SubagentIdentityBackfiller } from "./service/subagent-identity-backfiller.js";
 import {
   ThreadArchiveReconciler,
@@ -129,6 +130,7 @@ interface BridgeServiceDependencies {
   ) => TelegramPoller;
   createPerformanceRecorder?: () => PerformanceRecorder;
   createPerformanceSampler?: (options: PerformanceSamplerOptions) => PerformanceSamplerLike;
+  createAppServerHealthGuard?: () => AppServerHealthGuardLike;
   sleep?: (delayMs: number) => Promise<void>;
 }
 
@@ -188,6 +190,7 @@ export class BridgeService {
   private performanceJournal: PerformanceJournal | null = null;
   private performanceRecorder: PerformanceRecorder = noopPerformanceRecorder;
   private performanceSampler: PerformanceSamplerLike | null = null;
+  private appServerHealthGuard: AppServerHealthGuardLike | null = null;
   private readonly unauthorizedReplyAt = new Map<string, number>();
   private stopping = false;
 
@@ -558,6 +561,9 @@ export class BridgeService {
 
     this.performanceSampler = this.createPerformanceSampler();
     this.performanceSampler?.start();
+    this.appServerHealthGuard?.stop();
+    this.appServerHealthGuard = this.createAppServerHealthGuard();
+    this.appServerHealthGuard?.start();
     await this.syncTelegramCommands();
     await this.restoreCurrentSessionCardsAtStartup();
     await this.logger.info("bridge service started", { readiness: snapshot.state });
@@ -598,6 +604,8 @@ export class BridgeService {
     this.stopping = true;
     this.performanceSampler?.stop();
     this.performanceSampler = null;
+    this.appServerHealthGuard?.stop();
+    this.appServerHealthGuard = null;
     this.poller?.stop();
     this.threadArchiveReconciler.clear();
     this.runtimeSurfaceController.disposeAllRuntimeHubs();
@@ -2080,6 +2088,33 @@ export class BridgeService {
     this.activateAppServer(client);
   }
 
+  private async recycleAppServerForHealthGuard(): Promise<void> {
+    if (this.stopping) {
+      return;
+    }
+
+    const existing = this.appServer;
+    if (!existing?.isRunning) {
+      return;
+    }
+
+    await this.logger.warn("health guard recycling app-server", {
+      pid: existing.pid ?? null
+    });
+
+    await existing.stop().catch(async (error) => {
+      await this.logger.warn("health guard failed to stop app-server before recycle", {
+        error: `${error}`,
+        pid: existing.pid ?? null
+      });
+    });
+    this.appServer = null;
+
+    const replacement = this.createAppServerClient();
+    await replacement.initializeAndProbe();
+    this.activateAppServer(replacement);
+  }
+
   private createAppServerClient(): CodexAppServerClient {
     return new CodexAppServerClient(
       this.config.codexBin,
@@ -2207,6 +2242,46 @@ export class BridgeService {
     } satisfies PerformanceSamplerOptions;
 
     return this.deps.createPerformanceSampler?.(baseOptions) ?? new PerformanceSampler(baseOptions);
+  }
+
+  private createAppServerHealthGuard(): AppServerHealthGuardLike | null {
+    if (!(this.config.appServerGuardEnabled ?? true)) {
+      return null;
+    }
+
+    if (this.deps.createAppServerHealthGuard) {
+      return this.deps.createAppServerHealthGuard();
+    }
+
+    return new AppServerHealthGuard({
+      platform: process.platform,
+      enabled: this.config.appServerGuardEnabled ?? true,
+      sampleIntervalMs: this.config.appServerGuardSampleIntervalMs ?? 30_000,
+      mcpWorkerThreshold: this.config.appServerGuardMcpWorkerThreshold ?? 6,
+      consecutiveWindows: this.config.appServerGuardConsecutiveWindows ?? 3,
+      cooldownMs: this.config.appServerGuardCooldownMs ?? 900_000,
+      logger: {
+        info: async (message, meta) => this.logger.info(message, meta),
+        warn: async (message, meta) => this.logger.warn(message, meta)
+      },
+      getAppServerPid: () => this.appServer?.pid ?? null,
+      canRecycleNow: () =>
+        this.listActiveTurns().length === 0
+        && (this.store?.listPendingInteractionsForRunningSessions().length ?? 0) === 0,
+      recycleAppServer: async () => this.recycleAppServerForHealthGuard(),
+      onSample: async (sample) => {
+        await this.performanceRecorder.recordSample({
+          target: "app_server_guard",
+          pid: sample.pid,
+          sampleIntervalMs: this.config.appServerGuardSampleIntervalMs ?? 30_000,
+          cpuCorePct: 0,
+          rssBytes: 0,
+          uptimeSec: 0,
+          mcpWorkerCount: sample.mcpWorkerCount,
+          appServerSubtreeRssBytes: sample.subtreeRssBytes
+        });
+      }
+    });
   }
 
   private async appendInteractionCreatedJournal(row: PendingInteractionRow): Promise<void> {

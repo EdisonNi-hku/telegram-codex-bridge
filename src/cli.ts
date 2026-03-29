@@ -61,7 +61,7 @@ function parseBooleanFlag(value: string | boolean | undefined): boolean | undefi
 
 function printUsage(): void {
   process.stdout.write(`Usage:
-  ctb install --telegram-token <token> [--codex-bin <bin>] [--project-scan-roots <path1:path2:...>] [--voice-input <true|false>] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>] [--perf-monitor-enabled <true|false>] [--perf-monitor-sample-interval-ms <ms>] [--perf-monitor-retention-days <days>]
+  ctb install --telegram-token <token> [--codex-bin <bin>] [--project-scan-roots <path1:path2:...>] [--voice-input <true|false>] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>] [--perf-monitor-enabled <true|false>] [--perf-monitor-sample-interval-ms <ms>] [--perf-monitor-retention-days <days>] [--app-server-guard-enabled <true|false>] [--app-server-guard-sample-interval-ms <ms>] [--app-server-guard-mcp-worker-threshold <n>] [--app-server-guard-consecutive-windows <n>] [--app-server-guard-cooldown-ms <ms>]
   ctb install-skill
   ctb status
   ctb doctor
@@ -97,6 +97,11 @@ async function main(): Promise<void> {
         perfMonitorEnabled?: boolean;
         perfMonitorSampleIntervalMs?: number;
         perfMonitorRetentionDays?: number;
+        appServerGuardEnabled?: boolean;
+        appServerGuardSampleIntervalMs?: number;
+        appServerGuardMcpWorkerThreshold?: number;
+        appServerGuardConsecutiveWindows?: number;
+        appServerGuardCooldownMs?: number;
       } = {};
 
       if (typeof flags["telegram-token"] === "string") {
@@ -136,6 +141,22 @@ async function main(): Promise<void> {
       }
       if (typeof flags["perf-monitor-retention-days"] === "string") {
         installOverrides.perfMonitorRetentionDays = Number.parseInt(flags["perf-monitor-retention-days"], 10);
+      }
+      const appServerGuardEnabled = parseBooleanFlag(flags["app-server-guard-enabled"]);
+      if (appServerGuardEnabled !== undefined) {
+        installOverrides.appServerGuardEnabled = appServerGuardEnabled;
+      }
+      if (typeof flags["app-server-guard-sample-interval-ms"] === "string") {
+        installOverrides.appServerGuardSampleIntervalMs = Number.parseInt(flags["app-server-guard-sample-interval-ms"], 10);
+      }
+      if (typeof flags["app-server-guard-mcp-worker-threshold"] === "string") {
+        installOverrides.appServerGuardMcpWorkerThreshold = Number.parseInt(flags["app-server-guard-mcp-worker-threshold"], 10);
+      }
+      if (typeof flags["app-server-guard-consecutive-windows"] === "string") {
+        installOverrides.appServerGuardConsecutiveWindows = Number.parseInt(flags["app-server-guard-consecutive-windows"], 10);
+      }
+      if (typeof flags["app-server-guard-cooldown-ms"] === "string") {
+        installOverrides.appServerGuardCooldownMs = Number.parseInt(flags["app-server-guard-cooldown-ms"], 10);
       }
 
       await installBridge(paths, logger, {

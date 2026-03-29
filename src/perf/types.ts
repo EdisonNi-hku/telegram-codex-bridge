@@ -1,4 +1,4 @@
-export type PerformanceSampleTarget = "bridge" | "app_server";
+export type PerformanceSampleTarget = "bridge" | "app_server" | "app_server_guard";
 export type PerformanceOperationCategory = "app_server_rpc" | "telegram_api";
 export type PerformanceOperationOutcome = "ok" | "error" | "timeout";
 export type PerformanceTransport = "fetch" | "curl";
@@ -19,6 +19,8 @@ export interface PerformanceSampleEvent {
   eventLoopDelayMeanMs?: number;
   eventLoopDelayP95Ms?: number;
   eventLoopDelayMaxMs?: number;
+  mcpWorkerCount?: number;
+  appServerSubtreeRssBytes?: number;
 }
 
 export interface PerformanceOperationEvent {

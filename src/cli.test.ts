@@ -64,3 +64,23 @@ test("cli perf report renders the recent perf summary", async () => {
     await rm(homeDir, { recursive: true, force: true });
   }
 });
+
+test("cli usage includes app-server guard install flags", async () => {
+  const repoRoot = process.cwd();
+
+  try {
+    await execFile(
+      process.execPath,
+      ["--import", "tsx", "src/cli.ts"],
+      { cwd: repoRoot }
+    );
+    assert.fail("cli should exit with usage when command is missing");
+  } catch (error) {
+    const stdout = (error as { stdout?: string }).stdout ?? "";
+    assert.match(stdout, /--app-server-guard-enabled/u);
+    assert.match(stdout, /--app-server-guard-sample-interval-ms/u);
+    assert.match(stdout, /--app-server-guard-mcp-worker-threshold/u);
+    assert.match(stdout, /--app-server-guard-consecutive-windows/u);
+    assert.match(stdout, /--app-server-guard-cooldown-ms/u);
+  }
+});

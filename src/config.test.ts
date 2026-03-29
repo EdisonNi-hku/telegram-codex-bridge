@@ -144,7 +144,12 @@ test("writeConfig persists PROJECT_SCAN_ROOTS and withInstallOverrides can repla
     voiceFfmpegBin: "ffmpeg",
     perfMonitorEnabled: false,
     perfMonitorSampleIntervalMs: 15_000,
-    perfMonitorRetentionDays: 7
+    perfMonitorRetentionDays: 7,
+    appServerGuardEnabled: true,
+    appServerGuardSampleIntervalMs: 30_000,
+    appServerGuardMcpWorkerThreshold: 6,
+    appServerGuardConsecutiveWindows: 3,
+    appServerGuardCooldownMs: 900_000
   };
 
   try {
@@ -209,11 +214,21 @@ test("writeConfig persists perf monitor settings and withInstallOverrides can re
     voiceFfmpegBin: "ffmpeg",
     perfMonitorEnabled: true,
     perfMonitorSampleIntervalMs: 15_000,
-    perfMonitorRetentionDays: 7
+    perfMonitorRetentionDays: 7,
+    appServerGuardEnabled: true,
+    appServerGuardSampleIntervalMs: 30_000,
+    appServerGuardMcpWorkerThreshold: 6,
+    appServerGuardConsecutiveWindows: 3,
+    appServerGuardCooldownMs: 900_000
   } as BridgeConfig & {
     perfMonitorEnabled: boolean;
     perfMonitorSampleIntervalMs: number;
     perfMonitorRetentionDays: number;
+    appServerGuardEnabled: boolean;
+    appServerGuardSampleIntervalMs: number;
+    appServerGuardMcpWorkerThreshold: number;
+    appServerGuardConsecutiveWindows: number;
+    appServerGuardCooldownMs: number;
   };
 
   try {
@@ -233,6 +248,88 @@ test("writeConfig persists perf monitor settings and withInstallOverrides can re
     assert.equal(nextConfig.perfMonitorEnabled, false);
     assert.equal(nextConfig.perfMonitorSampleIntervalMs, 3000);
     assert.equal(nextConfig.perfMonitorRetentionDays, 30);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig parses app server guard settings from bridge.env", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-config-test-"));
+  const paths = createTestPaths(root);
+
+  try {
+    await mkdir(paths.configRoot, { recursive: true });
+    await writeFile(
+      paths.envPath,
+      [
+        "TELEGRAM_BOT_TOKEN=test-token",
+        "APP_SERVER_GUARD_ENABLED=0",
+        "APP_SERVER_GUARD_SAMPLE_INTERVAL_MS=20000",
+        "APP_SERVER_GUARD_MCP_WORKER_THRESHOLD=9",
+        "APP_SERVER_GUARD_CONSECUTIVE_WINDOWS=5",
+        "APP_SERVER_GUARD_COOLDOWN_MS=120000"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const config = await loadConfig(paths);
+    assert.equal(config.appServerGuardEnabled, false);
+    assert.equal(config.appServerGuardSampleIntervalMs, 20_000);
+    assert.equal(config.appServerGuardMcpWorkerThreshold, 9);
+    assert.equal(config.appServerGuardConsecutiveWindows, 5);
+    assert.equal(config.appServerGuardCooldownMs, 120_000);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("writeConfig persists app server guard settings and withInstallOverrides can replace them", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-config-test-"));
+  const paths = createTestPaths(root);
+  const initialConfig: BridgeConfig = {
+    telegramBotToken: "test-token",
+    codexBin: "codex",
+    telegramApiBaseUrl: "https://api.telegram.org",
+    telegramPollTimeoutSeconds: 20,
+    telegramPollIntervalMs: 1500,
+    projectScanRoots: [],
+    voiceInputEnabled: false,
+    voiceOpenaiApiKey: "",
+    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+    voiceFfmpegBin: "ffmpeg",
+    perfMonitorEnabled: true,
+    perfMonitorSampleIntervalMs: 15_000,
+    perfMonitorRetentionDays: 7,
+    appServerGuardEnabled: true,
+    appServerGuardSampleIntervalMs: 30_000,
+    appServerGuardMcpWorkerThreshold: 6,
+    appServerGuardConsecutiveWindows: 3,
+    appServerGuardCooldownMs: 900_000
+  };
+
+  try {
+    await mkdir(paths.configRoot, { recursive: true });
+    await writeConfig(paths, initialConfig);
+
+    const content = await readFile(paths.envPath, "utf8");
+    assert.match(content, /^APP_SERVER_GUARD_ENABLED=1$/mu);
+    assert.match(content, /^APP_SERVER_GUARD_SAMPLE_INTERVAL_MS=30000$/mu);
+    assert.match(content, /^APP_SERVER_GUARD_MCP_WORKER_THRESHOLD=6$/mu);
+    assert.match(content, /^APP_SERVER_GUARD_CONSECUTIVE_WINDOWS=3$/mu);
+    assert.match(content, /^APP_SERVER_GUARD_COOLDOWN_MS=900000$/mu);
+
+    const nextConfig = withInstallOverrides(initialConfig, {
+      appServerGuardEnabled: false,
+      appServerGuardSampleIntervalMs: 45_000,
+      appServerGuardMcpWorkerThreshold: 4,
+      appServerGuardConsecutiveWindows: 2,
+      appServerGuardCooldownMs: 600_000
+    });
+    assert.equal(nextConfig.appServerGuardEnabled, false);
+    assert.equal(nextConfig.appServerGuardSampleIntervalMs, 45_000);
+    assert.equal(nextConfig.appServerGuardMcpWorkerThreshold, 4);
+    assert.equal(nextConfig.appServerGuardConsecutiveWindows, 2);
+    assert.equal(nextConfig.appServerGuardCooldownMs, 600_000);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

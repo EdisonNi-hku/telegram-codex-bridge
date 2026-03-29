@@ -45,6 +45,18 @@ test("buildPerformanceReport summarizes recent samples and operations", async ()
           uptimeSec: 25
         }),
         JSON.stringify({
+          ts: "2026-03-23T11:55:30.000Z",
+          kind: "sample",
+          target: "app_server_guard",
+          pid: 202,
+          sampleIntervalMs: 15_000,
+          cpuCorePct: 0,
+          rssBytes: 0,
+          uptimeSec: 0,
+          mcpWorkerCount: 7,
+          appServerSubtreeRssBytes: 12000
+        }),
+        JSON.stringify({
           ts: "2026-03-23T11:56:00.000Z",
           kind: "operation",
           category: "app_server_rpc",
@@ -76,9 +88,11 @@ test("buildPerformanceReport summarizes recent samples and operations", async ()
     });
 
     assert.match(report, /^perf_monitor_enabled=true$/mu);
-    assert.match(report, /^sample_count=2$/mu);
+    assert.match(report, /^sample_count=3$/mu);
     assert.match(report, /^bridge_cpu_peak_pct=20$/mu);
     assert.match(report, /^app_server_rss_peak_bytes=5000$/mu);
+    assert.match(report, /^app_server_guard_mcp_worker_peak=7$/mu);
+    assert.match(report, /^app_server_guard_subtree_rss_peak_bytes=12000$/mu);
     assert.match(report, /^app_server_rpc_count=1$/mu);
     assert.match(report, /^app_server_rpc_p95_ms=420$/mu);
     assert.match(report, /^telegram_api_error_count=1$/mu);

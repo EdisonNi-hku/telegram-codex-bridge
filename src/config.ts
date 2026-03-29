@@ -20,6 +20,11 @@ export interface BridgeConfig {
   perfMonitorEnabled: boolean;
   perfMonitorSampleIntervalMs: number;
   perfMonitorRetentionDays: number;
+  appServerGuardEnabled?: boolean;
+  appServerGuardSampleIntervalMs?: number;
+  appServerGuardMcpWorkerThreshold?: number;
+  appServerGuardConsecutiveWindows?: number;
+  appServerGuardCooldownMs?: number;
 }
 
 const DEFAULT_CONFIG = {
@@ -33,7 +38,12 @@ const DEFAULT_CONFIG = {
   voiceFfmpegBin: "ffmpeg",
   perfMonitorEnabled: false,
   perfMonitorSampleIntervalMs: 15_000,
-  perfMonitorRetentionDays: 7
+  perfMonitorRetentionDays: 7,
+  appServerGuardEnabled: true,
+  appServerGuardSampleIntervalMs: 30_000,
+  appServerGuardMcpWorkerThreshold: 6,
+  appServerGuardConsecutiveWindows: 3,
+  appServerGuardCooldownMs: 900_000
 } as const;
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
@@ -130,6 +140,23 @@ export async function loadConfig(paths: BridgePaths): Promise<BridgeConfig> {
     perfMonitorRetentionDays: Number.parseInt(
       merged.PERF_MONITOR_RETENTION_DAYS ?? `${DEFAULT_CONFIG.perfMonitorRetentionDays}`,
       10
+    ),
+    appServerGuardEnabled: parseBooleanEnv(merged.APP_SERVER_GUARD_ENABLED, DEFAULT_CONFIG.appServerGuardEnabled),
+    appServerGuardSampleIntervalMs: Number.parseInt(
+      merged.APP_SERVER_GUARD_SAMPLE_INTERVAL_MS ?? `${DEFAULT_CONFIG.appServerGuardSampleIntervalMs}`,
+      10
+    ),
+    appServerGuardMcpWorkerThreshold: Number.parseInt(
+      merged.APP_SERVER_GUARD_MCP_WORKER_THRESHOLD ?? `${DEFAULT_CONFIG.appServerGuardMcpWorkerThreshold}`,
+      10
+    ),
+    appServerGuardConsecutiveWindows: Number.parseInt(
+      merged.APP_SERVER_GUARD_CONSECUTIVE_WINDOWS ?? `${DEFAULT_CONFIG.appServerGuardConsecutiveWindows}`,
+      10
+    ),
+    appServerGuardCooldownMs: Number.parseInt(
+      merged.APP_SERVER_GUARD_COOLDOWN_MS ?? `${DEFAULT_CONFIG.appServerGuardCooldownMs}`,
+      10
     )
   };
 }
@@ -148,7 +175,12 @@ export async function writeConfig(paths: BridgePaths, config: BridgeConfig): Pro
     `VOICE_FFMPEG_BIN=${config.voiceFfmpegBin}`,
     `PERF_MONITOR_ENABLED=${config.perfMonitorEnabled ? "1" : "0"}`,
     `PERF_MONITOR_SAMPLE_INTERVAL_MS=${config.perfMonitorSampleIntervalMs}`,
-    `PERF_MONITOR_RETENTION_DAYS=${config.perfMonitorRetentionDays}`
+    `PERF_MONITOR_RETENTION_DAYS=${config.perfMonitorRetentionDays}`,
+    `APP_SERVER_GUARD_ENABLED=${(config.appServerGuardEnabled ?? DEFAULT_CONFIG.appServerGuardEnabled) ? "1" : "0"}`,
+    `APP_SERVER_GUARD_SAMPLE_INTERVAL_MS=${config.appServerGuardSampleIntervalMs ?? DEFAULT_CONFIG.appServerGuardSampleIntervalMs}`,
+    `APP_SERVER_GUARD_MCP_WORKER_THRESHOLD=${config.appServerGuardMcpWorkerThreshold ?? DEFAULT_CONFIG.appServerGuardMcpWorkerThreshold}`,
+    `APP_SERVER_GUARD_CONSECUTIVE_WINDOWS=${config.appServerGuardConsecutiveWindows ?? DEFAULT_CONFIG.appServerGuardConsecutiveWindows}`,
+    `APP_SERVER_GUARD_COOLDOWN_MS=${config.appServerGuardCooldownMs ?? DEFAULT_CONFIG.appServerGuardCooldownMs}`
   ].join("\n");
 
   await writeFile(paths.envPath, `${content}\n`, "utf8");
@@ -171,6 +203,19 @@ export function withInstallOverrides(
     voiceFfmpegBin: overrides.voiceFfmpegBin ?? current.voiceFfmpegBin,
     perfMonitorEnabled: overrides.perfMonitorEnabled ?? current.perfMonitorEnabled,
     perfMonitorSampleIntervalMs: overrides.perfMonitorSampleIntervalMs ?? current.perfMonitorSampleIntervalMs,
-    perfMonitorRetentionDays: overrides.perfMonitorRetentionDays ?? current.perfMonitorRetentionDays
+    perfMonitorRetentionDays: overrides.perfMonitorRetentionDays ?? current.perfMonitorRetentionDays,
+    appServerGuardEnabled: overrides.appServerGuardEnabled ?? current.appServerGuardEnabled ?? DEFAULT_CONFIG.appServerGuardEnabled,
+    appServerGuardSampleIntervalMs: overrides.appServerGuardSampleIntervalMs
+      ?? current.appServerGuardSampleIntervalMs
+      ?? DEFAULT_CONFIG.appServerGuardSampleIntervalMs,
+    appServerGuardMcpWorkerThreshold: overrides.appServerGuardMcpWorkerThreshold
+      ?? current.appServerGuardMcpWorkerThreshold
+      ?? DEFAULT_CONFIG.appServerGuardMcpWorkerThreshold,
+    appServerGuardConsecutiveWindows: overrides.appServerGuardConsecutiveWindows
+      ?? current.appServerGuardConsecutiveWindows
+      ?? DEFAULT_CONFIG.appServerGuardConsecutiveWindows,
+    appServerGuardCooldownMs: overrides.appServerGuardCooldownMs
+      ?? current.appServerGuardCooldownMs
+      ?? DEFAULT_CONFIG.appServerGuardCooldownMs
   };
 }

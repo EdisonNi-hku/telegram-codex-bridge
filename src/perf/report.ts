@@ -69,6 +69,7 @@ export async function buildPerformanceReport(options: BuildPerformanceReportOpti
   const operations = events.filter((event): event is PerformanceOperationEvent => event.kind === "operation");
   const bridgeSamples = samples.filter((event) => event.target === "bridge");
   const appServerSamples = samples.filter((event) => event.target === "app_server");
+  const appServerGuardSamples = samples.filter((event) => event.target === "app_server_guard");
   const appServerRpc = operations.filter((event) => event.category === "app_server_rpc");
   const telegramApi = operations.filter((event) => event.category === "telegram_api");
 
@@ -79,6 +80,8 @@ export async function buildPerformanceReport(options: BuildPerformanceReportOpti
   lines.push(`bridge_heap_peak_bytes=${maximum(bridgeSamples.map((event) => event.heapUsedBytes ?? 0))}`);
   lines.push(`bridge_event_loop_delay_peak_ms=${maximum(bridgeSamples.map((event) => event.eventLoopDelayMaxMs ?? 0))}`);
   lines.push(`app_server_rss_peak_bytes=${maximum(appServerSamples.map((event) => event.rssBytes))}`);
+  lines.push(`app_server_guard_mcp_worker_peak=${maximum(appServerGuardSamples.map((event) => event.mcpWorkerCount ?? 0))}`);
+  lines.push(`app_server_guard_subtree_rss_peak_bytes=${maximum(appServerGuardSamples.map((event) => event.appServerSubtreeRssBytes ?? 0))}`);
   lines.push(`app_server_rpc_count=${appServerRpc.length}`);
   lines.push(`app_server_rpc_error_count=${appServerRpc.filter((event) => event.outcome === "error").length}`);
   lines.push(`app_server_rpc_timeout_count=${appServerRpc.filter((event) => event.outcome === "timeout").length}`);
