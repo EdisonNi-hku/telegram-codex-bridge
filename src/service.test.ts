@@ -739,7 +739,7 @@ test("service startup restores and pins the current session card for the active 
 
     runtimeStore = (service as any).store as BridgeStateStore;
     assert.equal(sent.length, 1);
-    assert.match(sent[0]?.text ?? "", /^<b>当前会话<\/b>/u);
+    assert.match(sent[0]?.text ?? "", /^Project One \/ Project One/u);
     assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 1701 }]);
     assert.equal(runtimeStore.getCurrentSessionCard("chat-1")?.telegramMessageId, 1701);
     assert.equal(runtimeStore.getCurrentSessionCard("chat-1")?.sessionId, session.sessionId);
@@ -5297,7 +5297,7 @@ test("language callback refreshes the current session card in the selected langu
     assert.equal(callbackAnswers.at(-1), "Saved.");
     const cardEdit = edited.find((entry) => entry.messageId === 777);
     assert.ok(cardEdit);
-    assert.match(cardEdit?.text ?? "", /^<b>Current Session<\/b>/u);
+    assert.match(cardEdit?.text ?? "", /^Project One \/ Project One/u);
     assert.deepEqual(pinned, [{ messageId: 777 }]);
   } finally {
     await cleanup();

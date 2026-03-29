@@ -25,6 +25,7 @@ import {
 } from "./ui-callbacks.js";
 import {
   chunkButtons,
+  escapeHtml,
   formatHtmlField,
   formatHtmlHeading,
   formatReasoningEffortLabel,
@@ -306,21 +307,9 @@ export function buildWhereText(session: SessionRow | null): string {
 
 export function buildCurrentSessionCardText(session: SessionRow, language: UiLanguage): string {
   const projectName = displayProjectName(session.projectName, session.projectAlias);
-
-  if (language === "en") {
-    return [
-      formatHtmlHeading("Current Session"),
-      formatHtmlField("Session:", session.displayName),
-      formatHtmlField("Project:", projectName),
-      "Use /sessions, /use, or /where to inspect or switch."
-    ].join("\n");
-  }
-
   return [
-    formatHtmlHeading("当前会话"),
-    formatHtmlField("会话名：", session.displayName),
-    formatHtmlField("项目：", projectName),
-    "使用 /sessions、/use 或 /where 查看和切换。"
+    `${escapeHtml(projectName)} / ${escapeHtml(session.displayName)}`,
+    `${escapeHtml(formatSessionStateForCard(session, language))} · ${escapeHtml(formatSessionModelReasoningConfigForCard(session, language))}`
   ].join("\n");
 }
 
@@ -472,6 +461,57 @@ function formatSessionState(session: SessionRow): string {
     default:
       return "空闲";
   }
+}
+
+function formatSessionStateForCard(session: SessionRow, language: UiLanguage): string {
+  if (language !== "en") {
+    return formatSessionState(session);
+  }
+
+  switch (session.status) {
+    case "running":
+      return "Running";
+    case "interrupted":
+      return "Interrupted";
+    case "failed":
+      return "Failed";
+    case "idle":
+    default:
+      return "Idle";
+  }
+}
+
+function formatReasoningEffortLabelForCard(effort: ReasoningEffort, language: UiLanguage): string {
+  if (language !== "en") {
+    return formatReasoningEffortLabel(effort);
+  }
+
+  switch (effort) {
+    case "none":
+      return "off";
+    case "minimal":
+      return "minimal";
+    case "low":
+      return "low";
+    case "medium":
+      return "medium";
+    case "high":
+      return "high";
+    case "xhigh":
+      return "very high";
+  }
+}
+
+function formatSessionModelReasoningConfigForCard(session: SessionRow, language: UiLanguage): string {
+  if (language !== "en") {
+    return formatSessionModelReasoningConfig(session);
+  }
+
+  const modelLabel = session.selectedModel ?? "Default model";
+  const effortLabel = session.selectedReasoningEffort
+    ? formatReasoningEffortLabelForCard(session.selectedReasoningEffort, language)
+    : "default";
+  return `${modelLabel} + ${effortLabel}`;
 }
 
 function formatSessionFailureReason(reason: SessionRow["failureReason"]): string {

@@ -361,10 +361,8 @@ test("buildCurrentSessionCardText renders a compact Chinese current-session card
   assert.equal(
     text,
     [
-      "<b>当前会话</b>",
-      "<b>会话名：</b> Session &lt;Alpha&gt;",
-      "<b>项目：</b> Alias &amp; One",
-      "使用 /sessions、/use 或 /where 查看和切换。"
+      "Alias &amp; One / Session &lt;Alpha&gt;",
+      "空闲 · 默认模型 + 默认"
     ].join("\n")
   );
 });
@@ -381,10 +379,8 @@ test("buildCurrentSessionCardText renders the English current-session card", () 
   assert.equal(
     text,
     [
-      "<b>Current Session</b>",
-      "<b>Session:</b> Session &lt;Alpha&gt;",
-      "<b>Project:</b> Project &amp; One",
-      "Use /sessions, /use, or /where to inspect or switch."
+      "Project &amp; One / Session &lt;Alpha&gt;",
+      "Idle · Default model + default"
     ].join("\n")
   );
 });
