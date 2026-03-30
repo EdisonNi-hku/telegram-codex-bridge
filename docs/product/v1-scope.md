@@ -1,3 +1,19 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/product/README.md
+children: []
+summary: current shipped v1 scope, trust model, and out-of-scope boundary for the Telegram-first bridge
+read_when:
+  - the task is about what v1 includes, excludes, or deliberately does not promise
+  - the task needs the current trust model before implementation or docs changes
+skip_when:
+  - the task is mainly about current runtime internals or source ownership
+source_of_truth:
+  - docs/product/v1-scope.md
+  - docs/future/multi-platform-core-prd.md
+-->
+
 # Telegram Codex Bridge v1 Scope
 
 Current truth note:

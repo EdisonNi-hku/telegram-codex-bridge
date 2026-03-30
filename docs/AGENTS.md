@@ -75,6 +75,7 @@ Read the smallest matching leaf doc.
 | Telegram callback payload families, encoding rules, stale callback handling | `docs/product/callback-contract.md` |
 | runtime lifecycle, SQLite state, recovery, concurrency, degraded behavior | `docs/architecture/runtime-and-state.md` |
 | code-derived ownership map for `src/` | `docs/architecture/current-code-organization.md` |
+| current Codex app-server adoption, supported request families, notification reduction, approvals, and rejected server requests | `docs/architecture/codex-app-server-adoption.md` |
 | install flow, config keys, paths, services, update, diagnostics | `docs/operations/install-and-admin.md` |
 | exact current versions, module counts, size snapshot, other high-drift facts | `docs/generated/current-snapshot.md` |
 | authoritative Codex app-server protocol reference | `docs/research/codex-app-server-authoritative-reference.md` |

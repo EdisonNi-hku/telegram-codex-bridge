@@ -1,3 +1,19 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/research/README.md
+children: []
+summary: dated phase-0 runtime verification sample for codex-cli 0.112.0, kept as historical protocol evidence only
+read_when:
+  - the task needs historical runtime evidence from the early local app-server verification pass
+  - a current protocol question needs comparison against the older observed sample
+skip_when:
+  - the task only needs the latest host baseline or current bridge adoption
+source_of_truth:
+  - docs/research/app-server-phase-0-verification.md
+  - docs/research/codex-app-server-authoritative-reference.md
+-->
+
 # App-Server Phase 0 Verification
 
 Read `docs/research/codex-app-server-authoritative-reference.md` first when you need the latest app-server usage guidance or broader API inventory.

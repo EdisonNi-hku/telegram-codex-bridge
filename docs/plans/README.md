@@ -3,6 +3,9 @@ role: domain
 layer: 2
 parent: docs/INDEX.md
 children:
+  - docs/plans/2026-03-30-binding-model-neutralization-note.md
+  - docs/plans/2026-03-30-platform-binding-boundary-design.md
+  - docs/plans/2026-03-30-platform-surface-adapter-and-capability-prep.md
   - docs/plans/2026-03-23-multi-platform-core-phase-1-implementation-plan.md
   - docs/plans/2026-03-23-multi-platform-core-pending-task-tracker.md
 summary: router for active trackers, implementation sequencing, and closeout notes
@@ -25,6 +28,9 @@ It is planning context, not current product truth.
 
 ## Open One Leaf
 
+- `2026-03-30-binding-model-neutralization-note.md` - current note for neutralizing auth and chat binding model fields without claiming multi-platform support.
+- `2026-03-30-platform-binding-boundary-design.md` - current boundary note for separating platform principal, surface target, and bridge session ownership.
+- `2026-03-30-platform-surface-adapter-and-capability-prep.md` - current predesign note for the next platform-surface adapter and capability slice.
 - `2026-03-23-multi-platform-core-phase-1-implementation-plan.md` - what the first abstraction wave landed, how it was scoped, and why it stopped where it did.
 - `2026-03-23-multi-platform-core-pending-task-tracker.md` - the active backlog for what Phase 1 intentionally left for later.
 

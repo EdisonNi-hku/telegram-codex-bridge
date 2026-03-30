@@ -1,3 +1,20 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/product/README.md
+children: []
+summary: current authorization, project picker, session management, and browse-flow contract for Telegram
+read_when:
+  - the task is about authorization, project selection, session switching, archive, rename, pin, or browse behavior
+skip_when:
+  - the task is mainly about Codex-backed command surfaces or runtime-card delivery
+source_of_truth:
+  - docs/product/auth-and-project-flow.md
+  - src/service/session-project-coordinator.ts
+  - src/service/project-browser-coordinator.ts
+  - src/telegram/commands.ts
+-->
+
 # Auth And Project Flow
 
 Current intended behavior for:

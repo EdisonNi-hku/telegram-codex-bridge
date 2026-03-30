@@ -1,3 +1,20 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/research/README.md
+children: []
+summary: protocol-first authoritative reference for Codex app-server capability, schema inventory, host baseline, and refresh workflow
+read_when:
+  - the task needs the broader current Codex app-server protocol surface or host baseline
+  - exact method inventories, schema-derived facts, or refresh procedure matter
+skip_when:
+  - the task is only about what this repository currently wires into Telegram today
+source_of_truth:
+  - docs/research/codex-app-server-authoritative-reference.md
+  - docs/research/codex-app-server-api-quick-reference.md
+  - docs/research/app-server-phase-0-verification.md
+-->
+
 # Codex App-Server Authoritative Reference
 
 Last refreshed: 2026-03-23
@@ -7,6 +24,9 @@ Primary audience:
 
 Secondary audience:
 - human maintainers who need a quick current-state reference
+
+For the current bridge-owned adoption boundary, use `docs/architecture/codex-app-server-adoption.md`.
+This research leaf is for protocol capability and host-baseline truth, not shipped Telegram support.
 
 ## What This Document Is For
 
@@ -89,24 +109,13 @@ In those cases, prefer:
 - `codex exec`
 - the Codex SDK wrapper around CLI execution
 
-## Repository-Specific Contract
+## Repository-Specific Boundary
 
-This repository currently uses app-server in a narrow but production-relevant way:
+Current-repo rule:
 
-- transport: one long-lived local `codex app-server` child over `stdio`
-- ownership: the bridge process starts, monitors, restarts, and reconnects the child
-- readiness: `initialize` -> `initialized` -> `thread/list`
-- session model: one bridge session maps to one Codex thread
-- turn model: normal Telegram text becomes `turn/start` input
-- output policy: Telegram receives reduced runtime cards plus a separate final answer, not the raw notification stream or tool chatter
-
-Relevant local docs:
-- `docs/architecture/runtime-and-state.md`
-- `docs/research/app-server-phase-0-verification.md`
-
-Implementation rule for this repo:
-- use the broader app-server surface to inform future work, but do not assume current bridge code already consumes it
-- when project code and API availability disagree about what is shipped, trust the project and fix the docs
+- use this document for protocol capability, host baseline, and schema inventory
+- use `docs/architecture/codex-app-server-adoption.md` for the bridge-owned lifecycle, request families, notification reduction, and unsupported-server-request policy
+- when repository code and API availability disagree about what is shipped, trust the project and fix the docs
 
 ## Correct Usage Rules For LLMs
 
@@ -430,117 +439,26 @@ Those names were useful in the bridge's early implementation and may still appea
 - keep compatibility handling only when the repository already depends on it
 - document any newly observed runtime-only signals with date and CLI version
 
-## What This Repository Uses Today
+## Bridge Adoption Pointer
 
-Current bridge usage is intentionally narrower than the full `0.116.0` schema surface.
+The bridge uses only a subset of the current schema.
+Do not maintain the repository adoption matrix in this protocol leaf.
 
-Implemented today:
-- app-server child over `stdio`
-- `initialize` + `initialized`
-- readiness probe with `thread/list`
-- `thread/start`
-- `thread/resume`
-- `thread/read` for `/inspect` history fallback
-- `thread/archive`
-- `thread/unarchive`
-- `turn/start`
-- `turn/interrupt`
-- classification of selected notifications such as:
-  - `turn/started`
-  - `turn/completed`
-  - `thread/status/changed`
-  - `thread/archived`
-  - `thread/unarchived`
-  - `item/started`
-  - `item/completed`
-  - `item/agentMessage/delta`
-  - `item/plan/delta`
-  - `item/commandExecution/outputDelta`
-  - `item/fileChange/outputDelta`
-  - `item/mcpToolCall/progress`
-  - `item/webSearch/progress`
-  - `error`
-  - compatibility handling for `codex/event/task_complete`
-  - compatibility handling for `codex/event/turn_aborted`
+Current-repo lookup order:
 
-Current implementation note:
-- the bridge now handles the execution-continuity server-request slice:
-  - `item/commandExecution/requestApproval`
-  - `item/fileChange/requestApproval`
-  - `item/permissions/requestApproval`
-  - `item/tool/requestUserInput`
-  - `mcpServer/elicitation/request`
-  - legacy approval compatibility for `applyPatchApproval`
-  - legacy approval compatibility for `execCommandApproval`
-- the bridge also sends server-request responses and uses `turn/steer` for blocked-turn continuation
-- the bridge now consumes stable control-plane surfaces:
-  - `model/list`
-  - `skills/list`
-  - `review/start`
-  - `plugin/list`
-  - `plugin/install`
-  - `plugin/uninstall`
-  - `app/list`
-  - `mcpServerStatus/list`
-  - `config/mcpServer/reload`
-  - `mcpServer/oauth/login`
-  - `account/read`
-  - `account/rateLimits/read`
-  - `thread/fork`
-  - `thread/name/set`
-  - `thread/metadata/update`
-  - `thread/rollback`
-  - `thread/compact/start`
-  - `thread/backgroundTerminals/clean`
-- the bridge also uses a narrow realtime request slice for bridge-side voice transcription fallback:
-  - `thread/realtime/start`
-  - `thread/realtime/appendAudio`
-  - `thread/realtime/stop`
-- the bridge now sends non-text Telegram-adapted inputs through `turn/start` and `turn/steer`:
-  - `localImage`
-  - `skill`
-  - `mention`
-- Telegram photo uploads are downloaded bridge-side and submitted as `localImage`
-- the current schema also includes remote URL `image`, but the bridge does not expose a direct Telegram command for that input today
-- the bridge now reduces selected runtime-parity notifications for inspect/notices:
-  - `thread/tokenUsage/updated`
-  - `turn/diff/updated`
-  - `hook/started`
-  - `hook/completed`
-  - `item/commandExecution/terminalInteraction`
-  - `serverRequest/resolved`
-  - `configWarning`
-  - `deprecationNotice`
-  - `model/rerouted`
-  - `skills/changed`
-  - `thread/compacted`
+1. `docs/architecture/codex-app-server-adoption.md`
+2. `src/codex/app-server.ts`
+3. the narrow owner under `src/service/`
 
 Current-host note for `codex-cli 0.116.0`:
-- `thread/status/changed` carries a structured `status` object such as `active` plus nested `activeFlags`, not only a flat status string
-- the bridge starts app-server with the experimental API capability enabled, so experimental methods such as `collaborationMode/list` remain protocol-visible even though the current Telegram UX still does not ship collaboration-mode discovery or preset selection
 
-Future-direction note:
-- this broader schema surface is important input for a future multi-platform Core
-- it still does **not** mean the current repository has already extracted a platform-neutral Core
-- future repository direction is tracked in `docs/future/multi-platform-core-prd.md`
-
-Still not used today by the bridge, including:
-- `item/tool/call`
-- `account/chatgptAuthTokens/refresh`
-- filesystem RPC surface
-- `plugin/read`
-- `collaborationMode/list` as a Telegram-facing selector
-- realtime notifications and `thread/realtime/appendText`
-- remote skills APIs
-- `externalAgentConfig/detect`
-- `externalAgentConfig/import`
-- `feedback/upload`
-- `fuzzyFileSearch*`
-- broader command/exec control surfaces
+- `thread/status/changed` carries a structured `status` object with nested `activeFlags`
+- the bridge starts app-server with the experimental API capability enabled, so experimental methods can remain protocol-visible without becoming Telegram product features
 
 LLM warning:
-- do not assume unimplemented surfaces are unsupported by Codex; many are present in the current schema and simply not wired into this bridge yet
-- for `item/tool/call` and `account/chatgptAuthTokens/refresh`, the bridge now rejects them explicitly with a bridge-owned error plus Telegram notice because the current Telegram product boundary still lacks a truthful adapted UX for those client-managed flows
+
+- do not assume unimplemented surfaces are unsupported by Codex
+- do not infer current bridge support from this research leaf alone
 
 ## Refresh Workflow
 
@@ -568,6 +486,7 @@ jq -r '.oneOf[]?.properties.method.enum[]? // empty' <dir>/ServerRequest.json
 - <https://developers.openai.com/codex/cli/reference>
 
 5. Compare against:
+- `docs/architecture/codex-app-server-adoption.md`
 - `docs/architecture/current-code-organization.md`
 - `docs/architecture/runtime-and-state.md`
 - `docs/research/app-server-phase-0-verification.md`

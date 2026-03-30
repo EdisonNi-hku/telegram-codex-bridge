@@ -1,3 +1,21 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/product/README.md
+children: []
+summary: current Telegram UX contract for Codex-backed commands and structured rich-input submission
+read_when:
+  - the task is about model, skills, plugins, apps, MCP, account, review, fork, rollback, compact, thread metadata, or rich-input commands
+skip_when:
+  - the task is only about raw protocol capability with no Telegram command UX
+source_of_truth:
+  - docs/product/codex-command-reference.md
+  - src/service/codex-command-coordinator.ts
+  - src/service/rich-input-adapter.ts
+  - src/codex/app-server.ts
+  - src/telegram/commands.ts
+-->
+
 # Codex Command Reference
 
 Current intended behavior for Telegram commands that adapt stable Codex control-plane capabilities into chat UX.
@@ -12,6 +30,8 @@ When implementation detail matters, verify against:
 - `src/service/rich-input-adapter.ts`
 - `src/codex/app-server.ts`
 - `src/telegram/commands.ts`
+
+For the current bridge-owned app-server adoption boundary, request families, and notification/server-request handling, read `docs/architecture/codex-app-server-adoption.md`.
 
 General command contract:
 - Telegram is not a debug console

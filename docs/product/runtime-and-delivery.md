@@ -1,3 +1,22 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/product/README.md
+children: []
+summary: current runtime-hub, inspect, status, interrupt, and final-answer delivery contract for Telegram
+read_when:
+  - the task is about runtime surfaces, inspect, interrupt, blocked-turn continuation, or final-answer delivery
+skip_when:
+  - the task is mainly about session/project setup or Codex-backed command pickers
+source_of_truth:
+  - docs/product/runtime-and-delivery.md
+  - src/service/runtime-surface-controller.ts
+  - src/service/turn-coordinator.ts
+  - src/service/interaction-broker.ts
+  - src/telegram/ui-runtime.ts
+  - src/telegram/ui-final-answer.ts
+-->
+
 # Runtime And Delivery Flow
 
 Current intended behavior for:

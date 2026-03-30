@@ -1,3 +1,19 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/product/README.md
+children: []
+summary: current callback namespace families, encoding rules, and stale-click contract for bridge-owned Telegram UI
+read_when:
+  - the task is about Telegram callback payload families, encoding limits, or stale/duplicate callback behavior
+skip_when:
+  - the task is only about text-command behavior with no callback surface
+source_of_truth:
+  - docs/product/callback-contract.md
+  - src/telegram/ui-callbacks.ts
+  - src/service/callback-router.ts
+-->
+
 # Callback Contract
 
 Current intended behavior for bridge-owned Telegram callback payloads.

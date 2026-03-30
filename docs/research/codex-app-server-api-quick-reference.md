@@ -1,3 +1,19 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/research/README.md
+children: []
+summary: per-method quick reference for Codex app-server requests, notifications, and server-request gotchas on the current host baseline
+read_when:
+  - the task needs a fast method lookup or schema-file pointer
+  - the task needs notification, approval, or request-shape gotchas without rereading the full authoritative reference
+skip_when:
+  - the task is only about current bridge adoption boundaries at the implementation level
+source_of_truth:
+  - docs/research/codex-app-server-api-quick-reference.md
+  - docs/research/codex-app-server-authoritative-reference.md
+-->
+
 # Codex App-Server API Quick Reference
 
 Last refreshed: 2026-03-23
@@ -21,6 +37,9 @@ Truth-source rule for this repo:
 - bridge adoption notes in this file must follow repository code first
 - exact protocol fields and method shapes must follow the live CLI/schema first
 - do not infer shipped bridge support from schema presence alone
+
+For the current bridge-owned adoption boundary, use `docs/architecture/codex-app-server-adoption.md`.
+This quick reference keeps per-method `Repo status` notes, but the canonical implementation matrix now lives in architecture.
 
 ## Fast Start
 
@@ -662,92 +681,17 @@ Dynamic or specialized server requests present in the current schema:
 LLM rule:
 - if you need any of these, inspect the exact generated schema before implementation
 
-## Current Repo Adoption Matrix
+## Bridge Adoption Pointer
 
-Used today by the bridge:
-- `initialize`
-- `initialized`
-- `thread/list`
-- `thread/start`
-- `thread/resume`
-- `thread/read`
-- `thread/fork`
-- `thread/archive`
-- `thread/unarchive`
-- `thread/name/set`
-- `thread/metadata/update`
-- `thread/rollback`
-- `thread/compact/start`
-- `thread/backgroundTerminals/clean`
-- narrow realtime request usage for bridge-side voice transcription fallback:
-  - `thread/realtime/start`
-  - `thread/realtime/appendAudio`
-  - `thread/realtime/stop`
-- `turn/start`
-- `turn/steer`
-- `turn/interrupt`
-- `model/list`
-- `skills/list`
-- `review/start`
-- `plugin/list`
-- `plugin/install`
-- `plugin/uninstall`
-- `app/list`
-- `mcpServerStatus/list`
-- `config/mcpServer/reload`
-- `mcpServer/oauth/login`
-- `account/read`
-- `account/rateLimits/read`
-- approval and user-input request handling for:
-  - `item/commandExecution/requestApproval`
-  - `item/fileChange/requestApproval`
-  - `item/permissions/requestApproval`
-  - `item/tool/requestUserInput`
-  - `mcpServer/elicitation/request`
-  - `applyPatchApproval`
-  - `execCommandApproval`
-- richer `UserInput` variants:
-  - `localImage`
-  - `skill`
-  - `mention`
-- Telegram photo uploads are adapted bridge-side into `localImage`
-- selected lifecycle and item notifications
-- selected runtime-parity notifications:
-  - `thread/tokenUsage/updated`
-  - `turn/diff/updated`
-  - `hook/started`
-  - `hook/completed`
-  - `item/commandExecution/terminalInteraction`
-  - `serverRequest/resolved`
-  - `configWarning`
-  - `deprecationNotice`
-  - `model/rerouted`
-  - `skills/changed`
-  - `thread/compacted`
-- legacy compatibility events such as `codex/event/task_complete`
-
-Not used today by the bridge, but present in current schema, including:
-- `thread/unsubscribe`
-- `thread/loaded/list`
-- `thread/increment_elicitation`
-- `thread/decrement_elicitation`
-- filesystem RPC family
-- `command/exec`
-- `plugin/read`
-- `collaborationMode/list` as a Telegram-facing selector
-- realtime notifications and `thread/realtime/appendText`
-- `item/tool/call`
-- `account/chatgptAuthTokens/refresh`
-- remote skills APIs
-- `externalAgentConfig/*`
-- `feedback/upload`
-- `fuzzyFileSearch*`
+Use this quick reference to look up a method.
+Use `docs/architecture/codex-app-server-adoption.md` to answer whether the bridge truly ships that method, notification, or server-request family today.
 
 Important distinction:
-- these adoption notes describe what the current bridge implementation actually uses
-- they do not describe everything the current Codex protocol supports
+
+- this file describes protocol surfaces and method-level gotchas
+- the architecture leaf describes actual repository adoption and explicit non-support
 - schema-level remote URL `image` is available in the protocol, but not yet surfaced as a direct Telegram command in this bridge
-- `item/tool/call` and `account/chatgptAuthTokens/refresh` remain intentionally unimplemented; the bridge now rejects them explicitly instead of pretending they map cleanly to Telegram
+- `item/tool/call` and `account/chatgptAuthTokens/refresh` remain intentionally outside the current Telegram bridge boundary
 - `serverRequest/resolved.requestId` is `string | integer`, so bridge storage and matching must preserve numeric ids exactly
 
 ## Future Core Watchlist

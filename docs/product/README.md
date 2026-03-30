@@ -2,7 +2,13 @@
 role: domain
 layer: 2
 parent: docs/INDEX.md
-children: []
+children:
+  - docs/product/v1-scope.md
+  - docs/product/chat-and-project-flow.md
+  - docs/product/auth-and-project-flow.md
+  - docs/product/codex-command-reference.md
+  - docs/product/runtime-and-delivery.md
+  - docs/product/callback-contract.md
 summary: router for current Telegram-first product behavior and user-facing command surfaces
 read_when:
   - the request is about current user-facing Telegram behavior
@@ -11,7 +17,12 @@ skip_when:
   - the request is mainly about code ownership, install/admin, or future Core direction
 source_of_truth:
   - docs/product/README.md
-  - docs/product
+  - docs/product/v1-scope.md
+  - docs/product/chat-and-project-flow.md
+  - docs/product/auth-and-project-flow.md
+  - docs/product/codex-command-reference.md
+  - docs/product/runtime-and-delivery.md
+  - docs/product/callback-contract.md
 -->
 
 # Product Index

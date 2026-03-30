@@ -1,3 +1,22 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/product/README.md
+children: []
+summary: lightweight product router for current Telegram chat, project, command, runtime, and callback UX docs
+read_when:
+  - the task needs a product-level router before choosing a narrower Telegram UX leaf
+  - the correct current Telegram UX doc is not obvious yet
+skip_when:
+  - the exact product leaf is already known
+source_of_truth:
+  - docs/product/chat-and-project-flow.md
+  - docs/product/auth-and-project-flow.md
+  - docs/product/codex-command-reference.md
+  - docs/product/runtime-and-delivery.md
+  - docs/product/callback-contract.md
+-->
+
 # Telegram Chat And Project Flow
 
 This file is now the lightweight product router for Telegram UX docs.
