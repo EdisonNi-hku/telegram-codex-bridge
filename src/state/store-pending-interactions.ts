@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
+import { resolvePlatformChatRef } from "../core/domain/binding.js";
 import type {
   PendingInteractionKind,
   PendingInteractionRow,
@@ -11,7 +12,8 @@ import { buildInClausePlaceholders } from "./store-shared.js";
 
 interface PendingInteractionRecord {
   interaction_id: string;
-  telegram_chat_id: string;
+  chat_id: string;
+  telegram_chat_id: string | null;
   session_id: string;
   thread_id: string;
   turn_id: string;
@@ -21,6 +23,7 @@ interface PendingInteractionRecord {
   state: PendingInteractionState;
   prompt_json: string;
   response_json: string | null;
+  message_id: number | null;
   telegram_message_id: number | null;
   created_at: string;
   updated_at: string;
@@ -29,9 +32,15 @@ interface PendingInteractionRecord {
 }
 
 function mapPendingInteraction(record: PendingInteractionRecord): PendingInteractionRow {
+  const chatRef = resolvePlatformChatRef({
+    chatId: record.chat_id,
+    telegramChatId: record.telegram_chat_id
+  });
+  const messageId = record.message_id ?? record.telegram_message_id;
   return {
     interactionId: record.interaction_id,
-    telegramChatId: record.telegram_chat_id,
+    chatId: chatRef.chatId,
+    telegramChatId: record.telegram_chat_id ?? chatRef.chatId,
     sessionId: record.session_id,
     threadId: record.thread_id,
     turnId: record.turn_id,
@@ -41,7 +50,8 @@ function mapPendingInteraction(record: PendingInteractionRecord): PendingInterac
     state: record.state,
     promptJson: record.prompt_json,
     responseJson: record.response_json,
-    telegramMessageId: record.telegram_message_id,
+    messageId,
+    telegramMessageId: record.telegram_message_id ?? messageId,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
     resolvedAt: record.resolved_at,
@@ -49,10 +59,21 @@ function mapPendingInteraction(record: PendingInteractionRecord): PendingInterac
   };
 }
 
+function resolveChatId(options: { chatId: string }): string {
+  return resolvePlatformChatRef(options).chatId;
+}
+
+function resolveMessageId(options: {
+  messageId?: number | null | undefined;
+  telegramMessageId?: number | null | undefined;
+}): number | null {
+  return options.messageId ?? options.telegramMessageId ?? null;
+}
+
 export interface StorePendingInteractions {
   createPendingInteraction(options: {
     interactionId?: string;
-    telegramChatId: string;
+    chatId: string;
     sessionId: string;
     threadId: string;
     turnId: string;
@@ -62,19 +83,20 @@ export interface StorePendingInteractions {
     state?: PendingInteractionState;
     promptJson: string;
     responseJson?: string | null;
+    messageId?: number | null;
     telegramMessageId?: number | null;
     errorReason?: string | null;
   }): PendingInteractionRow;
-  getPendingInteraction(interactionId: string, telegramChatId?: string): PendingInteractionRow | null;
+  getPendingInteraction(interactionId: string, chatId?: string): PendingInteractionRow | null;
   listPendingInteractionsByRequest(threadId: string, requestId: string): PendingInteractionRow[];
   listPendingInteractionsByChat(
-    telegramChatId: string,
+    chatId: string,
     states?: PendingInteractionState[]
   ): PendingInteractionRow[];
   listPendingInteractionsByTurn(threadId: string, turnId: string): PendingInteractionRow[];
   listUnresolvedPendingInteractions(): PendingInteractionRow[];
   listPendingInteractionsForRunningSessions(): PendingInteractionRow[];
-  rebindPendingInteractionsChatIds(telegramChatId: string, previousChatIds: string[]): void;
+  rebindPendingInteractionsChatIds(chatId: string, previousChatIds: string[]): void;
   clearAllPendingInteractions(): void;
   failPendingInteractionsForSessionIds(sessionIds: string[], timestamp: string, reason: string): void;
   setPendingInteractionMessageId(interactionId: string, messageId: number): void;
@@ -100,12 +122,15 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
   return {
     createPendingInteraction(options) {
       const interactionId = options.interactionId ?? randomUUID();
+      const chatId = resolveChatId(options);
+      const messageId = resolveMessageId(options);
       const timestamp = nowIso();
       db
         .prepare(
           `
             INSERT INTO pending_interaction (
               interaction_id,
+              chat_id,
               telegram_chat_id,
               session_id,
               thread_id,
@@ -116,18 +141,20 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
               state,
               prompt_json,
               response_json,
+              message_id,
               telegram_message_id,
               created_at,
               updated_at,
               resolved_at,
               error_reason
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
           `
         )
         .run(
           interactionId,
-          options.telegramChatId,
+          chatId,
+          chatId,
           options.sessionId,
           options.threadId,
           options.turnId,
@@ -137,7 +164,8 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
           options.state ?? "pending",
           options.promptJson,
           options.responseJson ?? null,
-          options.telegramMessageId ?? null,
+          messageId,
+          messageId,
           timestamp,
           timestamp,
           options.errorReason ?? null
@@ -145,7 +173,8 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
 
       return {
         interactionId,
-        telegramChatId: options.telegramChatId,
+        chatId,
+        telegramChatId: chatId,
         sessionId: options.sessionId,
         threadId: options.threadId,
         turnId: options.turnId,
@@ -155,7 +184,8 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
         state: options.state ?? "pending",
         promptJson: options.promptJson,
         responseJson: options.responseJson ?? null,
-        telegramMessageId: options.telegramMessageId ?? null,
+        messageId,
+        telegramMessageId: messageId,
         createdAt: timestamp,
         updatedAt: timestamp,
         resolvedAt: null,
@@ -163,17 +193,17 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
       } as PendingInteractionRow;
     },
 
-    getPendingInteraction(interactionId, telegramChatId) {
-      const row = telegramChatId
+    getPendingInteraction(interactionId, chatId) {
+      const row = chatId
         ? db
           .prepare(
             `
               SELECT *
               FROM pending_interaction
-              WHERE interaction_id = ? AND telegram_chat_id = ?
+              WHERE interaction_id = ? AND chat_id = ?
             `
           )
-          .get(interactionId, telegramChatId)
+          .get(interactionId, chatId)
         : db
           .prepare(
             `
@@ -204,29 +234,29 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
       return rows.map(mapPendingInteraction);
     },
 
-    listPendingInteractionsByChat(telegramChatId, states) {
+    listPendingInteractionsByChat(chatId, states) {
       const rows = states && states.length > 0
         ? db
           .prepare(
             `
               SELECT *
               FROM pending_interaction
-              WHERE telegram_chat_id = ?
+              WHERE chat_id = ?
                 AND state IN (${states.map(() => "?").join(", ")})
               ORDER BY created_at DESC, interaction_id DESC
             `
           )
-          .all(telegramChatId, ...states)
+          .all(chatId, ...states)
         : db
           .prepare(
             `
               SELECT *
               FROM pending_interaction
-              WHERE telegram_chat_id = ?
+              WHERE chat_id = ?
               ORDER BY created_at DESC, interaction_id DESC
             `
           )
-          .all(telegramChatId);
+          .all(chatId);
 
       return (rows as unknown as PendingInteractionRecord[]).map(mapPendingInteraction);
     },
@@ -279,7 +309,7 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
       return rows.map(mapPendingInteraction);
     },
 
-    rebindPendingInteractionsChatIds(telegramChatId, previousChatIds) {
+    rebindPendingInteractionsChatIds(chatId, previousChatIds) {
       if (previousChatIds.length === 0) {
         return;
       }
@@ -289,11 +319,11 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
         .prepare(
           `
             UPDATE pending_interaction
-            SET telegram_chat_id = ?
-            WHERE telegram_chat_id IN (${placeholders})
+            SET chat_id = ?, telegram_chat_id = ?
+            WHERE chat_id IN (${placeholders}) OR telegram_chat_id IN (${placeholders})
           `
         )
-        .run(telegramChatId, ...previousChatIds);
+        .run(chatId, chatId, ...previousChatIds, ...previousChatIds);
     },
 
     clearAllPendingInteractions() {
@@ -327,11 +357,11 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
         .prepare(
           `
             UPDATE pending_interaction
-            SET telegram_message_id = ?, updated_at = ?
+            SET message_id = ?, telegram_message_id = ?, updated_at = ?
             WHERE interaction_id = ?
           `
         )
-        .run(messageId, nowIso(), interactionId);
+        .run(messageId, messageId, nowIso(), interactionId);
     },
 
     savePendingInteractionDraftResponse(interactionId, state, responseJson) {

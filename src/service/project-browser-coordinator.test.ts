@@ -61,15 +61,16 @@ function getOnlyBrowseToken(coordinator: ProjectBrowserCoordinator): string {
 }
 
 function authorizeChat(store: BridgeStateStore, chatId: string): void {
-  store.confirmPendingAuthorization({
-    telegramUserId: "user-1",
-    telegramChatId: chatId,
-    telegramUsername: "tester",
-    displayName: "Tester",
-    firstSeenAt: "2026-03-18T10:00:00.000Z",
-    lastSeenAt: "2026-03-18T10:00:00.000Z",
-    expired: false
+  store.upsertPendingAuthorization({
+    userId: "user-1",
+    chatId,
+    username: "tester",
+    displayName: "Tester"
   });
+
+  const candidate = store.listPendingAuthorizations()[0];
+  assert.ok(candidate);
+  store.confirmPendingAuthorization(candidate);
 }
 
 async function createCoordinatorContext() {
@@ -177,7 +178,7 @@ test("browse opens the current project root and lists directory entries", async 
     await writeFile(join(projectRoot, "README.md"), "# hello\n", "utf8");
     authorizeChat(context.store, "chat-1");
     context.store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: projectRoot,
       displayName: "Session One"
@@ -204,7 +205,7 @@ test("browse opens text previews and returns to the directory view", async () =>
     await writeFile(join(projectRoot, "index.ts"), "const html = '<tag>';\n", "utf8");
     authorizeChat(context.store, "chat-1");
     context.store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: projectRoot,
       displayName: "Session One"
@@ -243,7 +244,7 @@ test("browse sends image previews and binary metadata without replacing the brow
     await writeFile(join(projectRoot, "archive.bin"), Buffer.from([0, 1, 2, 3]));
     authorizeChat(context.store, "chat-1");
     context.store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: projectRoot,
       displayName: "Session One"
@@ -285,7 +286,7 @@ test("browse rejects stale tokens after the active session changes and can close
     await writeFile(join(projectRoot, "index.ts"), "const value = 1;\n", "utf8");
     authorizeChat(context.store, "chat-1");
     context.store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: projectRoot,
       displayName: "Session One"
@@ -295,7 +296,7 @@ test("browse rejects stale tokens after the active session changes and can close
     const token = getOnlyBrowseToken(context.coordinator);
 
     context.store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: join(context.root, "other-project"),
       displayName: "Session Two"
@@ -308,7 +309,7 @@ test("browse rejects stale tokens after the active session changes and can close
     assert.equal(context.callbackAnswers.at(-1), "这个按钮已过期，请重新发送 /browse。");
 
     context.store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: projectRoot,
       displayName: "Session Three"
@@ -335,7 +336,7 @@ test("browse keeps symlink entries non-navigable", async () => {
     await symlink(join(projectRoot, "real-dir"), join(projectRoot, "real-link"));
     authorizeChat(context.store, "chat-1");
     context.store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: projectRoot,
       displayName: "Session One"

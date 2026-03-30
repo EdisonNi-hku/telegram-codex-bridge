@@ -2,26 +2,48 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { collectArchiveDriftDiagnostics } from "./archive-drift.js";
+import type { SessionRow } from "./types.js";
+
+function createSessionRow(overrides: Partial<SessionRow>): SessionRow {
+  const chatId = overrides.chatId ?? "chat-1";
+  return {
+    sessionId: overrides.sessionId ?? "session-1",
+    chatId,
+    telegramChatId: chatId,
+    threadId: overrides.threadId ?? null,
+    selectedModel: null,
+    selectedReasoningEffort: null,
+    planMode: false,
+    needsDefaultCollaborationModeReset: false,
+    displayName: overrides.displayName ?? "Session",
+    displayNameSource: "manual",
+    projectName: overrides.projectName ?? "Project",
+    projectAlias: null,
+    projectPath: overrides.projectPath ?? "/tmp/project",
+    status: overrides.status ?? "idle",
+    failureReason: overrides.failureReason ?? null,
+    archived: overrides.archived ?? false,
+    archivedAt: overrides.archivedAt ?? null,
+    createdAt: overrides.createdAt ?? "2026-03-14T10:00:00.000Z",
+    lastUsedAt: overrides.lastUsedAt ?? "2026-03-14T10:00:00.000Z",
+    lastTurnId: null,
+    lastTurnStatus: null,
+    ...overrides
+  };
+}
 
 test("collectArchiveDriftDiagnostics reports remote archived threads that are still visible locally", async () => {
   const summary = await collectArchiveDriftDiagnostics({
     store: {
-      listSessionsWithThreads: () => [{
+      listSessionsWithThreads: () => [createSessionRow({
         sessionId: "session-1",
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         threadId: "thread-1",
         displayName: "Session One",
         projectName: "Project One",
         projectPath: "/tmp/project-one",
-        status: "idle",
-        failureReason: null,
-        archived: false,
-        archivedAt: null,
-        createdAt: "2026-03-14T10:00:00.000Z",
-        lastUsedAt: "2026-03-14T10:00:00.000Z",
-        lastTurnId: null,
-        lastTurnStatus: null
-      }]
+        status: "idle"
+      })]
     } as any,
     listThreads: async (options?: { archived?: boolean; cursor?: string }) => {
       const archived = options?.archived;
@@ -56,22 +78,17 @@ test("collectArchiveDriftDiagnostics reports remote archived threads that are st
 test("collectArchiveDriftDiagnostics reports missing remote threads for local sessions with thread ids", async () => {
   const summary = await collectArchiveDriftDiagnostics({
     store: {
-      listSessionsWithThreads: () => [{
+      listSessionsWithThreads: () => [createSessionRow({
         sessionId: "session-2",
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         threadId: "thread-missing",
         displayName: "Session Missing",
         projectName: "Project Missing",
         projectPath: "/tmp/project-missing",
         status: "failed",
-        failureReason: "unknown",
         archived: true,
-        archivedAt: "2026-03-14T10:00:00.000Z",
-        createdAt: "2026-03-14T10:00:00.000Z",
-        lastUsedAt: "2026-03-14T10:00:00.000Z",
-        lastTurnId: null,
-        lastTurnStatus: null
-      }]
+        failureReason: "unknown"
+      })]
     } as any,
     listThreads: async () => ({
       data: [],

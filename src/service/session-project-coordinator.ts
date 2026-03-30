@@ -197,7 +197,7 @@ export class SessionProjectCoordinator {
     }
 
     store.createSession({
-      telegramChatId: chatId,
+      chatId,
       projectName: candidate.projectName,
       projectPath: candidate.projectPath,
       displayName: candidate.displayName
@@ -330,7 +330,7 @@ export class SessionProjectCoordinator {
     }
 
     const session = store.createSession({
-      telegramChatId: chatId,
+      chatId,
       projectName: candidate.projectName,
       projectPath: candidate.projectPath,
       displayName: candidate.displayName

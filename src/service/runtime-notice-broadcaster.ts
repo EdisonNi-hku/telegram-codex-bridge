@@ -27,10 +27,10 @@ export class RuntimeNoticeBroadcaster {
 
     const bindings = store.listChatBindings();
     for (const binding of bindings) {
-      const delivered = await this.deps.safeSendMessage(binding.telegramChatId, message);
+      const delivered = await this.deps.safeSendMessage(binding.chatId, message);
       if (!delivered) {
         store.createRuntimeNotice({
-          telegramChatId: binding.telegramChatId,
+          chatId: binding.chatId,
           type: "app_server_notice",
           message
         });

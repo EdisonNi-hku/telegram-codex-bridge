@@ -66,9 +66,9 @@ function createTestPaths(root: string): BridgePaths {
 
 function authorizeChatWithSession(store: BridgeStateStore, chatId: string, projectPath = "/tmp/project-one") {
   store.upsertPendingAuthorization({
-    telegramUserId: chatId,
-    telegramChatId: chatId,
-    telegramUsername: "tester",
+    userId: chatId,
+    chatId: chatId,
+    username: "tester",
     displayName: "Tester"
   });
   const candidate = store.listPendingAuthorizations()[0];
@@ -78,7 +78,7 @@ function authorizeChatWithSession(store: BridgeStateStore, chatId: string, proje
   store.confirmPendingAuthorization(candidate);
 
   const session = store.createSession({
-    telegramChatId: chatId,
+    chatId: chatId,
     projectName: "Project One",
     projectPath,
     displayName: "Project One"

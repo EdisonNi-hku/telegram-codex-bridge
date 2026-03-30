@@ -69,7 +69,13 @@ Integration assumptions:
 - the bridge uses a persisted interaction broker for current server-request surfaces such as approvals, structured user input, elicitation, and blocked-turn continuation
 - the bridge now also uses stable long-tail client requests where Telegram has a clear adapted UX, including plugin/app discovery, MCP admin discovery plus reload/login-link, account diagnostics, and background-terminal cleanup
 - when voice input is enabled, the bridge may create short-lived helper threads for realtime transcription fallback, then archive those helper threads after extracting the transcript
-- current state and delivery persistence still use Telegram-owned identifiers and message surfaces; a platform-neutral Core is a future direction, not a shipped reality
+- current state and delivery persistence is now mixed:
+  - bridge-owned runtime and pending records already expose neutral chat/message fields in code and SQLite
+  - auth, chat binding, and session ownership now also expose neutral binding columns in SQLite and neutral aliases in code
+  - platform binding resolution and chat-target comparison now have a shared Core helper instead of per-module fallback logic
+  - public store-facing inputs for session, interaction, and runtime-artifact persistence now prefer neutral `chatId`, `messageId`, and `deliveryMessageId` language
+  - Telegram-specific columns still remain as compatibility mirrors
+  - a platform-neutral Core is in progress, not a shipped multi-platform reality
 
 ## Runtime Surface Reduction And Final-Answer Rule
 
@@ -139,6 +145,9 @@ Persisted entities:
 Single allowed Telegram identity.
 
 Important fields:
+- `platform`
+- `user_id`
+- `username`
 - `telegram_user_id`
 - `telegram_username`
 - `display_name`
@@ -150,6 +159,10 @@ Important fields:
 Pending candidates awaiting local confirmation.
 
 Important fields:
+- `platform`
+- `user_id`
+- `chat_id`
+- `username`
 - `telegram_user_id`
 - `telegram_chat_id`
 - `telegram_username`
@@ -162,6 +175,9 @@ Important fields:
 The Telegram chat controlled by the authorized user.
 
 Important fields:
+- `platform`
+- `chat_id`
+- `user_id`
 - `telegram_chat_id`
 - `telegram_user_id`
 - `active_session_id`
@@ -174,6 +190,7 @@ One bridge session maps to one Codex thread plus one selected project.
 
 Important fields:
 - `session_id`
+- `chat_id`
 - `telegram_chat_id`
 - `thread_id`
 - `selected_model`
@@ -233,6 +250,7 @@ Bridge-owned deferred notices when Telegram delivery fails or when restart recov
 
 Important fields:
 - `key`
+- `chat_id`
 - `telegram_chat_id`
 - `type`
 - `message`
@@ -279,7 +297,9 @@ Persisted long final-answer views for restart-safe Telegram callbacks.
 
 Important fields:
 - `answer_id`
+- `chat_id`
 - `telegram_chat_id`
+- `delivery_message_id`
 - `telegram_message_id`
 - `session_id`
 - `thread_id`
@@ -289,7 +309,7 @@ Important fields:
 - `created_at`
 
 Retention note:
-- keep only the most recent 50 persisted final-answer views per Telegram chat
+- keep only the most recent 50 persisted final-answer views per chat
 - do not persist the user's current expanded/collapsed state or page cursor
 
 ### `pending_interaction`
@@ -298,6 +318,7 @@ Persisted bridge-owned interaction state for app-server server requests.
 
 Important fields:
 - `interaction_id`
+- `chat_id`
 - `telegram_chat_id`
 - `session_id`
 - `thread_id`
@@ -308,6 +329,7 @@ Important fields:
 - `state`
 - `prompt_json`
 - `response_json`
+- `message_id`
 - `telegram_message_id`
 - `created_at`
 - `updated_at`
@@ -327,6 +349,18 @@ Behavior notes:
 - `/inspect` only shows unresolved pending interactions, which means `pending` and `awaiting_text`
 - `canceled` is reserved for explicit user cancellation, not timeout or bridge failure cleanup
 - terminal turn cleanup is session-scoped, not root-thread-scoped, so subagent interactions do not survive after the parent turn ends
+
+### `current_session_card`
+
+Persisted bridge-owned pinned current-session surface.
+
+Important fields:
+- `chat_id`
+- `telegram_chat_id`
+- `message_id`
+- `telegram_message_id`
+- `session_id`
+- `updated_at`
 
 ## Recovery Model
 

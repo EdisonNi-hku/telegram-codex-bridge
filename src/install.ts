@@ -1338,9 +1338,9 @@ async function removeSharedInstallArtifacts(paths: BridgePaths): Promise<void> {
 
 function formatCandidate(candidate: PendingAuthorizationRow, index: number): string {
   return [
-    `[${index}] user_id=${candidate.telegramUserId}`,
-    `chat_id=${candidate.telegramChatId}`,
-    `username=${candidate.telegramUsername ?? "-"}`,
+    `[${index}] user_id=${candidate.userId}`,
+    `chat_id=${candidate.chatId}`,
+    `username=${candidate.username ?? "-"}`,
     `display_name=${candidate.displayName ?? "-"}`,
     `first_seen=${candidate.firstSeenAt}`,
     `last_seen=${candidate.lastSeenAt}`,
@@ -1373,7 +1373,7 @@ export async function listPendingAuthorizations(
       let target: PendingAuthorizationRow | undefined;
 
       if (options.userId) {
-        target = candidates.find((candidate) => candidate.telegramUserId === options.userId);
+        target = candidates.find((candidate) => candidate.userId === options.userId);
       } else if (options.latest) {
         [target] = candidates;
       } else if (options.select !== undefined) {
@@ -1385,7 +1385,7 @@ export async function listPendingAuthorizations(
       }
 
       store.confirmPendingAuthorization(target);
-      return `authorized user ${target.telegramUserId} bound to chat ${target.telegramChatId}`;
+      return `authorized user ${target.userId} bound to chat ${target.chatId}`;
     }
 
     if (candidates.length === 0) {

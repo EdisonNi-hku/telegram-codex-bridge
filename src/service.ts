@@ -36,6 +36,10 @@ import {
   selectStatusProgressText
 } from "./core/workflow/runtime-workflow.js";
 import {
+  createPlatformChatRef,
+  isSamePlatformChatRef
+} from "./core/domain/binding.js";
+import {
   type ErrorCardState,
   isTelegramDeleteCommitted,
   isTelegramEditCommitted,
@@ -568,7 +572,7 @@ export class BridgeService {
     await this.restoreCurrentSessionCardsAtStartup();
     await this.logger.info("bridge service started", { readiness: snapshot.state });
     if (recoverySessions.length > 0) {
-      const recoveryChatId = recoverySessions[0]?.telegramChatId;
+      const recoveryChatId = recoverySessions[0]?.chatId;
       if (recoveryChatId) {
         await this.runtimeSurfaceController.sendRecoveryHub(
           recoveryChatId,
@@ -1205,7 +1209,13 @@ export class BridgeService {
 
     const sessionId = view.sessionId;
     const session = this.store.getSessionById(sessionId);
-    if (!session || session.telegramChatId !== chatId) {
+    if (
+      !session
+      || !isSamePlatformChatRef(
+        createPlatformChatRef(session.chatId),
+        createPlatformChatRef(chatId)
+      )
+    ) {
       await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
       return;
     }
@@ -1259,13 +1269,13 @@ export class BridgeService {
     }
 
     const exact = this.store.getFinalAnswerView(answerIdOrLegacySessionId, chatId);
-    if (exact && (exact.telegramMessageId === null || exact.telegramMessageId === messageId)) {
+    if (exact && (exact.deliveryMessageId === null || exact.deliveryMessageId === messageId)) {
       return exact;
     }
 
     return this.store.listFinalAnswerViews(chatId).find((candidate) =>
       candidate.sessionId === answerIdOrLegacySessionId
-      && candidate.telegramMessageId === messageId
+      && candidate.deliveryMessageId === messageId
     ) ?? null;
   }
 
@@ -1277,29 +1287,29 @@ export class BridgeService {
     }
 
     const authorized = this.store.getAuthorizedUser();
-    const telegramUserId = `${message.from.id}`;
-    const telegramChatId = `${message.chat.id}`;
+    const userId = `${message.from.id}`;
+    const chatId = `${message.chat.id}`;
 
     if (!authorized) {
       this.store.upsertPendingAuthorization({
-        telegramUserId,
-        telegramChatId,
-        telegramUsername: message.from.username ?? null,
+        userId,
+        chatId,
+        username: message.from.username ?? null,
         displayName: displayName(message)
       });
       await this.safeSendMessage(
-        telegramChatId,
+        chatId,
         "这台服务器还没有绑定 Telegram 账号，请等待管理员在本机确认。"
       );
-      return { authorized: false, chatId: telegramChatId, userId: telegramUserId };
+      return { authorized: false, chatId, userId };
     }
 
-    if (authorized.telegramUserId !== telegramUserId) {
-      await this.rejectUnauthorizedUser(telegramUserId, telegramChatId);
-      return { authorized: false, chatId: telegramChatId, userId: telegramUserId };
+    if (authorized.userId !== userId) {
+      await this.rejectUnauthorizedUser(userId, chatId);
+      return { authorized: false, chatId, userId };
     }
 
-    return { authorized: true, chatId: telegramChatId, userId: telegramUserId };
+    return { authorized: true, chatId, userId };
   }
 
   private async authorizeCallbackSender(
@@ -1310,32 +1320,33 @@ export class BridgeService {
     }
 
     const authorized = this.store.getAuthorizedUser();
-    const telegramUserId = `${callbackQuery.from.id}`;
-    const telegramChatId = `${callbackQuery.message.chat.id}`;
+    const userId = `${callbackQuery.from.id}`;
+    const chatId = `${callbackQuery.message.chat.id}`;
 
-    if (!authorized || authorized.telegramUserId !== telegramUserId) {
+    if (!authorized || authorized.userId !== userId) {
       await this.safeAnswerCallbackQuery(callbackQuery.id, "这个 Telegram 账号无权访问此服务器上的 Codex。");
-      await this.rejectUnauthorizedUser(telegramUserId, telegramChatId);
-      return { authorized: false, chatId: telegramChatId, userId: telegramUserId };
+      await this.rejectUnauthorizedUser(userId, chatId);
+      return { authorized: false, chatId, userId };
     }
 
-    return { authorized: true, chatId: telegramChatId, userId: telegramUserId };
+    return { authorized: true, chatId, userId };
   }
 
-  private async rejectUnauthorizedUser(telegramUserId: string, telegramChatId: string): Promise<void> {
+  private async rejectUnauthorizedUser(userId: string, chatId: string): Promise<void> {
     if (!this.api) {
       return;
     }
 
-    const lastReplyAt = this.unauthorizedReplyAt.get(telegramUserId) ?? 0;
+    const lastReplyAt = this.unauthorizedReplyAt.get(userId) ?? 0;
     if (Date.now() - lastReplyAt > 60_000) {
-      this.unauthorizedReplyAt.set(telegramUserId, Date.now());
-      await this.safeSendMessage(telegramChatId, "这个 Telegram 账号无权访问此服务器上的 Codex。");
+      this.unauthorizedReplyAt.set(userId, Date.now());
+      await this.safeSendMessage(chatId, "这个 Telegram 账号无权访问此服务器上的 Codex。");
     }
 
-    await this.logger.warn("unauthorized telegram access rejected", {
-      telegramUserId,
-      telegramChatId
+    await this.logger.warn("unauthorized platform access rejected", {
+      platform: "telegram",
+      userId,
+      chatId
     });
   }
 
@@ -2300,7 +2311,7 @@ export class BridgeService {
         requestMethod: row.requestMethod,
         interactionKind: row.interactionKind,
         state: row.state,
-        telegramChatId: row.telegramChatId,
+        chatId: row.chatId,
         sessionId: row.sessionId
       }
     }, row.sessionId);
@@ -3009,19 +3020,19 @@ export class BridgeService {
       return;
     }
 
-    const activeSession = this.store?.getActiveSession(session.telegramChatId);
+    const activeSession = this.store?.getActiveSession(session.chatId);
     if (!activeSession || activeSession.sessionId !== sessionId) {
       return;
     }
 
-    await this.currentSessionCardController.syncForChat(session.telegramChatId, reason);
+    await this.currentSessionCardController.syncForChat(session.chatId, reason);
   }
 
   private async restoreCurrentSessionCardsAtStartup(): Promise<void> {
     const bindings = this.store?.listChatBindings() ?? [];
     await Promise.all(
       bindings.map((binding) =>
-        this.currentSessionCardController.syncForChat(binding.telegramChatId, "startup_restore"))
+        this.currentSessionCardController.syncForChat(binding.chatId, "startup_restore"))
     );
   }
 

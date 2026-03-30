@@ -110,9 +110,9 @@ async function createControllerContext() {
 
 function authorizeChat(store: BridgeStateStore, chatId: string): void {
   store.upsertPendingAuthorization({
-    telegramUserId: "user-1",
-    telegramChatId: chatId,
-    telegramUsername: "tester",
+    userId: "user-1",
+    chatId: chatId,
+    username: "tester",
     displayName: "Tester"
   });
 
@@ -127,7 +127,7 @@ test("CurrentSessionCardController sends and pins a new card for the active sess
   try {
     authorizeChat(store, "chat-1");
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
@@ -139,7 +139,7 @@ test("CurrentSessionCardController sends and pins a new card for the active sess
     assert.equal(sent.length, 1);
     assert.match(sent[0]?.text ?? "", /^Project One \/ Session One/u);
     assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 700 }]);
-    assert.equal(store.getCurrentSessionCard("chat-1")?.telegramMessageId, 700);
+    assert.equal(store.getCurrentSessionCard("chat-1")?.messageId, 700);
     assert.equal(store.getCurrentSessionCard("chat-1")?.sessionId, session.sessionId);
   } finally {
     await cleanup();
@@ -152,15 +152,15 @@ test("CurrentSessionCardController edits the existing card in place when possibl
   try {
     authorizeChat(store, "chat-1");
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
     });
     store.setActiveSession("chat-1", session.sessionId);
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-1",
-      telegramMessageId: 812,
+      chatId: "chat-1",
+      messageId: 812,
       sessionId: session.sessionId
     });
 
@@ -169,7 +169,7 @@ test("CurrentSessionCardController edits the existing card in place when possibl
     assert.deepEqual(sent, []);
     assert.equal(edited[0]?.messageId, 812);
     assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 812 }]);
-    assert.equal(store.getCurrentSessionCard("chat-1")?.telegramMessageId, 812);
+    assert.equal(store.getCurrentSessionCard("chat-1")?.messageId, 812);
   } finally {
     await cleanup();
   }
@@ -181,21 +181,21 @@ test("CurrentSessionCardController recreates the card on session switch to re-an
   try {
     authorizeChat(store, "chat-1");
     const previousSession = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Zero",
       projectPath: "/tmp/project-zero",
       displayName: "Session Zero"
     });
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
     });
     store.setActiveSession("chat-1", session.sessionId);
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-1",
-      telegramMessageId: 812,
+      chatId: "chat-1",
+      messageId: 812,
       sessionId: previousSession.sessionId
     });
 
@@ -206,7 +206,7 @@ test("CurrentSessionCardController recreates the card on session switch to re-an
     assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 700 }]);
     assert.deepEqual(unpinned, [{ chatId: "chat-1", messageId: 812 }]);
     assert.deepEqual(deleted, [{ chatId: "chat-1", messageId: 812 }]);
-    assert.equal(store.getCurrentSessionCard("chat-1")?.telegramMessageId, 700);
+    assert.equal(store.getCurrentSessionCard("chat-1")?.messageId, 700);
   } finally {
     await cleanup();
   }
@@ -218,15 +218,15 @@ test("CurrentSessionCardController recreates the card on startup restore to avoi
   try {
     authorizeChat(store, "chat-1");
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
     });
     store.setActiveSession("chat-1", session.sessionId);
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-1",
-      telegramMessageId: 812,
+      chatId: "chat-1",
+      messageId: 812,
       sessionId: session.sessionId
     });
 
@@ -237,7 +237,7 @@ test("CurrentSessionCardController recreates the card on startup restore to avoi
     assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 700 }]);
     assert.deepEqual(unpinned, [{ chatId: "chat-1", messageId: 812 }]);
     assert.deepEqual(deleted, [{ chatId: "chat-1", messageId: 812 }]);
-    assert.equal(store.getCurrentSessionCard("chat-1")?.telegramMessageId, 700);
+    assert.equal(store.getCurrentSessionCard("chat-1")?.messageId, 700);
   } finally {
     await cleanup();
   }
@@ -249,21 +249,21 @@ test("CurrentSessionCardController recreates the card when a new session becomes
   try {
     authorizeChat(store, "chat-1");
     const previousSession = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Zero",
       projectPath: "/tmp/project-zero",
       displayName: "Session Zero"
     });
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
     });
     store.setActiveSession("chat-1", session.sessionId);
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-1",
-      telegramMessageId: 812,
+      chatId: "chat-1",
+      messageId: 812,
       sessionId: previousSession.sessionId
     });
 
@@ -274,7 +274,7 @@ test("CurrentSessionCardController recreates the card when a new session becomes
     assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 700 }]);
     assert.deepEqual(unpinned, [{ chatId: "chat-1", messageId: 812 }]);
     assert.deepEqual(deleted, [{ chatId: "chat-1", messageId: 812 }]);
-    assert.equal(store.getCurrentSessionCard("chat-1")?.telegramMessageId, 700);
+    assert.equal(store.getCurrentSessionCard("chat-1")?.messageId, 700);
   } finally {
     await cleanup();
   }
@@ -296,15 +296,15 @@ test("CurrentSessionCardController replaces and cleans up the old card when edit
   try {
     authorizeChat(store, "chat-1");
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
     });
     store.setActiveSession("chat-1", session.sessionId);
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-1",
-      telegramMessageId: 811,
+      chatId: "chat-1",
+      messageId: 811,
       sessionId: session.sessionId
     });
     setEditOutcome("failed");
@@ -316,7 +316,7 @@ test("CurrentSessionCardController replaces and cleans up the old card when edit
     assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 700 }]);
     assert.deepEqual(unpinned, [{ chatId: "chat-1", messageId: 811 }]);
     assert.deepEqual(deleted, [{ chatId: "chat-1", messageId: 811 }]);
-    assert.equal(store.getCurrentSessionCard("chat-1")?.telegramMessageId, 700);
+    assert.equal(store.getCurrentSessionCard("chat-1")?.messageId, 700);
   } finally {
     await cleanup();
   }
@@ -328,8 +328,8 @@ test("CurrentSessionCardController removes the card when no active session remai
   try {
     authorizeChat(store, "chat-1");
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-1",
-      telegramMessageId: 900,
+      chatId: "chat-1",
+      messageId: 900,
       sessionId: "session-old"
     });
 

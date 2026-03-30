@@ -1,5 +1,9 @@
 import type { TelegramInlineKeyboardMarkup } from "./telegram/api.js";
 import type {
+  PlatformBindingRef,
+  PlatformUserRef
+} from "./core/domain/binding.js";
+import type {
   FailureReason,
   PendingInteractionKind,
   PendingInteractionState,
@@ -149,17 +153,23 @@ export interface ReadinessSnapshot {
   appServerPid?: string | null;
 }
 
-export interface AuthorizedUserRow {
+export interface AuthorizedUserRow extends PlatformUserRef {
+  /** @deprecated Use `userId`. */
   telegramUserId: string;
+  /** @deprecated Use `username`. */
   telegramUsername: string | null;
   displayName: string | null;
   firstSeenAt: string;
   updatedAt: string;
 }
 
-export interface PendingAuthorizationRow {
+export interface PendingAuthorizationRow extends PlatformUserRef {
+  chatId: string;
+  /** @deprecated Use `userId`. */
   telegramUserId: string;
+  /** @deprecated Use `chatId`. */
   telegramChatId: string;
+  /** @deprecated Use `username`. */
   telegramUsername: string | null;
   displayName: string | null;
   firstSeenAt: string;
@@ -167,8 +177,10 @@ export interface PendingAuthorizationRow {
   expired: boolean;
 }
 
-export interface ChatBindingRow {
+export interface ChatBindingRow extends PlatformBindingRef {
+  /** @deprecated Use `chatId`. */
   telegramChatId: string;
+  /** @deprecated Use `userId`. */
   telegramUserId: string;
   activeSessionId: string | null;
   createdAt: string;
@@ -194,6 +206,8 @@ export type InstallSourceMetadata = GitHubArchiveInstallSource;
 
 export interface RuntimeNotice {
   key: string;
+  chatId: string;
+  /** @deprecated Use `chatId`. */
   telegramChatId: string;
   type: RuntimeNoticeType;
   message: string;
@@ -206,7 +220,11 @@ export interface RuntimeNotice {
 
 export interface FinalAnswerViewRow {
   answerId: string;
+  chatId: string;
+  /** @deprecated Use `chatId`. */
   telegramChatId: string;
+  deliveryMessageId: number | null;
+  /** @deprecated Use `deliveryMessageId`. */
   telegramMessageId: number | null;
   sessionId: string;
   threadId: string;
@@ -220,7 +238,11 @@ export interface FinalAnswerViewRow {
 }
 
 export interface CurrentSessionCardRow {
+  chatId: string;
+  /** @deprecated Use `chatId`. */
   telegramChatId: string;
+  messageId: number | null;
+  /** @deprecated Use `messageId`. */
   telegramMessageId: number | null;
   sessionId: string;
   updatedAt: string;
@@ -248,6 +270,8 @@ export interface TurnInputSourceRow {
 
 export interface PendingInteractionRow {
   interactionId: string;
+  chatId: string;
+  /** @deprecated Use `chatId`. */
   telegramChatId: string;
   sessionId: string;
   threadId: string;
@@ -258,6 +282,8 @@ export interface PendingInteractionRow {
   state: PendingInteractionState;
   promptJson: string;
   responseJson: string | null;
+  messageId: number | null;
+  /** @deprecated Use `messageId`. */
   telegramMessageId: number | null;
   createdAt: string;
   updatedAt: string;
@@ -277,6 +303,8 @@ export type SessionDisplayNameSource = "auto" | "manual";
 
 export interface SessionRow {
   sessionId: string;
+  chatId: string;
+  /** @deprecated Use `chatId`. */
   telegramChatId: string;
   threadId: string | null;
   selectedModel: string | null;

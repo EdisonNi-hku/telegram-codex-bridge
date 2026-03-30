@@ -72,9 +72,11 @@ async function withMockedNow<T>(nowIso: string, callback: () => Promise<T> | T):
 }
 
 function createSession(overrides: Partial<SessionRow>): SessionRow {
+  const chatId = overrides.chatId ?? "chat-1";
   return {
     sessionId: overrides.sessionId ?? "session-1",
-    telegramChatId: overrides.telegramChatId ?? "chat-1",
+    chatId,
+    telegramChatId: chatId,
     threadId: overrides.threadId ?? null,
     selectedModel: "selectedModel" in overrides ? overrides.selectedModel ?? null : null,
     selectedReasoningEffort: "selectedReasoningEffort" in overrides ? overrides.selectedReasoningEffort ?? null : null,

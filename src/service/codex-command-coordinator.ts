@@ -613,7 +613,7 @@ export class CodexCommandCoordinator {
     let reviewSession = store.getSessionById(activeSession.sessionId) ?? activeSession;
     if (result.reviewThreadId !== threadId) {
       reviewSession = store.createSession({
-        telegramChatId: chatId,
+        chatId,
         projectName: activeSession.projectName,
         projectPath: activeSession.projectPath,
         displayName: `Review: ${activeSession.displayName}`,
@@ -658,7 +658,7 @@ export class CodexCommandCoordinator {
     const lastForkTurn = forked.thread.turns.at(-1) ?? null;
     const requestedForkName = args.trim();
     const created = store.createSession({
-      telegramChatId: chatId,
+      chatId,
       projectName: activeSession.projectName,
       projectPath: activeSession.projectPath,
       displayName: requestedForkName || `Fork: ${activeSession.displayName}`,

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
+import { resolvePlatformChatRef } from "../core/domain/binding.js";
 import type {
   FailureReason,
   ProjectScanCacheRow,
@@ -32,13 +33,13 @@ interface StoreSessionsDeps {
 }
 
 export interface StoreSessions {
-  listSessions(telegramChatId: string, limitOrOptions?: number | { archived?: boolean; limit?: number }): SessionRow[];
+  listSessions(chatId: string, limitOrOptions?: number | { archived?: boolean; limit?: number }): SessionRow[];
   getSessionById(sessionId: string): SessionRow | null;
   getSessionByThreadId(threadId: string): SessionRow | null;
   listSessionsWithThreads(): SessionRow[];
-  getActiveSession(telegramChatId: string): SessionRow | null;
+  getActiveSession(chatId: string): SessionRow | null;
   createSession(options: {
-    telegramChatId: string;
+    chatId: string;
     projectName: string;
     projectPath: string;
     displayName?: string;
@@ -51,8 +52,8 @@ export interface StoreSessions {
     lastTurnId?: string | null;
     lastTurnStatus?: string | null;
   }): SessionRow;
-  setActiveSession(telegramChatId: string, sessionId: string): void;
-  normalizeActiveSession(telegramChatId: string): void;
+  setActiveSession(chatId: string, sessionId: string): void;
+  normalizeActiveSession(chatId: string): void;
   archiveSession(sessionId: string): SessionRow | null;
   unarchiveSession(sessionId: string): SessionRow | null;
   renameSession(sessionId: string, displayName: string): void;
@@ -104,7 +105,11 @@ export interface StoreSessions {
   listRunningSessions(): SessionRow[];
   markRunningSessionsFailedAt(reason: FailureReason, timestamp: string): void;
   markSessionSuccessful(sessionId: string): void;
-  rebindSessionsChatIds(telegramChatId: string, previousChatIds: string[]): void;
+  rebindSessionsChatIds(chatId: string, previousChatIds: string[]): void;
+}
+
+function resolveChatId(options: { chatId: string }): string {
+  return resolvePlatformChatRef(options).chatId;
 }
 
 export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): StoreSessions {
@@ -124,18 +129,18 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
     return row ? mapSession(row) : null;
   };
 
-  const selectMostRecentVisibleSessionId = (telegramChatId: string): string | null => {
+  const selectMostRecentVisibleSessionId = (chatId: string): string | null => {
     const row = db
       .prepare(
         `
           SELECT session_id
           FROM session
-          WHERE telegram_chat_id = ? AND archived = 0
+          WHERE chat_id = ? AND archived = 0
           ORDER BY last_used_at DESC, created_at DESC, rowid DESC
           LIMIT 1
         `
       )
-      .get(telegramChatId) as { session_id: string } | undefined;
+      .get(chatId) as { session_id: string } | undefined;
 
     return row?.session_id ?? null;
   };
@@ -157,7 +162,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
   };
 
   return {
-    listSessions(telegramChatId, limitOrOptions) {
+    listSessions(chatId, limitOrOptions) {
       const options = resolveSessionListOptions(limitOrOptions);
       const rows = db
         .prepare(
@@ -166,12 +171,12 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
               ${sessionSelectColumns("s", "rp")}
             FROM session s
             LEFT JOIN recent_project rp ON rp.project_path = s.project_path
-            WHERE s.telegram_chat_id = ? AND s.archived = ?
+            WHERE s.chat_id = ? AND s.archived = ?
             ORDER BY s.last_used_at DESC, s.created_at DESC, s.rowid DESC
             LIMIT ?
           `
         )
-        .all(telegramChatId, options.archived ? 1 : 0, options.limit) as unknown as SessionRecord[];
+        .all(chatId, options.archived ? 1 : 0, options.limit) as unknown as SessionRecord[];
 
       return rows.map(mapSession);
     },
@@ -211,7 +216,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
       return rows.map(mapSession);
     },
 
-    getActiveSession(telegramChatId) {
+    getActiveSession(chatId) {
       const row = db
         .prepare(
           `
@@ -220,20 +225,22 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
             FROM chat_binding cb
             JOIN session s ON s.session_id = cb.active_session_id
             LEFT JOIN recent_project rp ON rp.project_path = s.project_path
-            WHERE cb.telegram_chat_id = ? AND s.archived = 0
+            WHERE cb.chat_id = ? AND s.archived = 0
           `
         )
-        .get(telegramChatId) as SessionRecord | undefined;
+        .get(chatId) as SessionRecord | undefined;
 
       return row ? mapSession(row) : null;
     },
 
     createSession(options) {
+      const chatId = resolveChatId(options);
       const timestamp = nowIso();
       const sessionId = randomUUID();
       const session: SessionRow = {
         sessionId,
-        telegramChatId: options.telegramChatId,
+        chatId,
+        telegramChatId: chatId,
         threadId: options.threadId ?? null,
         selectedModel: options.selectedModel ?? null,
         selectedReasoningEffort: options.selectedReasoningEffort ?? null,
@@ -262,6 +269,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
             `
               INSERT INTO session (
                 session_id,
+                chat_id,
                 telegram_chat_id,
                 thread_id,
                 selected_model,
@@ -281,11 +289,12 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
                 last_turn_id,
                 last_turn_status
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
           )
           .run(
             session.sessionId,
+            session.chatId,
             session.telegramChatId,
             session.threadId,
             session.selectedModel,
@@ -306,7 +315,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
             session.lastTurnStatus
           );
 
-        deps.auth.setChatBindingActiveSession(session.telegramChatId, session.sessionId, timestamp);
+        deps.auth.setChatBindingActiveSession(session.chatId, session.sessionId, timestamp);
 
         db
           .prepare(
@@ -341,19 +350,19 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
       }
     },
 
-    setActiveSession(telegramChatId, sessionId) {
-      deps.auth.setChatBindingActiveSession(telegramChatId, sessionId);
+    setActiveSession(chatId, sessionId) {
+      deps.auth.setChatBindingActiveSession(chatId, sessionId);
     },
 
-    normalizeActiveSession(telegramChatId) {
-      const binding = deps.auth.getChatBinding(telegramChatId);
+    normalizeActiveSession(chatId) {
+      const binding = deps.auth.getChatBinding(chatId);
       if (!binding) {
         return;
       }
 
       const currentVisibleSession = binding.activeSessionId ? getVisibleSessionById(binding.activeSessionId) : null;
-      const nextActiveSessionId = currentVisibleSession?.sessionId ?? selectMostRecentVisibleSessionId(telegramChatId);
-      deps.auth.setChatBindingActiveSession(telegramChatId, nextActiveSessionId);
+      const nextActiveSessionId = currentVisibleSession?.sessionId ?? selectMostRecentVisibleSessionId(chatId);
+      deps.auth.setChatBindingActiveSession(chatId, nextActiveSessionId);
     },
 
     archiveSession(sessionId) {
@@ -380,7 +389,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
           )
           .run(timestamp, sessionId);
 
-        this.normalizeActiveSession(session.telegramChatId);
+        this.normalizeActiveSession(session.chatId);
 
         db.exec("COMMIT");
         return getSessionById(sessionId);
@@ -414,11 +423,11 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
           )
           .run(sessionId);
 
-        const activeSession = this.getActiveSession(session.telegramChatId);
+        const activeSession = this.getActiveSession(session.chatId);
         if (!activeSession) {
-          deps.auth.setChatBindingActiveSession(session.telegramChatId, sessionId, timestamp);
+          deps.auth.setChatBindingActiveSession(session.chatId, sessionId, timestamp);
         } else {
-          this.normalizeActiveSession(session.telegramChatId);
+          this.normalizeActiveSession(session.chatId);
         }
 
         db.exec("COMMIT");
@@ -852,7 +861,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
       }
     },
 
-    rebindSessionsChatIds(telegramChatId, previousChatIds) {
+    rebindSessionsChatIds(chatId, previousChatIds) {
       if (previousChatIds.length === 0) {
         return;
       }
@@ -862,11 +871,11 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
         .prepare(
           `
             UPDATE session
-            SET telegram_chat_id = ?
-            WHERE telegram_chat_id IN (${placeholders})
+            SET chat_id = ?, telegram_chat_id = ?
+            WHERE chat_id IN (${placeholders}) OR telegram_chat_id IN (${placeholders})
           `
         )
-        .run(telegramChatId, ...previousChatIds);
+        .run(chatId, chatId, ...previousChatIds, ...previousChatIds);
     }
   };
 }

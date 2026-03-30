@@ -174,7 +174,7 @@ export class BridgeStateStore {
   private normalizeAllActiveSessions(): void {
     const bindings = this.auth.listChatBindings();
     for (const binding of bindings) {
-      this.sessions.normalizeActiveSession(binding.telegramChatId);
+      this.sessions.normalizeActiveSession(binding.chatId);
     }
   }
 
@@ -182,8 +182,8 @@ export class BridgeStateStore {
     return this.auth.getAuthorizedUser();
   }
 
-  getChatBinding(telegramChatId: string): ChatBindingRow | null {
-    return this.auth.getChatBinding(telegramChatId);
+  getChatBinding(chatId: string): ChatBindingRow | null {
+    return this.auth.getChatBinding(chatId);
   }
 
   listChatBindings(): ChatBindingRow[] {
@@ -195,9 +195,12 @@ export class BridgeStateStore {
   }
 
   upsertPendingAuthorization(candidate: {
-    telegramUserId: string;
-    telegramChatId: string;
-    telegramUsername: string | null;
+    userId?: string;
+    telegramUserId?: string;
+    chatId?: string;
+    telegramChatId?: string;
+    username?: string | null;
+    telegramUsername?: string | null;
     displayName: string | null;
   }): void {
     this.auth.upsertPendingAuthorization(candidate);
@@ -213,40 +216,40 @@ export class BridgeStateStore {
     this.db.exec("BEGIN");
 
     try {
-      const existingBindings = this.auth.listChatBindingsByTelegramUserId(candidate.telegramUserId);
-      const previousChatIds = existingBindings.map((binding) => binding.telegramChatId);
+      const existingBindings = this.auth.listChatBindingsByUserId(candidate.userId);
+      const previousChatIds = existingBindings.map((binding) => binding.chatId);
       const migratedActiveSessionId = choosePreferredActiveSessionId(existingBindings);
 
       this.auth.saveAuthorizedUser({
-        telegramUserId: candidate.telegramUserId,
-        telegramUsername: candidate.telegramUsername,
+        userId: candidate.userId,
+        username: candidate.username,
         displayName: candidate.displayName,
         firstSeenAt: candidate.firstSeenAt,
         updatedAt: timestamp
       });
 
       if (previousChatIds.length > 0) {
-        this.sessions.rebindSessionsChatIds(candidate.telegramChatId, previousChatIds);
-        this.runtimeArtifacts.rebindRuntimeNoticesChatIds(candidate.telegramChatId, previousChatIds);
-        this.runtimeArtifacts.rebindCurrentSessionCardsChatIds(candidate.telegramChatId, previousChatIds);
-        this.runtimeArtifacts.rebindFinalAnswerViewsChatIds(candidate.telegramChatId, previousChatIds);
+        this.sessions.rebindSessionsChatIds(candidate.chatId, previousChatIds);
+        this.runtimeArtifacts.rebindRuntimeNoticesChatIds(candidate.chatId, previousChatIds);
+        this.runtimeArtifacts.rebindCurrentSessionCardsChatIds(candidate.chatId, previousChatIds);
+        this.runtimeArtifacts.rebindFinalAnswerViewsChatIds(candidate.chatId, previousChatIds);
 
         if (appliedTableExists(this.db, "pending_interaction")) {
-          this.pendingInteractions.rebindPendingInteractionsChatIds(candidate.telegramChatId, previousChatIds);
+          this.pendingInteractions.rebindPendingInteractionsChatIds(candidate.chatId, previousChatIds);
         }
 
-        this.auth.deleteChatBindingsByTelegramUserId(candidate.telegramUserId);
+        this.auth.deleteChatBindingsByUserId(candidate.userId);
       }
 
       this.auth.replaceChatBinding({
-        telegramChatId: candidate.telegramChatId,
-        telegramUserId: candidate.telegramUserId,
+        chatId: candidate.chatId,
+        userId: candidate.userId,
         activeSessionId: migratedActiveSessionId,
         createdAt: timestamp,
         updatedAt: timestamp
       });
 
-      this.sessions.normalizeActiveSession(candidate.telegramChatId);
+      this.sessions.normalizeActiveSession(candidate.chatId);
 
       this.auth.clearPendingAuthorizations();
 
@@ -335,7 +338,8 @@ export class BridgeStateStore {
       const notices = runningSessions.map((session) => {
         const notice: RuntimeNotice = {
           key: `restart:${session.sessionId}:${timestamp}`,
-          telegramChatId: session.telegramChatId,
+          chatId: session.chatId,
+          telegramChatId: session.chatId,
           type: "bridge_restart_recovery",
           message: "桥接服务已重启，正在运行的操作状态未知，请查看会话状态后重新发起。",
           createdAt: timestamp
@@ -361,8 +365,8 @@ export class BridgeStateStore {
     }
   }
 
-  listSessions(telegramChatId: string, limitOrOptions?: number | { archived?: boolean; limit?: number }): SessionRow[] {
-    return this.sessions.listSessions(telegramChatId, limitOrOptions);
+  listSessions(chatId: string, limitOrOptions?: number | { archived?: boolean; limit?: number }): SessionRow[] {
+    return this.sessions.listSessions(chatId, limitOrOptions);
   }
 
   getSessionById(sessionId: string): SessionRow | null {
@@ -377,12 +381,12 @@ export class BridgeStateStore {
     return this.sessions.listSessionsWithThreads();
   }
 
-  getActiveSession(telegramChatId: string): SessionRow | null {
-    return this.sessions.getActiveSession(telegramChatId);
+  getActiveSession(chatId: string): SessionRow | null {
+    return this.sessions.getActiveSession(chatId);
   }
 
   createSession(options: {
-    telegramChatId: string;
+    chatId: string;
     projectName: string;
     projectPath: string;
     displayName?: string;
@@ -398,8 +402,8 @@ export class BridgeStateStore {
     return this.sessions.createSession(options);
   }
 
-  setActiveSession(telegramChatId: string, sessionId: string): void {
-    this.sessions.setActiveSession(telegramChatId, sessionId);
+  setActiveSession(chatId: string, sessionId: string): void {
+    this.sessions.setActiveSession(chatId, sessionId);
   }
 
   archiveSession(sessionId: string): SessionRow | null {
@@ -539,8 +543,8 @@ export class BridgeStateStore {
     this.sessions.markSessionSuccessful(sessionId);
   }
 
-  listRuntimeNotices(telegramChatId: string): RuntimeNotice[] {
-    return this.runtimeArtifacts.listRuntimeNotices(telegramChatId);
+  listRuntimeNotices(chatId: string): RuntimeNotice[] {
+    return this.runtimeArtifacts.listRuntimeNotices(chatId);
   }
 
   countRuntimeNotices(): number {
@@ -553,7 +557,7 @@ export class BridgeStateStore {
 
   createRuntimeNotice(options: {
     key?: string;
-    telegramChatId: string;
+    chatId: string;
     type: RuntimeNotice["type"];
     message: string;
     parseMode?: RuntimeNotice["parseMode"];
@@ -584,26 +588,26 @@ export class BridgeStateStore {
     return this.runtimeArtifacts.setUiLanguage(language);
   }
 
-  getCurrentSessionCard(telegramChatId: string): CurrentSessionCardRow | null {
-    return this.runtimeArtifacts.getCurrentSessionCard(telegramChatId);
+  getCurrentSessionCard(chatId: string): CurrentSessionCardRow | null {
+    return this.runtimeArtifacts.getCurrentSessionCard(chatId);
   }
 
   upsertCurrentSessionCard(options: {
-    telegramChatId: string;
-    telegramMessageId: number | null;
+    chatId: string;
+    messageId?: number | null;
     sessionId: string;
   }): CurrentSessionCardRow {
     return this.runtimeArtifacts.upsertCurrentSessionCard(options);
   }
 
-  deleteCurrentSessionCard(telegramChatId: string): void {
-    this.runtimeArtifacts.deleteCurrentSessionCard(telegramChatId);
+  deleteCurrentSessionCard(chatId: string): void {
+    this.runtimeArtifacts.deleteCurrentSessionCard(chatId);
   }
 
   saveFinalAnswerView(options: {
     answerId?: string;
-    telegramChatId: string;
-    telegramMessageId?: number | null;
+    chatId: string;
+    deliveryMessageId?: number | null;
     sessionId: string;
     threadId: string;
     turnId: string;
@@ -616,16 +620,16 @@ export class BridgeStateStore {
     return this.runtimeArtifacts.saveFinalAnswerView(options);
   }
 
-  getFinalAnswerView(answerId: string, telegramChatId: string): FinalAnswerViewRow | null {
-    return this.runtimeArtifacts.getFinalAnswerView(answerId, telegramChatId);
+  getFinalAnswerView(answerId: string, chatId: string): FinalAnswerViewRow | null {
+    return this.runtimeArtifacts.getFinalAnswerView(answerId, chatId);
   }
 
-  listFinalAnswerViews(telegramChatId: string): FinalAnswerViewRow[] {
-    return this.runtimeArtifacts.listFinalAnswerViews(telegramChatId);
+  listFinalAnswerViews(chatId: string): FinalAnswerViewRow[] {
+    return this.runtimeArtifacts.listFinalAnswerViews(chatId);
   }
 
-  setFinalAnswerMessageId(answerId: string, telegramMessageId: number): void {
-    this.runtimeArtifacts.setFinalAnswerMessageId(answerId, telegramMessageId);
+  setFinalAnswerMessageId(answerId: string, messageId: number): void {
+    this.runtimeArtifacts.setFinalAnswerMessageId(answerId, messageId);
   }
 
   setFinalAnswerDeliveryState(answerId: string, deliveryState: FinalAnswerViewRow["deliveryState"]): void {
@@ -655,7 +659,7 @@ export class BridgeStateStore {
 
   createPendingInteraction(options: {
     interactionId?: string;
-    telegramChatId: string;
+    chatId: string;
     sessionId: string;
     threadId: string;
     turnId: string;
@@ -665,14 +669,15 @@ export class BridgeStateStore {
     state?: PendingInteractionState;
     promptJson: string;
     responseJson?: string | null;
+    messageId?: number | null;
     telegramMessageId?: number | null;
     errorReason?: string | null;
   }): PendingInteractionRow {
     return this.pendingInteractions.createPendingInteraction(options);
   }
 
-  getPendingInteraction(interactionId: string, telegramChatId?: string): PendingInteractionRow | null {
-    return this.pendingInteractions.getPendingInteraction(interactionId, telegramChatId);
+  getPendingInteraction(interactionId: string, chatId?: string): PendingInteractionRow | null {
+    return this.pendingInteractions.getPendingInteraction(interactionId, chatId);
   }
 
   listPendingInteractionsByRequest(threadId: string, requestId: string): PendingInteractionRow[] {
@@ -680,10 +685,10 @@ export class BridgeStateStore {
   }
 
   listPendingInteractionsByChat(
-    telegramChatId: string,
+    chatId: string,
     states?: PendingInteractionState[]
   ): PendingInteractionRow[] {
-    return this.pendingInteractions.listPendingInteractionsByChat(telegramChatId, states);
+    return this.pendingInteractions.listPendingInteractionsByChat(chatId, states);
   }
 
   listPendingInteractionsByTurn(threadId: string, turnId: string): PendingInteractionRow[] {

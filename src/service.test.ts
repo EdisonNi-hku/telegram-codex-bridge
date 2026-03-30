@@ -222,7 +222,7 @@ test("auto session title sync never terminates app-server on read timeout", asyn
   try {
     (service as any).logger = captured.logger;
     store.createSession({
-      telegramChatId: "chat-timeout",
+      chatId: "chat-timeout",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       threadId: "thread-timeout"
@@ -263,13 +263,13 @@ test("auto session title sync reads thread titles concurrently", async () => {
 
   try {
     store.createSession({
-      telegramChatId: "chat-sync-a",
+      chatId: "chat-sync-a",
       projectName: "Project A",
       projectPath: "/tmp/project-a",
       threadId: "thread-a"
     });
     store.createSession({
-      telegramChatId: "chat-sync-b",
+      chatId: "chat-sync-b",
       projectName: "Project B",
       projectPath: "/tmp/project-b",
       threadId: "thread-b"
@@ -321,7 +321,7 @@ test("ensureAppServerAvailable does not wait for auto session title sync to fini
 
   try {
     store.createSession({
-      telegramChatId: "chat-startup-sync",
+      chatId: "chat-startup-sync",
       projectName: "Startup Project",
       projectPath: "/tmp/startup-project",
       threadId: "thread-startup-sync"
@@ -494,9 +494,9 @@ function createActivityStatus(overrides: Partial<ActivityStatus> = {}): Activity
   };
 }
 
-function createSession(store: BridgeStateStore, telegramChatId: string) {
+function createSession(store: BridgeStateStore, chatId: string) {
   return store.createSession({
-    telegramChatId,
+    chatId,
     projectName: "Project One",
     projectPath: "/tmp/project-one"
   });
@@ -526,9 +526,9 @@ function seedRuntimeNotice(store: BridgeStateStore, chatId: string): void {
 
 function authorizeChat(store: BridgeStateStore, chatId: string): void {
   store.upsertPendingAuthorization({
-    telegramUserId: "user-1",
-    telegramChatId: chatId,
-    telegramUsername: "tester",
+    userId: "user-1",
+    chatId: chatId,
+    username: "tester",
     displayName: "Tester"
   });
 
@@ -547,9 +547,9 @@ function authorizeChatWithSession(store: BridgeStateStore, chatId: string) {
 
 function authorizeNumericChatWithSession(store: BridgeStateStore, chatId: string, userId = 1) {
   store.upsertPendingAuthorization({
-    telegramUserId: `${userId}`,
-    telegramChatId: chatId,
-    telegramUsername: "tester",
+    userId: `${userId}`,
+    chatId: chatId,
+    username: "tester",
     displayName: "Tester"
   });
 
@@ -741,7 +741,7 @@ test("service startup restores and pins the current session card for the active 
     assert.equal(sent.length, 1);
     assert.match(sent[0]?.text ?? "", /^Project One \/ Project One/u);
     assert.deepEqual(pinned, [{ chatId: "chat-1", messageId: 1701 }]);
-    assert.equal(runtimeStore.getCurrentSessionCard("chat-1")?.telegramMessageId, 1701);
+    assert.equal(runtimeStore.getCurrentSessionCard("chat-1")?.messageId, 1701);
     assert.equal(runtimeStore.getCurrentSessionCard("chat-1")?.sessionId, session.sessionId);
   } finally {
     runtimeStore?.close();
@@ -935,7 +935,7 @@ test("archive command archives the active session, switches active session, and 
     store.updateSessionThreadId(archivedSession.sessionId, "thread-archive");
 
     const fallbackSession = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -1418,9 +1418,9 @@ test("status card removes command toggles and treats old command callbacks as ex
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -1698,9 +1698,9 @@ test("long final answers send one collapsible preview and persist the rendered p
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -1759,7 +1759,7 @@ test("long final answers send one collapsible preview and persist the rendered p
 
     const views = store.listFinalAnswerViews("1");
     assert.equal(views.length, 1);
-    assert.ok(views[0]?.telegramMessageId);
+    assert.ok(views[0]?.deliveryMessageId);
     assert.ok((views[0]?.pages.length ?? 0) > 1);
 
     await (service as any).handleCallback({
@@ -1823,9 +1823,9 @@ test("persisted final answer callbacks work without an active turn", async () =>
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -1837,8 +1837,8 @@ test("persisted final answer callbacks work without an active turn", async () =>
     store.updateSessionThreadId(session.sessionId, "thread-persisted-final-answer");
     const view = store.saveFinalAnswerView({
       answerId: "answer-persisted-final-answer",
-      telegramChatId: "1",
-      telegramMessageId: 1234,
+      chatId: "1",
+      deliveryMessageId: 1234,
       sessionId: session.sessionId,
       threadId: "thread-persisted-final-answer",
       turnId: "turn-persisted-final-answer",
@@ -2464,9 +2464,9 @@ test("status card expands the current plan inline and keeps only the latest plan
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -2607,9 +2607,9 @@ test("status card does not expose proposed-plan drafts through the checklist but
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -3108,9 +3108,9 @@ test("status card shows running subagents behind an agent button and expands the
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -3327,9 +3327,9 @@ test("status card replays cached subagent identity when the thread identity arri
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -3428,9 +3428,9 @@ test("status card backfills missing subagent identity from thread read once per 
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -3544,9 +3544,9 @@ test("status card backfills title-only subagent identity to nickname", async () 
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -3663,9 +3663,9 @@ test("status card ignores stale thread read identity after newer notification", 
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -3785,9 +3785,9 @@ test("status card keeps the fallback subagent label when thread read cannot reso
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -3900,9 +3900,9 @@ test("status card clears stale subagent blocker text after the subagent resumes"
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -4948,7 +4948,7 @@ test("structured project and session replies use Telegram HTML parse mode", asyn
     authorizeChat(store, "chat-1");
     const firstSession = await withMockedNow("2026-03-10T09:00:00.000Z", async () => createSession(store, "chat-1"));
     const secondSession = await withMockedNow("2026-03-10T09:05:00.000Z", async () => store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project <Two>",
       projectPath: "/tmp/project-two"
     }));
@@ -4995,7 +4995,7 @@ test("use command can switch away from a running session so another session beco
     authorizeChat(store, "chat-1");
     const runningSession = await withMockedNow("2026-03-10T09:00:00.000Z", async () => createSession(store, "chat-1"));
     const idleSession = await withMockedNow("2026-03-10T09:05:00.000Z", async () => store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Idle",
       projectPath: "/tmp/project-idle"
     }));
@@ -5037,7 +5037,7 @@ test("use command leaves the existing runtime hub in place when another session 
     authorizeChat(store, "chat-1");
     const runningSession = await withMockedNow("2026-03-10T09:00:00.000Z", async () => createSession(store, "chat-1"));
     const idleSession = await withMockedNow("2026-03-10T09:05:00.000Z", async () => store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Idle",
       projectPath: "/tmp/project-idle"
     }));
@@ -5067,8 +5067,8 @@ test("use command leaves the existing runtime hub in place when another session 
     const initialStatusMessageId = sent[0]?.messageId;
     assert.ok(initialStatusMessageId);
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-1",
-      telegramMessageId: 7001,
+      chatId: "chat-1",
+      messageId: 7001,
       sessionId: runningSession.sessionId
     });
 
@@ -5105,7 +5105,7 @@ test("use command does not reanchor a background running session after it become
     authorizeChat(store, "chat-1");
     const runningSession = await withMockedNow("2026-03-10T09:00:00.000Z", async () => createSession(store, "chat-1"));
     const idleSession = await withMockedNow("2026-03-10T09:05:00.000Z", async () => store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Idle",
       projectPath: "/tmp/project-idle"
     }));
@@ -5135,8 +5135,8 @@ test("use command does not reanchor a background running session after it become
     const initialStatusMessageId = sent[0]?.messageId;
     assert.ok(initialStatusMessageId);
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-1",
-      telegramMessageId: 7002,
+      chatId: "chat-1",
+      messageId: 7002,
       sessionId: idleSession.sessionId
     });
 
@@ -5236,8 +5236,8 @@ test("runtime and language pickers keep focus while a turn is active", async () 
     const session = authorizeChatWithSession(store, "chat-1");
     store.setActiveSession("chat-1", session.sessionId);
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-1",
-      telegramMessageId: 777,
+      chatId: "chat-1",
+      messageId: 777,
       sessionId: session.sessionId
     });
 
@@ -5304,8 +5304,8 @@ test("language callback refreshes the current session card in the selected langu
     const session = authorizeChatWithSession(store, "chat-1");
     store.setActiveSession("chat-1", session.sessionId);
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-1",
-      telegramMessageId: 777,
+      chatId: "chat-1",
+      messageId: 777,
       sessionId: session.sessionId
     });
 
@@ -6047,7 +6047,7 @@ test("server requests are persisted and rendered as Telegram interaction cards",
     const pending = store.listPendingInteractionsByChat("chat-1", ["pending"]);
     assert.equal(pending.length, 1);
     assert.equal(pending[0]?.requestMethod, "item/commandExecution/requestApproval");
-    assert.ok(pending[0]?.telegramMessageId);
+    assert.ok(pending[0]?.messageId);
 
     assert.equal(sent.length, 2);
     assert.equal(isRuntimeStatusText(sent[0]?.text ?? ""), true);
@@ -6373,7 +6373,7 @@ test("approval callbacks resolve pending interactions and respond to the app-ser
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(interactionMessage, 0, 0)
@@ -6452,7 +6452,7 @@ test("approval cancel persists canceled state and appends interaction audit jour
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: cancelCallback
@@ -6538,7 +6538,7 @@ test("declined permissions requests render rejected summaries", async () => {
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(interactionMessage, 0, 2)
@@ -6624,7 +6624,7 @@ test("approval callbacks preserve structured decision payloads", async () => {
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(interactionMessage, 0, 1)
@@ -6704,7 +6704,7 @@ test("legacy exec approvals resolve with legacy decision payloads", async () => 
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(getLatestInteractiveMessage(sent), 0, 1)
@@ -6781,7 +6781,7 @@ test("legacy patch approval cancel maps to abort", async () => {
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: cancelCallback
@@ -6874,7 +6874,7 @@ test("questionnaire interactions advance through options and pending text answer
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(interactionMessage, 0, 0)
@@ -6890,7 +6890,7 @@ test("questionnaire interactions advance through options and pending text answer
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(edited.at(-1), 0, 0)
@@ -6923,7 +6923,7 @@ test("questionnaire interactions advance through options and pending text answer
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(edited.at(-1), 0, 0)
@@ -7010,7 +7010,7 @@ test("questionnaire cancel persists canceled state and treats re-click as alread
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: cancelCallback
@@ -7033,7 +7033,7 @@ test("questionnaire cancel persists canceled state and treats re-click as alread
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: cancelCallback
@@ -7113,7 +7113,7 @@ test("app-server exit fails unresolved interactions and clears pending text mode
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(interactionMessage, 0, 0)
@@ -7264,7 +7264,7 @@ test("MCP form interactions submit typed accept payloads", async () => {
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(firstCard, 0, 1)
@@ -7279,7 +7279,7 @@ test("MCP form interactions submit typed accept payloads", async () => {
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(edited.at(-1), 0, 0)
@@ -7294,7 +7294,7 @@ test("MCP form interactions submit typed accept payloads", async () => {
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(edited.at(-1), 0, 0)
@@ -7311,7 +7311,7 @@ test("MCP form interactions submit typed accept payloads", async () => {
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: getCallbackData(edited.at(-1), 0, 0)
@@ -7405,7 +7405,7 @@ test("MCP form interactions cancel with action cancel", async () => {
         first_name: "Tester"
       },
       message: {
-        message_id: pending?.telegramMessageId,
+        message_id: pending?.messageId,
         chat: { id: 1, type: "private" }
       },
       data: cancelCallback
@@ -8497,7 +8497,7 @@ test("local image command sends a real localImage input with prompt text", async
   try {
     authorizeChat(store, "chat-local-image");
     const session = store.createSession({
-      telegramChatId: "chat-local-image",
+      chatId: "chat-local-image",
       projectName: "Image Project",
       projectPath: projectRoot
     });

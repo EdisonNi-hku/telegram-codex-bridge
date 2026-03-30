@@ -144,7 +144,7 @@ test("buildProjectPicker keeps the /new picker to three recent and two discovere
 
     for (const name of recentNames) {
       store.createSession({
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         projectName: name,
         projectPath: join(configuredRoot, name)
       });

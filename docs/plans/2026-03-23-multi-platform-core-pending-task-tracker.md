@@ -31,6 +31,11 @@ The repo now has:
 - `src/core/domain/`
 - `src/core/interaction-model/`
 - `src/core/workflow/`
+- the first shipped `MP-01` slices for persistence neutralization:
+  - bridge-owned runtime and pending-interaction records now expose neutral chat/message naming in code
+  - SQLite schema `v17` adds neutral runtime and pending columns with backfill migration coverage
+  - auth/session rows now expose neutral aliases in types and store APIs
+  - SQLite schema `v18` adds neutral binding columns for authorized user, pending authorization, chat binding, and session ownership
 
 The repo does not yet have:
 
@@ -60,6 +65,16 @@ Change that order only with a narrower approved plan.
 
 ### MP-01: Neutralize persistence and delivery identifiers
 
+Status:
+- in progress
+- materially landed for runtime notice, final answer, current session card, and pending interaction persistence
+- materially landed for auth/session schema neutralization and neutral store APIs
+- a separate platform binding boundary design now exists so later capability and pack work do not reuse Telegram-first auth language by accident
+- a shared platform binding helper now resolves neutral vs compatibility binding fields and is used by auth/session persistence plus critical session/chat identity checks
+- session, pending-interaction, and runtime-artifact facade inputs now default to neutral `chatId` and neutral message-id naming instead of Telegram-first parameter names
+- most test helpers and test-call sites now also default to neutral binding language, leaving Telegram naming mainly in explicit compatibility-mirror assertions
+- not yet complete for removing Telegram mirror columns or formalizing a platform binding model beyond the current Telegram-first product
+
 Why later:
 
 - schema churn is the highest-risk refactor in this direction
@@ -76,6 +91,7 @@ Done means:
 - transport-specific ids move into delivery-reference fields or transport-scoped records
 - restart recovery and final-answer callback recovery still work after migration
 - migration and reopen tests exist
+- auth/session binding no longer depends on Telegram-specific field names as its primary business shape
 
 Likely areas:
 
@@ -83,9 +99,17 @@ Likely areas:
 - `src/state/store.ts`
 - `src/state/store-runtime-artifacts.ts`
 - `src/state/store-pending-interactions.ts`
+- `src/state/store-auth.ts`
+- `src/state/store-sessions.ts`
 - `docs/architecture/runtime-and-state.md`
 
 ### MP-02: Add a real capability layer
+
+Status:
+- started as narrow landing-zone work only
+- a narrow platform surface adapter plus minimum capability-vocabulary predesign now exists so this step can start from a concrete landing zone instead of a repo-wide abstraction jump
+- a first shared surface-intent and surface-result contract now exists and is wired into Telegram pending-interaction and terminal-result delivery paths
+- not yet started as a broad capability-policy rollout across workflow, presentation, and pack boundaries
 
 Why later:
 

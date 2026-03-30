@@ -427,7 +427,7 @@ test("RuntimeSurfaceController manual hub refresh resurfaces the live hub to the
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -479,7 +479,7 @@ test("RuntimeSurfaceController manual hub refresh refuses while actionable inter
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -540,7 +540,7 @@ test("RuntimeSurfaceController delays the start auto-refresh until work is still
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -605,7 +605,7 @@ test("RuntimeSurfaceController delays recovery hub refresh after blocked work re
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -664,12 +664,12 @@ test("RuntimeSurfaceController keeps hub focus stable while background sessions 
 
   try {
     const sessionOne = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     const sessionTwo = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -744,9 +744,9 @@ test("RuntimeSurfaceController keeps a newly created idle session out of the liv
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -754,12 +754,12 @@ test("RuntimeSurfaceController keeps a newly created idle session out of the liv
     store.confirmPendingAuthorization(candidate);
 
     const runningSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Running",
       projectPath: "/tmp/project-running"
     });
     const idleSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Idle",
       projectPath: "/tmp/project-idle"
     });
@@ -811,12 +811,12 @@ test("RuntimeSurfaceController commits hub focus changes when Telegram reports t
 
   try {
     const sessionOne = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     const sessionTwo = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -910,12 +910,12 @@ test("RuntimeSurfaceController hub selection sends and replaces a recent-output 
 
   try {
     const sessionOne = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     const sessionTwo = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -964,7 +964,7 @@ test("RuntimeSurfaceController hub selection sends and replaces a recent-output 
 
     store.saveFinalAnswerView({
       answerId: "answer-session-1",
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: sessionOne.sessionId,
       threadId: "thread-1",
       turnId: "turn-1",
@@ -973,7 +973,7 @@ test("RuntimeSurfaceController hub selection sends and replaces a recent-output 
     });
     store.saveFinalAnswerView({
       answerId: "answer-session-2",
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: sessionTwo.sessionId,
       threadId: "thread-2",
       turnId: "turn-2",
@@ -1043,7 +1043,7 @@ test("RuntimeSurfaceController rejects archived sessions when selecting a retain
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1130,7 +1130,7 @@ test("RuntimeSurfaceController serializes refresh and reanchor hub operations to
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1208,7 +1208,7 @@ test("RuntimeSurfaceController retains a completed hub instead of deleting its m
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1280,7 +1280,7 @@ test("RuntimeSurfaceController keeps the completed hub visible after terminal ha
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1346,9 +1346,9 @@ test("RuntimeSurfaceController renders slot-based hub headers and selector butto
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -1356,12 +1356,12 @@ test("RuntimeSurfaceController renders slot-based hub headers and selector butto
     store.confirmPendingAuthorization(candidate);
 
     const sessionOne = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     const sessionTwo = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -1427,7 +1427,7 @@ test("RuntimeSurfaceController reuses a completed latest hub when it still has a
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1461,7 +1461,7 @@ test("RuntimeSurfaceController reuses a completed latest hub when it still has a
     assert.match(editedHtml.at(-1)?.html ?? sentHtml[0]?.html ?? "", /🎯 <b>Active Hub<\/b> \[目录：1\/1 · 已完成\]/u);
 
     const nextSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -1507,7 +1507,7 @@ test("RuntimeSurfaceController admits new work only into the latest hub, not old
   try {
     const sessions = await Promise.all(
       Array.from({ length: 10 }, (_, index) => store.createSession({
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         projectName: `Project ${index + 1}`,
         projectPath: `/tmp/project-${index + 1}`
       }))
@@ -1544,7 +1544,7 @@ test("RuntimeSurfaceController admits new work only into the latest hub, not old
     await controller.handleSessionArchived("chat-1", removed.sessionId, "telegram_archive");
 
     const nextSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project 11",
       projectPath: "/tmp/project-11"
     });
@@ -1593,7 +1593,7 @@ test("RuntimeSurfaceController removes archived sessions from live hubs immediat
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1643,8 +1643,8 @@ test("RuntimeSurfaceController removes archived sessions from recovery hubs imme
 
   try {
     const sessions = await Promise.all([
-      store.createSession({ telegramChatId: "chat-1", projectName: "Project One", projectPath: "/tmp/project-one" }),
-      store.createSession({ telegramChatId: "chat-1", projectName: "Project Two", projectPath: "/tmp/project-two" })
+      store.createSession({ chatId: "chat-1", projectName: "Project One", projectPath: "/tmp/project-one" }),
+      store.createSession({ chatId: "chat-1", projectName: "Project Two", projectPath: "/tmp/project-two" })
     ]);
     store.setActiveSession("chat-1", sessions[0]!.sessionId);
 
@@ -1670,7 +1670,7 @@ test("RuntimeSurfaceController evicts the oldest non-running hub before creating
   try {
     const sessions = await Promise.all(
       Array.from({ length: 11 }, (_, index) => store.createSession({
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         projectName: `Project ${index + 1}`,
         projectPath: `/tmp/project-${index + 1}`
       }))
@@ -1712,7 +1712,7 @@ test("RuntimeSurfaceController evicts the oldest non-running hub before creating
 
     for (let index = 11; index < 16; index += 1) {
       const session = await store.createSession({
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         projectName: `Project ${index + 1}`,
         projectPath: `/tmp/project-${index + 1}`
       });
@@ -1764,7 +1764,7 @@ test("RuntimeSurfaceController allows a temporary fourth live hub when the first
   try {
     const sessions = await Promise.all(
       Array.from({ length: 16 }, (_, index) => store.createSession({
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         projectName: `Project ${index + 1}`,
         projectPath: `/tmp/project-${index + 1}`
       }))
@@ -1813,7 +1813,7 @@ test("RuntimeSurfaceController prunes temporary overflow hubs after older hubs s
   try {
     const sessions = await Promise.all(
       Array.from({ length: 16 }, (_, index) => store.createSession({
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         projectName: `Project ${index + 1}`,
         projectPath: `/tmp/project-${index + 1}`
       }))
@@ -1887,7 +1887,7 @@ test("RuntimeSurfaceController does not double-send delayed start auto-refresh a
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1957,12 +1957,12 @@ test("RuntimeSurfaceController keeps the delayed start auto-refresh when another
 
   try {
     const blockedSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Blocked Project",
       projectPath: "/tmp/project-blocked"
     });
     const runningSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Running Project",
       projectPath: "/tmp/project-running"
     });
@@ -2054,7 +2054,7 @@ test("RuntimeSurfaceController does not double-send delayed recovery auto-refres
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -2137,12 +2137,12 @@ test("RuntimeSurfaceController keeps the delayed recovery auto-refresh when anot
 
   try {
     const blockedSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Blocked Project",
       projectPath: "/tmp/project-blocked"
     });
     const continuedSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Continued Project",
       projectPath: "/tmp/project-continued"
     });
@@ -2229,7 +2229,7 @@ test("RuntimeSurfaceController retains the superseded hub when fallback resend c
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -2294,9 +2294,9 @@ test("RuntimeSurfaceController keeps terminal slots in recent ended sessions on 
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -2304,12 +2304,12 @@ test("RuntimeSurfaceController keeps terminal slots in recent ended sessions on 
     store.confirmPendingAuthorization(candidate);
 
     const sessionOne = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     const sessionTwo = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -2388,9 +2388,9 @@ test("RuntimeSurfaceController shows app-server-exit failures in recent ended se
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -2398,17 +2398,17 @@ test("RuntimeSurfaceController shows app-server-exit failures in recent ended se
     store.confirmPendingAuthorization(candidate);
 
     const sessionOne = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     const sessionTwo = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
     const sessionThree = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Three",
       projectPath: "/tmp/project-three"
     });
@@ -2502,9 +2502,9 @@ test("RuntimeSurfaceController reanchors and localizes the recovery hub after br
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -2512,12 +2512,12 @@ test("RuntimeSurfaceController reanchors and localizes the recovery hub after br
     store.confirmPendingAuthorization(candidate);
 
     const sessionOne = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     const sessionTwo = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -2552,9 +2552,9 @@ test("RuntimeSurfaceController recovery hub shows a separate current input sessi
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -2562,12 +2562,12 @@ test("RuntimeSurfaceController recovery hub shows a separate current input sessi
     store.confirmPendingAuthorization(candidate);
 
     const recoveredSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Recovered Project",
       projectPath: "/tmp/recovered-project"
     });
     const idleSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Idle Project",
       projectPath: "/tmp/idle-project"
     });
@@ -2605,9 +2605,9 @@ test("RuntimeSurfaceController compacts oversized recovery hubs before Telegram 
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -2619,7 +2619,7 @@ test("RuntimeSurfaceController compacts oversized recovery hubs before Telegram 
       const suffix = String(index).padStart(2, "0");
       const projectName = `recovery-project-${suffix}-with-a-very-long-repo-name`;
       const session = await store.createSession({
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         projectName,
         projectPath: `/tmp/${projectName}`,
         displayName: `recovery-session-${suffix}-with-a-very-long-name`
@@ -2660,9 +2660,9 @@ test("RuntimeSurfaceController retries recovery hub delivery after a transient s
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -2670,7 +2670,7 @@ test("RuntimeSurfaceController retries recovery hub delivery after a transient s
     store.confirmPendingAuthorization(candidate);
 
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -2717,12 +2717,12 @@ test("RuntimeSurfaceController does not reanchor another session past pending in
 
   try {
     const blockedSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Blocked Project",
       projectPath: "/tmp/project-blocked"
     });
     const finishedSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Finished Project",
       projectPath: "/tmp/project-finished"
     });
@@ -2791,7 +2791,7 @@ test("RuntimeSurfaceController reanchors the hub that owns a finished background
   try {
     const sessions = await Promise.all(
       Array.from({ length: 7 }, (_, index) => store.createSession({
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         projectName: `Project ${index + 1}`,
         projectPath: `/tmp/project-${index + 1}`
       }))
@@ -2859,7 +2859,7 @@ test("RuntimeSurfaceController reanchors the current live hub when the active se
   try {
     const runningSessions = await Promise.all(
       Array.from({ length: 6 }, (_, index) => store.createSession({
-        telegramChatId: "chat-1",
+        chatId: "chat-1",
         projectName: `Project ${index + 1}`,
         projectPath: `/tmp/project-${index + 1}`
       }))
@@ -2901,7 +2901,7 @@ test("RuntimeSurfaceController reanchors the current live hub when the active se
     assert.ok(currentLiveHubMessageId > 0);
 
     const idleSession = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Idle Project",
       projectPath: "/tmp/project-idle"
     });
@@ -2960,7 +2960,7 @@ test("RuntimeSurfaceController keeps the visible expanded hub actionable when co
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -3072,9 +3072,9 @@ test("RuntimeSurfaceController keeps expanded hub plan sections when the slimmer
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-1",
-      telegramUsername: "tester",
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
       displayName: "Tester"
     });
     const candidate = store.listPendingAuthorizations()[0];
@@ -3082,7 +3082,7 @@ test("RuntimeSurfaceController keeps expanded hub plan sections when the slimmer
     store.confirmPendingAuthorization(candidate);
 
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -3177,7 +3177,7 @@ test("RuntimeSurfaceController does not leave retry timers on disposed hubs", as
 
   try {
     const session = await store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });

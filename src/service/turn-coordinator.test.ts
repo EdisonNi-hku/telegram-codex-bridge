@@ -204,7 +204,7 @@ test("TurnCoordinator starts plan-mode turns with collaborationMode and records 
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       planMode: true,
@@ -256,7 +256,7 @@ test("TurnCoordinator starts structured turns and requests the structured-work h
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -306,7 +306,7 @@ test("TurnCoordinator resolves the default model and reasoning effort for runtim
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Alpha",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -352,7 +352,7 @@ test("TurnCoordinator uses resumed thread runtime config instead of model picker
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       threadId: "thread-existing"
@@ -382,7 +382,7 @@ test("TurnCoordinator keeps the known reasoning effort when the model is reroute
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Alpha",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -408,13 +408,13 @@ test("TurnCoordinator auto-syncs session names from thread title updates but kee
 
   try {
     const autoSession = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       threadId: "thread-auto-title"
     });
     const manualSession = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two",
       threadId: "thread-manual-title"
@@ -474,7 +474,7 @@ test("TurnCoordinator refreshes auto session names from remote thread metadata a
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -513,7 +513,7 @@ test("TurnCoordinator forces runtime refresh when thread title notifications upd
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       threadId: "thread-title-live"
@@ -558,7 +558,7 @@ test("TurnCoordinator recreates missing remote threads before starting a turn", 
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       threadId: "thread-missing"
@@ -600,7 +600,7 @@ test("TurnCoordinator completes a normal turn and delivers the recovered final a
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Alpha",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -620,7 +620,7 @@ test("TurnCoordinator completes a normal turn and delivers the recovered final a
     const views = store.listFinalAnswerViews("chat-1");
     assert.equal(views.length, 1);
     assert.equal(views[0]?.deliveryState, "visible");
-    assert.equal(views[0]?.telegramMessageId, 1);
+    assert.equal(views[0]?.deliveryMessageId, 1);
     assert.deepEqual(interactionResolutions, [{
       chatId: "chat-1",
       sessionId: session.sessionId,
@@ -668,7 +668,7 @@ test("TurnCoordinator delivers review results when review mode exits without a p
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -727,7 +727,7 @@ test("TurnCoordinator prefers trailing review findings over the exited-review su
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -782,7 +782,7 @@ test("TurnCoordinator delivers review outer turn results from the durable inner 
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -821,7 +821,7 @@ test("TurnCoordinator delivers split-turn review findings from live review items
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -903,7 +903,7 @@ test("TurnCoordinator uses the observed live review turn id instead of UUID orde
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -951,7 +951,7 @@ test("TurnCoordinator ignores subagent turns when tracking review result candida
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1038,7 +1038,7 @@ test("TurnCoordinator delivers review outer turn trailing agent text when the du
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1084,7 +1084,7 @@ test("TurnCoordinator does not reuse an older completed review when the current 
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1134,7 +1134,7 @@ test("TurnCoordinator captures early review notifications that arrive before bas
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1237,7 +1237,7 @@ test("TurnCoordinator ignores delayed pre-existing review turns when resolving p
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1300,7 +1300,7 @@ test("TurnCoordinator disables review fallback and preferred history reuse when 
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1353,7 +1353,7 @@ test("TurnCoordinator keeps non-review trailing agent text out of final-answer r
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Non Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1397,7 +1397,7 @@ test("TurnCoordinator does not bind a non-review outer turn to a neighboring rev
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Non Review",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1431,7 +1431,7 @@ test("TurnCoordinator completes with the fallback terminal message when thread h
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Fallback",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1473,7 +1473,7 @@ test("TurnCoordinator completes plan-mode turns by sending a plan result with im
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Plan",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
@@ -1493,7 +1493,7 @@ test("TurnCoordinator completes plan-mode turns by sending a plan result with im
     assert.equal(sentHtmlMessages[0]?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "实施这个计划");
     const views = store.listFinalAnswerViews("chat-1");
     assert.equal(views.length, 1);
-    assert.equal(views[0]?.telegramMessageId, 1);
+    assert.equal(views[0]?.deliveryMessageId, 1);
     assert.equal(views[0]?.kind, "plan_result");
     assert.equal(views[0]?.deliveryState, "visible");
     assert.deepEqual(reanchorReasons, []);
@@ -1529,7 +1529,7 @@ test("TurnCoordinator leaves a deferred terminal notice when final answer delive
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Deferred",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1548,7 +1548,7 @@ test("TurnCoordinator leaves a deferred terminal notice when final answer delive
     const views = store.listFinalAnswerViews("chat-1");
     assert.equal(views.length, 1);
     assert.equal(views[0]?.deliveryState, "deferred_notice_visible");
-    assert.equal(views[0]?.telegramMessageId, null);
+    assert.equal(views[0]?.deliveryMessageId, null);
     assert.deepEqual(reanchorReasons, []);
     assert.deepEqual(finalizedHandoffs, [{ chatId: "chat-1", sessionId: session.sessionId }]);
     assert.equal(store.countRuntimeNotices(), 0);
@@ -1579,7 +1579,7 @@ test("TurnCoordinator keeps the final runtime surface until a deferred terminal 
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Pending",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1610,7 +1610,7 @@ test("TurnCoordinator does not reanchor the hub after a failed-turn notice", asy
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1661,7 +1661,7 @@ test("TurnCoordinator ignores queued late notifications after a turn reaches ter
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       displayName: "Session Late",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
@@ -1692,7 +1692,7 @@ test("TurnCoordinator marks interrupted turns without sending a terminal answer"
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1730,7 +1730,7 @@ test("TurnCoordinator rejects known unsupported server requests and journals the
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1771,7 +1771,7 @@ test("TurnCoordinator fails the active turn when the app-server exits mid-run", 
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });

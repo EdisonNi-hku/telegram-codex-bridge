@@ -279,9 +279,9 @@ test("confirmPendingAuthorization migrates sessions, active session, and notices
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-old",
-      telegramUsername: "old_name",
+      userId: "user-1",
+      chatId: "chat-old",
+      username: "old_name",
       displayName: "Old Name"
     });
     const [initialCandidate] = store.listPendingAuthorizations();
@@ -289,12 +289,12 @@ test("confirmPendingAuthorization migrates sessions, active session, and notices
     store.confirmPendingAuthorization(initialCandidate);
 
     const firstSession = store.createSession({
-      telegramChatId: "chat-old",
+      chatId: "chat-old",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     const secondSession = store.createSession({
-      telegramChatId: "chat-old",
+      chatId: "chat-old",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -303,9 +303,9 @@ test("confirmPendingAuthorization migrates sessions, active session, and notices
     store.markRunningSessionsFailedWithNotices("bridge_restart");
 
     store.upsertPendingAuthorization({
-      telegramUserId: "user-1",
-      telegramChatId: "chat-new",
-      telegramUsername: "new_name",
+      userId: "user-1",
+      chatId: "chat-new",
+      username: "new_name",
       displayName: "New Name"
     });
     const [rebindCandidate] = store.listPendingAuthorizations();
@@ -330,7 +330,7 @@ test("confirmPendingAuthorization migrates sessions, active session, and notices
 
     const notices = store.listRuntimeNotices("chat-new");
     assert.equal(notices.length, 1);
-    assert.equal(notices[0]?.telegramChatId, "chat-new");
+    assert.equal(notices[0]?.chatId, "chat-new");
     assert.equal(store.listRuntimeNotices("chat-old").length, 0);
     assert.equal(store.countRuntimeNotices(), 1);
   } finally {
@@ -528,9 +528,9 @@ test("confirmPendingAuthorization keeps first-time authorization behavior unchan
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-2",
-      telegramChatId: "chat-fresh",
-      telegramUsername: null,
+      userId: "user-2",
+      chatId: "chat-fresh",
+      username: null,
       displayName: null
     });
     const [candidate] = store.listPendingAuthorizations();
@@ -552,9 +552,9 @@ test("archiveSession hides archived sessions by default and reassigns the active
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-archive",
-      telegramChatId: "chat-archive",
-      telegramUsername: "archiver",
+      userId: "user-archive",
+      chatId: "chat-archive",
+      username: "archiver",
       displayName: "Archiver"
     });
     const [candidate] = store.listPendingAuthorizations();
@@ -562,12 +562,12 @@ test("archiveSession hides archived sessions by default and reassigns the active
     store.confirmPendingAuthorization(candidate);
 
     const firstSession = store.createSession({
-      telegramChatId: "chat-archive",
+      chatId: "chat-archive",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     const secondSession = store.createSession({
-      telegramChatId: "chat-archive",
+      chatId: "chat-archive",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -598,9 +598,9 @@ test("unarchiveSession restores a session and makes it active when no active ses
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-unarchive",
-      telegramChatId: "chat-unarchive",
-      telegramUsername: "restorer",
+      userId: "user-unarchive",
+      chatId: "chat-unarchive",
+      username: "restorer",
       displayName: "Restorer"
     });
     const [candidate] = store.listPendingAuthorizations();
@@ -608,7 +608,7 @@ test("unarchiveSession restores a session and makes it active when no active ses
     store.confirmPendingAuthorization(candidate);
 
     const session = store.createSession({
-      telegramChatId: "chat-unarchive",
+      chatId: "chat-unarchive",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -658,9 +658,9 @@ test("archiveSession rejects running sessions even when called directly", async 
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-running",
-      telegramChatId: "chat-running",
-      telegramUsername: "runner",
+      userId: "user-running",
+      chatId: "chat-running",
+      username: "runner",
       displayName: "Runner"
     });
     const [candidate] = store.listPendingAuthorizations();
@@ -668,7 +668,7 @@ test("archiveSession rejects running sessions even when called directly", async 
     store.confirmPendingAuthorization(candidate);
 
     const session = store.createSession({
-      telegramChatId: "chat-running",
+      chatId: "chat-running",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -686,9 +686,9 @@ test("open normalizes archived active-session pointers to the newest visible ses
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-normalize",
-      telegramChatId: "chat-normalize",
-      telegramUsername: "normalizer",
+      userId: "user-normalize",
+      chatId: "chat-normalize",
+      username: "normalizer",
       displayName: "Normalizer"
     });
     const [candidate] = store.listPendingAuthorizations();
@@ -696,12 +696,12 @@ test("open normalizes archived active-session pointers to the newest visible ses
     store.confirmPendingAuthorization(candidate);
 
     const archivedSession = store.createSession({
-      telegramChatId: "chat-normalize",
+      chatId: "chat-normalize",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     const visibleSession = store.createSession({
-      telegramChatId: "chat-normalize",
+      chatId: "chat-normalize",
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
@@ -724,9 +724,9 @@ test("getSessionByThreadId returns archived and visible sessions for diagnostics
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-thread-lookup",
-      telegramChatId: "chat-thread-lookup",
-      telegramUsername: "lookup",
+      userId: "user-thread-lookup",
+      chatId: "chat-thread-lookup",
+      username: "lookup",
       displayName: "Lookup"
     });
     const [candidate] = store.listPendingAuthorizations();
@@ -734,14 +734,14 @@ test("getSessionByThreadId returns archived and visible sessions for diagnostics
     store.confirmPendingAuthorization(candidate);
 
     const visibleSession = store.createSession({
-      telegramChatId: "chat-thread-lookup",
+      chatId: "chat-thread-lookup",
       projectName: "Visible Project",
       projectPath: "/tmp/visible-project"
     });
     store.updateSessionThreadId(visibleSession.sessionId, "thread-visible");
 
     const archivedSession = store.createSession({
-      telegramChatId: "chat-thread-lookup",
+      chatId: "chat-thread-lookup",
       projectName: "Archived Project",
       projectPath: "/tmp/archived-project"
     });
@@ -761,7 +761,7 @@ test("session naming source defaults to auto and manual rename locks the session
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-title-source",
+      chatId: "chat-title-source",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -790,7 +790,7 @@ test("syncSessionTitleFromThread falls back to a cleaned preview when the thread
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-title-preview",
+      chatId: "chat-title-preview",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       threadId: "thread-title-preview"
@@ -814,9 +814,9 @@ test("saveFinalAnswerView keeps only the 50 most recent answers per chat", async
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-final-answer-limit",
-      telegramChatId: "chat-final-answer-limit",
-      telegramUsername: "viewer",
+      userId: "user-final-answer-limit",
+      chatId: "chat-final-answer-limit",
+      username: "viewer",
       displayName: "Viewer"
     });
     const [candidate] = store.listPendingAuthorizations();
@@ -824,7 +824,7 @@ test("saveFinalAnswerView keeps only the 50 most recent answers per chat", async
     store.confirmPendingAuthorization(candidate);
 
     const session = store.createSession({
-      telegramChatId: "chat-final-answer-limit",
+      chatId: "chat-final-answer-limit",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -833,8 +833,8 @@ test("saveFinalAnswerView keeps only the 50 most recent answers per chat", async
     for (let index = 0; index < 55; index += 1) {
       store.saveFinalAnswerView({
         answerId: `answer-${index}`,
-        telegramChatId: "chat-final-answer-limit",
-        telegramMessageId: 1000 + index,
+        chatId: "chat-final-answer-limit",
+        deliveryMessageId: 1000 + index,
         sessionId: session.sessionId,
         threadId: "thread-final-answer-limit",
         turnId: `turn-${index}`,
@@ -848,7 +848,7 @@ test("saveFinalAnswerView keeps only the 50 most recent answers per chat", async
     assert.equal(views.at(0)?.answerId, "answer-54");
     assert.equal(views.at(-1)?.answerId, "answer-5");
     assert.equal(store.getFinalAnswerView("answer-0", "chat-final-answer-limit"), null);
-    assert.equal(store.getFinalAnswerView("answer-54", "chat-final-answer-limit")?.telegramMessageId, 1054);
+    assert.equal(store.getFinalAnswerView("answer-54", "chat-final-answer-limit")?.deliveryMessageId, 1054);
   } finally {
     await cleanup();
   }
@@ -859,15 +859,15 @@ test("current session card records persist across reopen and can be removed", as
 
   try {
     store.upsertCurrentSessionCard({
-      telegramChatId: "chat-card",
-      telegramMessageId: 321,
+      chatId: "chat-card",
+      messageId: 321,
       sessionId: "session-card"
     });
 
     const saved = store.getCurrentSessionCard("chat-card");
     assert.ok(saved);
-    assert.equal(saved.telegramChatId, "chat-card");
-    assert.equal(saved.telegramMessageId, 321);
+    assert.equal(saved.chatId, "chat-card");
+    assert.equal(saved.messageId, 321);
     assert.equal(saved.sessionId, "session-card");
 
     store.close();
@@ -876,8 +876,8 @@ test("current session card records persist across reopen and can be removed", as
     try {
       const restored = reopened.getCurrentSessionCard("chat-card");
       assert.ok(restored);
-      assert.equal(restored.telegramChatId, "chat-card");
-      assert.equal(restored.telegramMessageId, 321);
+      assert.equal(restored.chatId, "chat-card");
+      assert.equal(restored.messageId, 321);
       assert.equal(restored.sessionId, "session-card");
 
       reopened.deleteCurrentSessionCard("chat-card");
@@ -890,14 +890,476 @@ test("current session card records persist across reopen and can be removed", as
   }
 });
 
+test("open migrates legacy runtime artifact tables to neutral chat and message columns", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-store-migration17-test-"));
+  const paths = createTestPaths(root);
+  await Promise.all([
+    mkdir(paths.stateRoot, { recursive: true }),
+    mkdir(paths.logsDir, { recursive: true }),
+    mkdir(paths.configRoot, { recursive: true })
+  ]);
+
+  const db = new DatabaseSync(paths.dbPath);
+  let store: BridgeStateStore | null = null;
+
+  try {
+    db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
+
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+
+      CREATE TABLE chat_binding (
+        telegram_chat_id TEXT PRIMARY KEY,
+        telegram_user_id TEXT NOT NULL,
+        active_session_id TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE runtime_notice (
+        key TEXT PRIMARY KEY,
+        telegram_chat_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        message TEXT NOT NULL,
+        parse_mode TEXT NULL,
+        reply_markup_json TEXT NULL,
+        session_id TEXT NULL,
+        turn_id TEXT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE final_answer_view (
+        answer_id TEXT PRIMARY KEY,
+        telegram_chat_id TEXT NOT NULL,
+        telegram_message_id INTEGER NULL,
+        session_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'final_answer',
+        delivery_state TEXT NOT NULL DEFAULT 'pending',
+        preview_html TEXT NOT NULL,
+        pages_json TEXT NOT NULL,
+        primary_action_consumed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE current_session_card (
+        telegram_chat_id TEXT PRIMARY KEY,
+        telegram_message_id INTEGER NULL,
+        session_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE pending_interaction (
+        interaction_id TEXT PRIMARY KEY,
+        telegram_chat_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        request_method TEXT NOT NULL,
+        interaction_kind TEXT NOT NULL,
+        state TEXT NOT NULL,
+        prompt_json TEXT NOT NULL,
+        response_json TEXT NULL,
+        telegram_message_id INTEGER NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        resolved_at TEXT NULL,
+        error_reason TEXT NULL
+      );
+    `);
+
+    for (let version = 1; version <= 16; version += 1) {
+      db.prepare(
+        `
+          INSERT INTO schema_migrations (version, applied_at)
+          VALUES (?, ?)
+        `
+      ).run(version, "2026-03-10T10:00:00.000Z");
+    }
+
+    db.prepare(
+      `
+        INSERT INTO runtime_notice (
+          key,
+          telegram_chat_id,
+          type,
+          message,
+          parse_mode,
+          reply_markup_json,
+          session_id,
+          turn_id,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run("notice-legacy", "chat-legacy", "app_server_notice", "legacy notice", null, null, "session-legacy", "turn-legacy", "2026-03-10T10:00:00.000Z");
+
+    db.prepare(
+      `
+        INSERT INTO final_answer_view (
+          answer_id,
+          telegram_chat_id,
+          telegram_message_id,
+          session_id,
+          thread_id,
+          turn_id,
+          kind,
+          delivery_state,
+          preview_html,
+          pages_json,
+          primary_action_consumed,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      "answer-legacy",
+      "chat-legacy",
+      42,
+      "session-legacy",
+      "thread-legacy",
+      "turn-legacy",
+      "final_answer",
+      "visible",
+      "<b>Preview</b>",
+      JSON.stringify(["<b>Page</b>"]),
+      0,
+      "2026-03-10T10:00:00.000Z"
+    );
+
+    db.prepare(
+      `
+        INSERT INTO current_session_card (
+          telegram_chat_id,
+          telegram_message_id,
+          session_id,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?)
+      `
+    ).run("chat-legacy", 77, "session-legacy", "2026-03-10T10:00:00.000Z");
+
+    db.prepare(
+      `
+        INSERT INTO pending_interaction (
+          interaction_id,
+          telegram_chat_id,
+          session_id,
+          thread_id,
+          turn_id,
+          request_id,
+          request_method,
+          interaction_kind,
+          state,
+          prompt_json,
+          response_json,
+          telegram_message_id,
+          created_at,
+          updated_at,
+          resolved_at,
+          error_reason
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      "interaction-legacy",
+      "chat-legacy",
+      "session-legacy",
+      "thread-legacy",
+      "turn-legacy",
+      "req-legacy",
+      "item/tool/requestUserInput",
+      "questionnaire",
+      "pending",
+      "{}",
+      null,
+      88,
+      "2026-03-10T10:00:00.000Z",
+      "2026-03-10T10:00:00.000Z",
+      null,
+      null
+    );
+
+    db.close();
+    store = await BridgeStateStore.open(paths, testLogger);
+
+    assert.equal(store.listRuntimeNotices("chat-legacy")[0]?.chatId, "chat-legacy");
+    assert.equal(store.getFinalAnswerView("answer-legacy", "chat-legacy")?.deliveryMessageId, 42);
+    assert.equal(store.getCurrentSessionCard("chat-legacy")?.messageId, 77);
+    assert.equal(store.getPendingInteraction("interaction-legacy", "chat-legacy")?.messageId, 88);
+
+    const verifyDb = new DatabaseSync(paths.dbPath);
+    try {
+      const runtimeNoticeColumns = verifyDb.prepare("PRAGMA table_info(runtime_notice)").all() as Array<{ name: string }>;
+      const finalAnswerColumns = verifyDb.prepare("PRAGMA table_info(final_answer_view)").all() as Array<{ name: string }>;
+      const currentSessionCardColumns = verifyDb.prepare("PRAGMA table_info(current_session_card)").all() as Array<{ name: string }>;
+      const pendingInteractionColumns = verifyDb.prepare("PRAGMA table_info(pending_interaction)").all() as Array<{ name: string }>;
+
+      assert.ok(runtimeNoticeColumns.some((column) => column.name === "chat_id"));
+      assert.ok(finalAnswerColumns.some((column) => column.name === "chat_id"));
+      assert.ok(finalAnswerColumns.some((column) => column.name === "delivery_message_id"));
+      assert.ok(currentSessionCardColumns.some((column) => column.name === "chat_id"));
+      assert.ok(currentSessionCardColumns.some((column) => column.name === "message_id"));
+      assert.ok(pendingInteractionColumns.some((column) => column.name === "chat_id"));
+      assert.ok(pendingInteractionColumns.some((column) => column.name === "message_id"));
+    } finally {
+      verifyDb.close();
+    }
+  } finally {
+    try {
+      store?.close();
+    } catch {}
+    try {
+      db.close();
+    } catch {}
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("open migrates legacy auth and session tables to neutral binding columns", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-store-migration18-test-"));
+  const paths = createTestPaths(root);
+  await Promise.all([
+    mkdir(paths.stateRoot, { recursive: true }),
+    mkdir(paths.logsDir, { recursive: true }),
+    mkdir(paths.configRoot, { recursive: true })
+  ]);
+
+  const db = new DatabaseSync(paths.dbPath);
+  let store: BridgeStateStore | null = null;
+
+  try {
+    db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
+
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+
+      CREATE TABLE authorized_user (
+        telegram_user_id TEXT PRIMARY KEY,
+        telegram_username TEXT NULL,
+        display_name TEXT NULL,
+        first_seen_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE pending_authorization (
+        telegram_user_id TEXT PRIMARY KEY,
+        telegram_chat_id TEXT NOT NULL,
+        telegram_username TEXT NULL,
+        display_name TEXT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+      );
+
+      CREATE TABLE chat_binding (
+        telegram_chat_id TEXT PRIMARY KEY,
+        telegram_user_id TEXT NOT NULL,
+        active_session_id TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE session (
+        session_id TEXT PRIMARY KEY,
+        telegram_chat_id TEXT NOT NULL,
+        thread_id TEXT NULL,
+        selected_model TEXT NULL,
+        selected_reasoning_effort TEXT NULL,
+        plan_mode INTEGER NOT NULL DEFAULT 0,
+        pending_default_collaboration_mode_reset INTEGER NOT NULL DEFAULT 0,
+        display_name TEXT NOT NULL,
+        display_name_source TEXT NOT NULL DEFAULT 'auto',
+        project_name TEXT NOT NULL,
+        project_path TEXT NOT NULL,
+        status TEXT NOT NULL,
+        failure_reason TEXT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        archived_at TEXT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT NOT NULL,
+        last_turn_id TEXT NULL,
+        last_turn_status TEXT NULL
+      );
+
+      CREATE TABLE recent_project (
+        project_path TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        project_alias TEXT NULL,
+        last_used_at TEXT NOT NULL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        last_session_id TEXT NULL,
+        last_success_at TEXT NULL,
+        source TEXT NOT NULL
+      );
+    `);
+
+    for (let version = 1; version <= 17; version += 1) {
+      db.prepare(
+        `
+          INSERT INTO schema_migrations (version, applied_at)
+          VALUES (?, ?)
+        `
+      ).run(version, "2026-03-10T10:00:00.000Z");
+    }
+
+    db.prepare(
+      `
+        INSERT INTO authorized_user (
+          telegram_user_id,
+          telegram_username,
+          display_name,
+          first_seen_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `
+    ).run("user-legacy", "legacy_user", "Legacy User", "2026-03-10T10:00:00.000Z", "2026-03-10T10:00:00.000Z");
+
+    db.prepare(
+      `
+        INSERT INTO pending_authorization (
+          telegram_user_id,
+          telegram_chat_id,
+          telegram_username,
+          display_name,
+          first_seen_at,
+          last_seen_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+      `
+    ).run("user-pending", "chat-pending", "pending_user", "Pending User", "2026-03-10T10:00:00.000Z", "2026-03-10T10:05:00.000Z");
+
+    db.prepare(
+      `
+        INSERT INTO chat_binding (
+          telegram_chat_id,
+          telegram_user_id,
+          active_session_id,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `
+    ).run("chat-legacy", "user-legacy", "session-legacy", "2026-03-10T10:00:00.000Z", "2026-03-10T10:00:00.000Z");
+
+    db.prepare(
+      `
+        INSERT INTO session (
+          session_id,
+          telegram_chat_id,
+          thread_id,
+          selected_model,
+          selected_reasoning_effort,
+          plan_mode,
+          pending_default_collaboration_mode_reset,
+          display_name,
+          display_name_source,
+          project_name,
+          project_path,
+          status,
+          failure_reason,
+          archived,
+          archived_at,
+          created_at,
+          last_used_at,
+          last_turn_id,
+          last_turn_status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      "session-legacy",
+      "chat-legacy",
+      "thread-legacy",
+      null,
+      null,
+      0,
+      0,
+      "Legacy Session",
+      "auto",
+      "Legacy Project",
+      "/tmp/legacy-project",
+      "idle",
+      null,
+      0,
+      null,
+      "2026-03-10T10:00:00.000Z",
+      "2026-03-10T10:00:00.000Z",
+      null,
+      null
+    );
+
+    db.close();
+    store = await BridgeStateStore.open(paths, testLogger);
+
+    const authorizedUser = store.getAuthorizedUser();
+    assert.equal(authorizedUser?.platform, "telegram");
+    assert.equal(authorizedUser?.userId, "user-legacy");
+    assert.equal(authorizedUser?.username, "legacy_user");
+
+    const [pendingAuthorization] = store.listPendingAuthorizations({ includeExpired: true });
+    assert.equal(pendingAuthorization?.platform, "telegram");
+    assert.equal(pendingAuthorization?.userId, "user-pending");
+    assert.equal(pendingAuthorization?.chatId, "chat-pending");
+    assert.equal(pendingAuthorization?.username, "pending_user");
+
+    const binding = store.getChatBinding("chat-legacy");
+    assert.equal(binding?.platform, "telegram");
+    assert.equal(binding?.chatId, "chat-legacy");
+    assert.equal(binding?.userId, "user-legacy");
+
+    const session = store.getSessionById("session-legacy");
+    assert.equal(session?.chatId, "chat-legacy");
+
+    const verifyDb = new DatabaseSync(paths.dbPath);
+    try {
+      const authorizedUserColumns = verifyDb.prepare("PRAGMA table_info(authorized_user)").all() as Array<{ name: string }>;
+      const pendingAuthorizationColumns = verifyDb.prepare("PRAGMA table_info(pending_authorization)").all() as Array<{ name: string }>;
+      const chatBindingColumns = verifyDb.prepare("PRAGMA table_info(chat_binding)").all() as Array<{ name: string }>;
+      const sessionColumns = verifyDb.prepare("PRAGMA table_info(session)").all() as Array<{ name: string }>;
+
+      assert.ok(authorizedUserColumns.some((column) => column.name === "platform"));
+      assert.ok(authorizedUserColumns.some((column) => column.name === "user_id"));
+      assert.ok(authorizedUserColumns.some((column) => column.name === "username"));
+      assert.ok(pendingAuthorizationColumns.some((column) => column.name === "platform"));
+      assert.ok(pendingAuthorizationColumns.some((column) => column.name === "user_id"));
+      assert.ok(pendingAuthorizationColumns.some((column) => column.name === "chat_id"));
+      assert.ok(chatBindingColumns.some((column) => column.name === "platform"));
+      assert.ok(chatBindingColumns.some((column) => column.name === "chat_id"));
+      assert.ok(chatBindingColumns.some((column) => column.name === "user_id"));
+      assert.ok(sessionColumns.some((column) => column.name === "chat_id"));
+    } finally {
+      verifyDb.close();
+    }
+  } finally {
+    try {
+      store?.close();
+    } catch {}
+    try {
+      db.close();
+    } catch {}
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("confirmPendingAuthorization migrates persisted final answers to the rebound chat", async () => {
   const { store, cleanup } = await openStore();
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-final-answer-rebind",
-      telegramChatId: "chat-old-final-answer",
-      telegramUsername: "viewer_old",
+      userId: "user-final-answer-rebind",
+      chatId: "chat-old-final-answer",
+      username: "viewer_old",
       displayName: "Viewer Old"
     });
     const [initialCandidate] = store.listPendingAuthorizations();
@@ -905,7 +1367,7 @@ test("confirmPendingAuthorization migrates persisted final answers to the reboun
     store.confirmPendingAuthorization(initialCandidate);
 
     const session = store.createSession({
-      telegramChatId: "chat-old-final-answer",
+      chatId: "chat-old-final-answer",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -913,8 +1375,8 @@ test("confirmPendingAuthorization migrates persisted final answers to the reboun
 
     store.saveFinalAnswerView({
       answerId: "answer-rebind",
-      telegramChatId: "chat-old-final-answer",
-      telegramMessageId: 77,
+      chatId: "chat-old-final-answer",
+      deliveryMessageId: 77,
       sessionId: session.sessionId,
       threadId: "thread-final-answer-rebind",
       turnId: "turn-final-answer-rebind",
@@ -923,9 +1385,9 @@ test("confirmPendingAuthorization migrates persisted final answers to the reboun
     });
 
     store.upsertPendingAuthorization({
-      telegramUserId: "user-final-answer-rebind",
-      telegramChatId: "chat-new-final-answer",
-      telegramUsername: "viewer_new",
+      userId: "user-final-answer-rebind",
+      chatId: "chat-new-final-answer",
+      username: "viewer_new",
       displayName: "Viewer New"
     });
     const [rebindCandidate] = store.listPendingAuthorizations();
@@ -935,8 +1397,8 @@ test("confirmPendingAuthorization migrates persisted final answers to the reboun
     assert.equal(store.getFinalAnswerView("answer-rebind", "chat-old-final-answer"), null);
     const migrated = store.getFinalAnswerView("answer-rebind", "chat-new-final-answer");
     assert.ok(migrated);
-    assert.equal(migrated?.telegramChatId, "chat-new-final-answer");
-    assert.equal(migrated?.telegramMessageId, 77);
+    assert.equal(migrated?.chatId, "chat-new-final-answer");
+    assert.equal(migrated?.deliveryMessageId, 77);
   } finally {
     await cleanup();
   }
@@ -947,9 +1409,9 @@ test("clearAuthorization removes persisted final answers", async () => {
 
   try {
     store.upsertPendingAuthorization({
-      telegramUserId: "user-final-answer-clear",
-      telegramChatId: "chat-final-answer-clear",
-      telegramUsername: "viewer",
+      userId: "user-final-answer-clear",
+      chatId: "chat-final-answer-clear",
+      username: "viewer",
       displayName: "Viewer"
     });
     const [candidate] = store.listPendingAuthorizations();
@@ -957,15 +1419,15 @@ test("clearAuthorization removes persisted final answers", async () => {
     store.confirmPendingAuthorization(candidate);
 
     const session = store.createSession({
-      telegramChatId: "chat-final-answer-clear",
+      chatId: "chat-final-answer-clear",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     store.updateSessionThreadId(session.sessionId, "thread-final-answer-clear");
     store.saveFinalAnswerView({
       answerId: "answer-clear",
-      telegramChatId: "chat-final-answer-clear",
-      telegramMessageId: 88,
+      chatId: "chat-final-answer-clear",
+      deliveryMessageId: 88,
       sessionId: session.sessionId,
       threadId: "thread-final-answer-clear",
       turnId: "turn-final-answer-clear",
@@ -989,7 +1451,7 @@ test("open migrates legacy stores so pending interactions can be persisted", asy
     const store = await BridgeStateStore.open(paths, testLogger);
     try {
       const saved = store.createPendingInteraction({
-        telegramChatId: "chat-legacy",
+        chatId: "chat-legacy",
         sessionId: "session-legacy",
         threadId: "thread-legacy",
         turnId: "turn-legacy",
@@ -1014,14 +1476,14 @@ test("pending interactions persist lifecycle state and survive reopen", async ()
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     store.updateSessionThreadId(session.sessionId, "thread-1");
 
     const created = store.createPendingInteraction({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-1",
@@ -1045,7 +1507,7 @@ test("pending interactions persist lifecycle state and survive reopen", async ()
     );
 
     const awaiting = store.getPendingInteraction(created.interactionId, "chat-1");
-    assert.equal(awaiting?.telegramMessageId, 7001);
+    assert.equal(awaiting?.messageId, 7001);
     assert.equal(awaiting?.state, "awaiting_text");
 
     store.markPendingInteractionPending(
@@ -1079,7 +1541,7 @@ test("pending interactions persist lifecycle state and survive reopen", async ()
     try {
       const reloaded = reopened.getPendingInteraction(created.interactionId, "chat-1");
       assert.equal(reloaded?.state, "answered");
-      assert.equal(reloaded?.telegramMessageId, 7001);
+      assert.equal(reloaded?.messageId, 7001);
     } finally {
       reopened.close();
     }
@@ -1093,14 +1555,14 @@ test("pending interactions persist canceled terminal state and exclude it from u
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     store.updateSessionThreadId(session.sessionId, "thread-1");
 
     const created = store.createPendingInteraction({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-2",
@@ -1146,14 +1608,14 @@ test("markPendingInteractionExpired persists expired terminal state", async () =
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     store.updateSessionThreadId(session.sessionId, "thread-1");
 
     const created = store.createPendingInteraction({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-expired",
@@ -1192,7 +1654,7 @@ test("markRunningSessionsFailedWithNotices also fails unresolved pending interac
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1203,7 +1665,7 @@ test("markRunningSessionsFailedWithNotices also fails unresolved pending interac
     });
 
     const interaction = store.createPendingInteraction({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-1",
@@ -1213,7 +1675,7 @@ test("markRunningSessionsFailedWithNotices also fails unresolved pending interac
       promptJson: JSON.stringify({ kind: "approval", title: "Approval" })
     });
     const canceled = store.createPendingInteraction({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-1",
@@ -1242,7 +1704,7 @@ test("selected model and reasoning effort persist on sessions and survive reopen
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-model",
+      chatId: "chat-model",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       selectedModel: "gpt-5",
@@ -1275,7 +1737,7 @@ test("session plan mode defaults off, updates, and survives reopen", async () =>
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-plan-mode",
+      chatId: "chat-plan-mode",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1319,7 +1781,7 @@ test("createSession persists seeded thread and last-turn metadata", async () => 
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-seeded-session",
+      chatId: "chat-seeded-session",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       threadId: "thread-seeded",
@@ -1350,7 +1812,7 @@ test("project aliases persist on recent projects and are exposed on session look
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-project-alias",
+      chatId: "chat-project-alias",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
@@ -1755,14 +2217,14 @@ test("listPendingInteractionsByRequest returns only unresolved rows for the exac
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-request-id",
+      chatId: "chat-request-id",
       projectName: "Project One",
       projectPath: "/tmp/project-one"
     });
     store.updateSessionThreadId(session.sessionId, "thread-request-id");
 
     const pending = store.createPendingInteraction({
-      telegramChatId: "chat-request-id",
+      chatId: "chat-request-id",
       sessionId: session.sessionId,
       threadId: "thread-request-id",
       turnId: "turn-1",
@@ -1772,7 +2234,7 @@ test("listPendingInteractionsByRequest returns only unresolved rows for the exac
       promptJson: JSON.stringify({ kind: "approval", title: "Need approval" })
     });
     const awaitingText = store.createPendingInteraction({
-      telegramChatId: "chat-request-id",
+      chatId: "chat-request-id",
       sessionId: session.sessionId,
       threadId: "thread-request-id",
       turnId: "turn-1",
@@ -1782,7 +2244,7 @@ test("listPendingInteractionsByRequest returns only unresolved rows for the exac
       promptJson: JSON.stringify({ kind: "questionnaire", title: "Need input" })
     });
     const answered = store.createPendingInteraction({
-      telegramChatId: "chat-request-id",
+      chatId: "chat-request-id",
       sessionId: session.sessionId,
       threadId: "thread-request-id",
       turnId: "turn-1",
@@ -1792,7 +2254,7 @@ test("listPendingInteractionsByRequest returns only unresolved rows for the exac
       promptJson: JSON.stringify({ kind: "questionnaire", title: "Answered" })
     });
     const otherRequest = store.createPendingInteraction({
-      telegramChatId: "chat-request-id",
+      chatId: "chat-request-id",
       sessionId: session.sessionId,
       threadId: "thread-request-id",
       turnId: "turn-1",

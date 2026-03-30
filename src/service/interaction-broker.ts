@@ -2,6 +2,7 @@ import type { Logger } from "../logger.js";
 import type { ActivityStatus, InspectSnapshot } from "../activity/types.js";
 import type { JsonRpcRequestId, JsonRpcServerRequest } from "../codex/app-server.js";
 import type { InteractionCardView } from "../core/interaction-model/interaction.js";
+import type { PlatformSurfaceOperationResult } from "../core/interaction-model/surface.js";
 import { createInteractionCardView } from "../core/workflow/interaction-workflow.js";
 import {
   buildApprovalActions,
@@ -24,6 +25,7 @@ import type { PendingInteractionRow, PendingInteractionSummary, PendingInteracti
 import { SKIP_QUESTION_OPTION_VALUE, type NormalizedInteraction, type NormalizedQuestion, type NormalizedQuestionnaireInteraction } from "../interactions/normalize.js";
 import { parseBooleanLike } from "../util/boolean.js";
 import { asRecord, getStringArray } from "../util/untyped.js";
+import { executeTelegramHtmlSurfaceOperation } from "../telegram/surface-adapter.js";
 import { isTelegramEditCommitted, type TelegramEditResult } from "./runtime-surface-state.js";
 import { nowIso } from "../util/time.js";
 
@@ -121,7 +123,7 @@ export class InteractionBroker {
     }
 
     return store
-      .listPendingInteractionsByChat(activeSession.telegramChatId, ["pending", "awaiting_text"])
+      .listPendingInteractionsByChat(activeSession.chatId, ["pending", "awaiting_text"])
       .filter((interaction) => interaction.sessionId === activeSession.sessionId)
       .map((interaction) => ({
         interactionId: interaction.interactionId,
@@ -139,7 +141,7 @@ export class InteractionBroker {
     }
 
     return store
-      .listPendingInteractionsByChat(activeSession.telegramChatId, ["answered"])
+      .listPendingInteractionsByChat(activeSession.chatId, ["answered"])
       .filter((interaction) => interaction.sessionId === activeSession.sessionId)
       .slice(0, 5)
       .map((row) => {
@@ -537,7 +539,7 @@ export class InteractionBroker {
     }
 
     const pending = store.createPendingInteraction({
-      telegramChatId: activeTurn.chatId,
+      chatId: activeTurn.chatId,
       sessionId: activeTurn.sessionId,
       threadId: normalized.threadId,
       turnId: effectiveTurnId,
@@ -552,7 +554,7 @@ export class InteractionBroker {
     await this.deps.appendInteractionCreatedJournal(pending);
 
     const sent = await this.sendPendingInteractionCard(activeTurn.chatId, pending, normalized);
-    if (!sent) {
+    if (sent.outcome !== "sent") {
       store.markPendingInteractionFailed(pending.interactionId, "telegram_delivery_failed");
       await this.deps.appendInteractionResolvedJournal(pending, {
         finalState: "failed",
@@ -563,7 +565,7 @@ export class InteractionBroker {
       return;
     }
 
-    store.setPendingInteractionMessageId(pending.interactionId, sent.message_id);
+    store.setPendingInteractionMessageId(pending.interactionId, sent.deliveryRef.messageId);
     activeTurn.statusCard.needsReanchorOnActive = true;
   }
 
@@ -591,7 +593,7 @@ export class InteractionBroker {
 
       if (interaction) {
         await this.renderStoredPendingInteraction(
-          row.telegramChatId,
+          row.chatId,
           { ...row, state: "answered", responseJson, resolvedAt: nowIso() },
           interaction
         );
@@ -659,7 +661,7 @@ export class InteractionBroker {
       store.markPendingInteractionExpired(row.interactionId, reason);
     }
 
-    return store.getPendingInteraction(row.interactionId, row.telegramChatId);
+    return store.getPendingInteraction(row.interactionId, row.chatId);
   }
 
   private listActionablePendingInteractionsForSession(chatId: string, sessionId: string): PendingInteractionRow[] {
@@ -699,7 +701,7 @@ export class InteractionBroker {
       return null;
     }
 
-    if (row.telegramMessageId !== null && row.telegramMessageId !== messageId) {
+    if (row.messageId !== null && row.messageId !== messageId) {
       await this.deps.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
       return null;
     }
@@ -735,21 +737,27 @@ export class InteractionBroker {
     row: PendingInteractionRow,
     interaction: NormalizedInteraction
   ): Promise<void> {
-    if (row.telegramMessageId === null) {
+    if (row.messageId === null) {
       return;
     }
 
     const rendered = buildPendingInteractionSurface(row, interaction);
-    await this.deps.safeEditHtmlMessageText(chatId, row.telegramMessageId, rendered.text, rendered.replyMarkup);
+    await this.deps.safeEditHtmlMessageText(chatId, row.messageId, rendered.text, rendered.replyMarkup);
   }
 
   private async sendPendingInteractionCard(
     chatId: string,
     pending: PendingInteractionRow,
     interaction: NormalizedInteraction
-  ): Promise<TelegramMessage | null> {
+  ): Promise<PlatformSurfaceOperationResult> {
     const rendered = buildPendingInteractionSurface(pending, interaction);
-    return await this.deps.safeSendHtmlMessageResult(chatId, rendered.text, rendered.replyMarkup);
+    return await executeTelegramHtmlSurfaceOperation({
+      intent: "pending_interaction",
+      chatId,
+      html: rendered.text,
+      replyMarkup: rendered.replyMarkup,
+      sendHtmlMessage: this.deps.safeSendHtmlMessageResult
+    });
   }
 
   private async cancelInteraction(

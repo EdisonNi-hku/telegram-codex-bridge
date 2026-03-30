@@ -335,7 +335,7 @@ export class RichInputAdapter {
     }
 
     const session = store.getSessionById(task.sessionId);
-    if (!session || session.telegramChatId !== task.chatId || session.archived) {
+    if (!session || session.chatId !== task.chatId || session.archived) {
       await this.deps.safeSendMessage(task.chatId, "这条语音对应的会话已不可用，请重新选择会话后再试。");
       return;
     }
@@ -383,7 +383,7 @@ export class RichInputAdapter {
       }
 
       const currentSession = store.getSessionById(task.sessionId);
-      if (!currentSession || currentSession.telegramChatId !== task.chatId || currentSession.archived) {
+      if (!currentSession || currentSession.chatId !== task.chatId || currentSession.archived) {
         await this.deps.safeSendMessage(task.chatId, "语音已转写，但对应会话已不可用，请重新发送。");
         return;
       }

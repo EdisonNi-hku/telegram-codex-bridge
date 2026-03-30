@@ -102,21 +102,21 @@ test("buildPendingInteractionSummaries keeps only actionable rows for the active
   const { broker, store, cleanup } = await createBrokerContext();
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
     });
 
     const otherSession = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two",
       displayName: "Session Two"
     });
 
     const pending = store.createPendingInteraction({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-1",
@@ -126,7 +126,7 @@ test("buildPendingInteractionSummaries keeps only actionable rows for the active
       promptJson: "{}"
     });
     store.createPendingInteraction({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: otherSession.sessionId,
       threadId: "thread-2",
       turnId: "turn-2",
@@ -136,7 +136,7 @@ test("buildPendingInteractionSummaries keeps only actionable rows for the active
       promptJson: "{}"
     });
     const answered = store.createPendingInteraction({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-3",
@@ -163,14 +163,14 @@ test("getBlockedTurnSteerAvailability reports interaction_pending before steer a
   const { broker, store, cleanup } = await createBrokerContext();
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
     });
     store.updateSessionStatus(session.sessionId, "running", { lastTurnId: "turn-1", lastTurnStatus: "inProgress" });
     store.createPendingInteraction({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-1",
@@ -270,7 +270,7 @@ test("pending interaction cards include the /hub hint", async () => {
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
@@ -326,7 +326,7 @@ test("answered and canceled interaction cards include the /hub hint", async () =
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
@@ -392,15 +392,15 @@ test("answered and canceled interaction cards include the /hub hint", async () =
 
     const cancelPending = store.listPendingInteractionsByChat("chat-1", ["pending"])
       .find((row) => row.requestId === JSON.stringify("req-canceled"));
-    assert.ok(cancelPending?.telegramMessageId !== null);
-    if (!cancelPending?.telegramMessageId) {
-      throw new Error("expected cancel interaction telegram message id");
+    assert.ok(cancelPending?.messageId !== null);
+    if (!cancelPending?.messageId) {
+      throw new Error("expected cancel interaction message id");
     }
 
     await broker.handleInteractionCancelCallback(
       "callback-1",
       "chat-1",
-      cancelPending.telegramMessageId,
+      cancelPending.messageId,
       cancelPending.interactionId
     );
 
@@ -420,7 +420,7 @@ test("failed and expired interaction cards do not include the /hub hint", async 
 
   try {
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"

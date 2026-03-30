@@ -31,7 +31,7 @@ export class CurrentSessionCardController {
 
     const activeSession = store.getActiveSession(chatId);
     const existing = store.getCurrentSessionCard(chatId);
-    const existingMessageId = existing?.telegramMessageId ?? null;
+    const existingMessageId = existing?.messageId ?? null;
 
     if (!activeSession) {
       if (existingMessageId && existingMessageId > 0) {
@@ -65,8 +65,8 @@ export class CurrentSessionCardController {
     }
 
     store.upsertCurrentSessionCard({
-      telegramChatId: chatId,
-      telegramMessageId: nextMessageId,
+      chatId,
+      messageId: nextMessageId,
       sessionId: activeSession.sessionId
     });
 

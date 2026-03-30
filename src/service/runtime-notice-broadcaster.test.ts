@@ -6,10 +6,10 @@ import { RuntimeNoticeBroadcaster } from "./runtime-notice-broadcaster.js";
 
 test("RuntimeNoticeBroadcaster persists failed deliveries per chat binding", async () => {
   const sent: Array<{ chatId: string; text: string }> = [];
-  const notices: Array<{ telegramChatId: string; type: string; message: string }> = [];
+  const notices: Array<{ chatId: string; type: string; message: string }> = [];
   const store = {
-    listChatBindings: () => [{ telegramChatId: "chat-ok" }, { telegramChatId: "chat-fail" }],
-    createRuntimeNotice: (notice: { telegramChatId: string; type: string; message: string }) => {
+    listChatBindings: () => [{ chatId: "chat-ok" }, { chatId: "chat-fail" }],
+    createRuntimeNotice: (notice: { chatId: string; type: string; message: string }) => {
       notices.push(notice);
     }
   } as unknown as BridgeStateStore;
@@ -31,17 +31,17 @@ test("RuntimeNoticeBroadcaster persists failed deliveries per chat binding", asy
   assert.equal(sent.length, 2);
   assert.match(sent[0]?.text ?? "", /Codex 配置警告：bad config/u);
   assert.equal(notices.length, 1);
-  assert.equal(notices[0]?.telegramChatId, "chat-fail");
+  assert.equal(notices[0]?.chatId, "chat-fail");
   assert.equal(notices[0]?.type, "app_server_notice");
   assert.match(notices[0]?.message ?? "", /line 4/u);
 });
 
 test("RuntimeNoticeBroadcaster skips notices that do not render a user-facing message", async () => {
   const sent: string[] = [];
-  const notices: Array<{ telegramChatId: string; type: string; message: string }> = [];
+  const notices: Array<{ chatId: string; type: string; message: string }> = [];
   const store = {
-    listChatBindings: () => [{ telegramChatId: "chat-1" }],
-    createRuntimeNotice: (notice: { telegramChatId: string; type: string; message: string }) => {
+    listChatBindings: () => [{ chatId: "chat-1" }],
+    createRuntimeNotice: (notice: { chatId: string; type: string; message: string }) => {
       notices.push(notice);
     }
   } as unknown as BridgeStateStore;

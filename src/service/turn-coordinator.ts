@@ -9,6 +9,11 @@ import {
   createDeferredTerminalNoticeView,
   createTerminalResultDeliveryView
 } from "../core/workflow/terminal-workflow.js";
+import {
+  createDeferredSurfaceOperationResult,
+  createFailedSurfaceOperationResult,
+  type PlatformSurfaceOperationResult
+} from "../core/interaction-model/surface.js";
 import { normalizeServerRequest } from "../interactions/normalize.js";
 import {
   buildCollapsibleFinalAnswerView,
@@ -16,6 +21,7 @@ import {
   buildPlanResultActionRows,
   buildPlanResultReplyMarkup
 } from "../telegram/ui-final-answer.js";
+import { executeTelegramHtmlSurfaceOperation } from "../telegram/surface-adapter.js";
 import type {
   BlockedTurnSteerAvailability,
   InteractionBrokerActiveTurn,
@@ -249,7 +255,7 @@ export class TurnCoordinator {
   } {
     const store = this.deps.getStore();
     const runningCount = store
-      ? store.listRunningSessions().filter((session) => session.telegramChatId === chatId).length
+      ? store.listRunningSessions().filter((session) => session.chatId === chatId).length
       : 0;
 
     return {
@@ -1005,7 +1011,7 @@ export class TurnCoordinator {
     }
 
     const saved = store.saveFinalAnswerView({
-      telegramChatId: activeTurn.chatId,
+      chatId: activeTurn.chatId,
       sessionId: activeTurn.sessionId,
       threadId: activeTurn.threadId,
       turnId: activeTurn.turnId,
@@ -1017,9 +1023,15 @@ export class TurnCoordinator {
 
     const directDelivery = createTerminalResultDeliveryView(saved, rendered.truncated);
     const directMarkup = this.buildTerminalResultReplyMarkup(saved, directDelivery.controls);
-    const sent = await this.deps.safeSendHtmlMessageResult(activeTurn.chatId, directDelivery.html, directMarkup);
-    if (sent) {
-      store.setFinalAnswerMessageId(saved.answerId, sent.message_id);
+    const sent = await executeTelegramHtmlSurfaceOperation({
+      intent: "terminal_result",
+      chatId: activeTurn.chatId,
+      html: directDelivery.html,
+      replyMarkup: directMarkup,
+      sendHtmlMessage: this.deps.safeSendHtmlMessageResult
+    });
+    if (sent.outcome === "sent") {
+      store.setFinalAnswerMessageId(saved.answerId, sent.deliveryRef.messageId);
       store.setFinalAnswerDeliveryState(saved.answerId, "visible");
       return {
         answerId: saved.answerId,
@@ -1030,7 +1042,8 @@ export class TurnCoordinator {
       };
     }
 
-    const deferredNoticeVisible = await this.sendDeferredTerminalNotice(activeTurn, saved);
+    const deferredNoticeResult = await this.sendDeferredTerminalNotice(activeTurn, saved);
+    const deferredNoticeVisible = deferredNoticeResult.outcome === "deferred";
     return {
       answerId: saved.answerId,
       kind: "final_answer",
@@ -1054,7 +1067,7 @@ export class TurnCoordinator {
     }
 
     const saved = store.saveFinalAnswerView({
-      telegramChatId: activeTurn.chatId,
+      chatId: activeTurn.chatId,
       sessionId: activeTurn.sessionId,
       threadId: activeTurn.threadId,
       turnId: activeTurn.turnId,
@@ -1065,13 +1078,15 @@ export class TurnCoordinator {
     });
 
     const directDelivery = createTerminalResultDeliveryView(saved, rendered.truncated);
-    const sent = await this.deps.safeSendHtmlMessageResult(
-      activeTurn.chatId,
-      directDelivery.html,
-      this.buildTerminalResultReplyMarkup(saved, directDelivery.controls)
-    );
-    if (sent) {
-      store.setFinalAnswerMessageId(saved.answerId, sent.message_id);
+    const sent = await executeTelegramHtmlSurfaceOperation({
+      intent: "terminal_result",
+      chatId: activeTurn.chatId,
+      html: directDelivery.html,
+      replyMarkup: this.buildTerminalResultReplyMarkup(saved, directDelivery.controls),
+      sendHtmlMessage: this.deps.safeSendHtmlMessageResult
+    });
+    if (sent.outcome === "sent") {
+      store.setFinalAnswerMessageId(saved.answerId, sent.deliveryRef.messageId);
       store.setFinalAnswerDeliveryState(saved.answerId, "visible");
       return {
         answerId: saved.answerId,
@@ -1082,7 +1097,8 @@ export class TurnCoordinator {
       };
     }
 
-    const deferredNoticeVisible = await this.sendDeferredTerminalNotice(activeTurn, saved);
+    const deferredNoticeResult = await this.sendDeferredTerminalNotice(activeTurn, saved);
+    const deferredNoticeVisible = deferredNoticeResult.outcome === "deferred";
     return {
       answerId: saved.answerId,
       kind: "plan_result",
@@ -1123,15 +1139,15 @@ export class TurnCoordinator {
   private async sendDeferredTerminalNotice(
     activeTurn: ActiveTurnState,
     saved: ReturnType<BridgeStateStore["saveFinalAnswerView"]>
-  ): Promise<boolean> {
+  ): Promise<PlatformSurfaceOperationResult> {
     const store = this.deps.getStore();
     if (!store) {
-      return false;
+      return createFailedSurfaceOperationResult("terminal_result_deferred_notice", "send_failed");
     }
 
     const renderedNotice = createDeferredTerminalNoticeView(saved);
     const notice = store.createRuntimeNotice({
-      telegramChatId: activeTurn.chatId,
+      chatId: activeTurn.chatId,
       type: "terminal_delivery_deferred",
       message: renderedNotice.html,
       parseMode: "HTML",
@@ -1141,20 +1157,26 @@ export class TurnCoordinator {
       sessionId: activeTurn.sessionId,
       turnId: activeTurn.turnId
     });
-    const sent = await this.deps.safeSendHtmlMessageResult(
-      activeTurn.chatId,
-      renderedNotice.html,
-      saved.kind === "plan_result"
+    const sent = await executeTelegramHtmlSurfaceOperation({
+      intent: "terminal_result_deferred_notice",
+      chatId: activeTurn.chatId,
+      html: renderedNotice.html,
+      replyMarkup: saved.kind === "plan_result"
         ? buildPlanResultReplyMarkup(renderedNotice.controls)
-        : buildFinalAnswerReplyMarkup(renderedNotice.controls)
-    );
-    if (!sent) {
-      return false;
+        : buildFinalAnswerReplyMarkup(renderedNotice.controls),
+      sendHtmlMessage: this.deps.safeSendHtmlMessageResult
+    });
+    if (sent.outcome !== "sent") {
+      return sent;
     }
 
     store.clearRuntimeNotice(notice.key);
     store.setFinalAnswerDeliveryState(saved.answerId, "deferred_notice_visible");
-    return true;
+    return createDeferredSurfaceOperationResult(
+      "terminal_result",
+      "terminal_result_deferred_notice",
+      sent.deliveryRef.messageId
+    );
   }
 
   private getFinalAnswerRenderContext(sessionId: string): {

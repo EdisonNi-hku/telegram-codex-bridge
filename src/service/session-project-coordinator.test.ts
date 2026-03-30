@@ -145,9 +145,9 @@ async function createCoordinatorContext() {
 
 function authorizeChat(store: BridgeStateStore, chatId: string): void {
   store.upsertPendingAuthorization({
-    telegramUserId: "user-1",
-    telegramChatId: chatId,
-    telegramUsername: "tester",
+    userId: "user-1",
+    chatId: chatId,
+    username: "tester",
     displayName: "Tester"
   });
 
@@ -334,7 +334,7 @@ test("handleArchive calls the runtime-surface archive hook after local persisten
   try {
     authorizeChat(store, "chat-1");
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
@@ -372,7 +372,7 @@ test("handleUnarchive calls only the lightweight runtime-surface unarchive hook"
   try {
     authorizeChat(store, "chat-1");
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
@@ -403,13 +403,13 @@ test("handleUse refreshes the current session card after switching foreground se
   try {
     authorizeChat(store, "chat-1");
     const first = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"
     });
     const second = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project Two",
       projectPath: "/tmp/project-two",
       displayName: "Session Two"
@@ -434,7 +434,7 @@ test("handleRenameInput refreshes the current session card after renaming the ac
   try {
     authorizeChat(store, "chat-1");
     const session = store.createSession({
-      telegramChatId: "chat-1",
+      chatId: "chat-1",
       projectName: "Project One",
       projectPath: "/tmp/project-one",
       displayName: "Session One"

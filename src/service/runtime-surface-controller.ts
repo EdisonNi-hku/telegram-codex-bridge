@@ -6,6 +6,10 @@ import {
   createRecentOutputEntryView
 } from "../core/workflow/terminal-workflow.js";
 import {
+  createPlatformChatRef,
+  isSamePlatformChatRef
+} from "../core/domain/binding.js";
+import {
   formatVisibleRuntimeState,
   selectStatusProgressText,
   createRuntimeStatusCardView,
@@ -1804,7 +1808,14 @@ export class RuntimeSurfaceController {
     }
 
     const session = sessionId ? store.getSessionById(sessionId) : null;
-    if (!session || session.archived || session.telegramChatId !== hubState.chatId) {
+    if (
+      !session
+      || session.archived
+      || !isSamePlatformChatRef(
+        createPlatformChatRef(session.chatId),
+        createPlatformChatRef(hubState.chatId)
+      )
+    ) {
       await this.deps.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
       return;
     }
@@ -2807,7 +2818,11 @@ export class RuntimeSurfaceController {
     const preferredSession = preferredSessionId
       ? store?.getSessionById(preferredSessionId) ?? null
       : null;
-    const resolvedPreferredSessionId = preferredSession?.telegramChatId === chatId
+    const resolvedPreferredSessionId = preferredSession
+      && isSamePlatformChatRef(
+        createPlatformChatRef(preferredSession.chatId),
+        createPlatformChatRef(chatId)
+      )
       ? preferredSession.sessionId
       : null;
 
@@ -3296,7 +3311,7 @@ export class RuntimeSurfaceController {
   private async refreshRecentOutputEntry(chatId: string, sessionId: string): Promise<void> {
     const store = this.deps.getStore();
     const session = store?.getSessionById(sessionId) ?? null;
-    if (!store || !session || session.telegramChatId !== chatId) {
+    if (!store || !session || session.chatId !== chatId) {
       return;
     }
 
@@ -3364,7 +3379,7 @@ export class RuntimeSurfaceController {
 
   private getInspectableSession(chatId: string, sessionId: string): SessionRow | null {
     const session = this.deps.getStore()?.getSessionById(sessionId) ?? null;
-    if (!session || session.telegramChatId !== chatId) {
+    if (!session || session.chatId !== chatId) {
       return null;
     }
 

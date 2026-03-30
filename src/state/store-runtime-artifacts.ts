@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
+import { resolvePlatformChatRef } from "../core/domain/binding.js";
 import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 import { DEFAULT_RUNTIME_STATUS_FIELDS } from "../types.js";
 import type {
@@ -24,7 +25,8 @@ import { buildInClausePlaceholders } from "./store-shared.js";
 
 interface RuntimeNoticeRecord {
   key: string;
-  telegram_chat_id: string;
+  chat_id: string;
+  telegram_chat_id: string | null;
   type: "bridge_restart_recovery" | "app_server_notice" | "terminal_delivery_deferred";
   message: string;
   parse_mode: "HTML" | null;
@@ -36,7 +38,9 @@ interface RuntimeNoticeRecord {
 
 interface FinalAnswerViewRecord {
   answer_id: string;
-  telegram_chat_id: string;
+  chat_id: string;
+  telegram_chat_id: string | null;
+  delivery_message_id: number | null;
   telegram_message_id: number | null;
   session_id: string;
   thread_id: string;
@@ -50,7 +54,9 @@ interface FinalAnswerViewRecord {
 }
 
 interface CurrentSessionCardRecord {
-  telegram_chat_id: string;
+  chat_id: string;
+  telegram_chat_id: string | null;
+  message_id: number | null;
   telegram_message_id: number | null;
   session_id: string;
   updated_at: string;
@@ -84,9 +90,14 @@ interface ReadinessRecord {
 }
 
 function mapRuntimeNotice(record: RuntimeNoticeRecord): RuntimeNotice {
+  const chatRef = resolvePlatformChatRef({
+    chatId: record.chat_id,
+    telegramChatId: record.telegram_chat_id
+  });
   return {
     key: record.key,
-    telegramChatId: record.telegram_chat_id,
+    chatId: chatRef.chatId,
+    telegramChatId: record.telegram_chat_id ?? chatRef.chatId,
     type: record.type,
     message: record.message,
     parseMode: record.parse_mode,
@@ -100,10 +111,17 @@ function mapRuntimeNotice(record: RuntimeNoticeRecord): RuntimeNotice {
 }
 
 function mapFinalAnswerView(record: FinalAnswerViewRecord): FinalAnswerViewRow {
+  const chatRef = resolvePlatformChatRef({
+    chatId: record.chat_id,
+    telegramChatId: record.telegram_chat_id
+  });
+  const deliveryMessageId = record.delivery_message_id ?? record.telegram_message_id;
   return {
     answerId: record.answer_id,
-    telegramChatId: record.telegram_chat_id,
-    telegramMessageId: record.telegram_message_id,
+    chatId: chatRef.chatId,
+    telegramChatId: record.telegram_chat_id ?? chatRef.chatId,
+    deliveryMessageId,
+    telegramMessageId: record.telegram_message_id ?? deliveryMessageId,
     sessionId: record.session_id,
     threadId: record.thread_id,
     turnId: record.turn_id,
@@ -121,12 +139,27 @@ function mapFinalAnswerView(record: FinalAnswerViewRecord): FinalAnswerViewRow {
 }
 
 function mapCurrentSessionCard(record: CurrentSessionCardRecord): CurrentSessionCardRow {
+  const chatRef = resolvePlatformChatRef({
+    chatId: record.chat_id,
+    telegramChatId: record.telegram_chat_id
+  });
+  const messageId = record.message_id ?? record.telegram_message_id;
   return {
-    telegramChatId: record.telegram_chat_id,
-    telegramMessageId: record.telegram_message_id,
+    chatId: chatRef.chatId,
+    telegramChatId: record.telegram_chat_id ?? chatRef.chatId,
+    messageId,
+    telegramMessageId: record.telegram_message_id ?? messageId,
     sessionId: record.session_id,
     updatedAt: record.updated_at
   };
+}
+
+function resolveChatId(options: { chatId: string }): string {
+  return resolvePlatformChatRef(options).chatId;
+}
+
+function resolveMessageId(messageId?: number | null | undefined): number | null {
+  return messageId ?? null;
 }
 
 function mapRuntimeCardPreferences(record: RuntimeCardPreferencesRecord): RuntimeCardPreferencesRow {
@@ -156,13 +189,13 @@ function mapTurnInputSource(record: TurnInputSourceRecord): TurnInputSourceRow {
 }
 
 export interface StoreRuntimeArtifacts {
-  listRuntimeNotices(telegramChatId: string): RuntimeNotice[];
+  listRuntimeNotices(chatId: string): RuntimeNotice[];
   countRuntimeNotices(): number;
   clearRuntimeNotice(key: string): void;
   upsertRuntimeNotices(notices: RuntimeNotice[]): void;
   createRuntimeNotice(options: {
     key?: string;
-    telegramChatId: string;
+    chatId: string;
     type: RuntimeNotice["type"];
     message: string;
     parseMode?: RuntimeNotice["parseMode"];
@@ -171,24 +204,24 @@ export interface StoreRuntimeArtifacts {
     turnId?: string | null;
   }): RuntimeNotice;
   listNoticeChatIds(): string[];
-  rebindRuntimeNoticesChatIds(telegramChatId: string, previousChatIds: string[]): void;
+  rebindRuntimeNoticesChatIds(chatId: string, previousChatIds: string[]): void;
   getRuntimeCardPreferences(): RuntimeCardPreferencesRow;
   setRuntimeCardPreferences(fields: RuntimeStatusField[]): RuntimeCardPreferencesRow;
   getUiLanguage(): UiLanguage;
   setUiLanguage(language: UiLanguage): UiLanguage;
-  getCurrentSessionCard(telegramChatId: string): CurrentSessionCardRow | null;
+  getCurrentSessionCard(chatId: string): CurrentSessionCardRow | null;
   upsertCurrentSessionCard(options: {
-    telegramChatId: string;
-    telegramMessageId: number | null;
+    chatId: string;
+    messageId?: number | null;
     sessionId: string;
   }): CurrentSessionCardRow;
-  deleteCurrentSessionCard(telegramChatId: string): void;
-  rebindCurrentSessionCardsChatIds(telegramChatId: string, previousChatIds: string[]): void;
+  deleteCurrentSessionCard(chatId: string): void;
+  rebindCurrentSessionCardsChatIds(chatId: string, previousChatIds: string[]): void;
   clearAllCurrentSessionCards(): void;
   saveFinalAnswerView(options: {
     answerId?: string;
-    telegramChatId: string;
-    telegramMessageId?: number | null;
+    chatId: string;
+    deliveryMessageId?: number | null;
     sessionId: string;
     threadId: string;
     turnId: string;
@@ -198,10 +231,10 @@ export interface StoreRuntimeArtifacts {
     pages: string[];
     primaryActionConsumed?: boolean;
   }): FinalAnswerViewRow;
-  getFinalAnswerView(answerId: string, telegramChatId: string): FinalAnswerViewRow | null;
-  listFinalAnswerViews(telegramChatId: string): FinalAnswerViewRow[];
-  rebindFinalAnswerViewsChatIds(telegramChatId: string, previousChatIds: string[]): void;
-  setFinalAnswerMessageId(answerId: string, telegramMessageId: number): void;
+  getFinalAnswerView(answerId: string, chatId: string): FinalAnswerViewRow | null;
+  listFinalAnswerViews(chatId: string): FinalAnswerViewRow[];
+  rebindFinalAnswerViewsChatIds(chatId: string, previousChatIds: string[]): void;
+  setFinalAnswerMessageId(answerId: string, messageId: number): void;
   setFinalAnswerDeliveryState(answerId: string, deliveryState: FinalAnswerViewRow["deliveryState"]): void;
   setFinalAnswerPrimaryActionConsumed(answerId: string, consumed: boolean): void;
   deleteFinalAnswerView(answerId: string): void;
@@ -218,46 +251,46 @@ export interface StoreRuntimeArtifacts {
 }
 
 export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtifacts {
-  const getCurrentSessionCard = (telegramChatId: string): CurrentSessionCardRow | null => {
+  const getCurrentSessionCard = (chatId: string): CurrentSessionCardRow | null => {
     const row = db
       .prepare(
         `
           SELECT *
           FROM current_session_card
-          WHERE telegram_chat_id = ?
+          WHERE chat_id = ?
         `
       )
-      .get(telegramChatId) as CurrentSessionCardRecord | undefined;
+      .get(chatId) as CurrentSessionCardRecord | undefined;
 
     return row ? mapCurrentSessionCard(row) : null;
   };
 
-  const getFinalAnswerView = (answerId: string, telegramChatId: string): FinalAnswerViewRow | null => {
+  const getFinalAnswerView = (answerId: string, chatId: string): FinalAnswerViewRow | null => {
     const row = db
       .prepare(
         `
           SELECT *
           FROM final_answer_view
-          WHERE answer_id = ? AND telegram_chat_id = ?
+          WHERE answer_id = ? AND chat_id = ?
         `
       )
-      .get(answerId, telegramChatId) as FinalAnswerViewRecord | undefined;
+      .get(answerId, chatId) as FinalAnswerViewRecord | undefined;
 
     return row ? mapFinalAnswerView(row) : null;
   };
 
   return {
-    listRuntimeNotices(telegramChatId) {
+    listRuntimeNotices(chatId) {
       const rows = db
         .prepare(
           `
             SELECT *
             FROM runtime_notice
-            WHERE telegram_chat_id = ?
+            WHERE chat_id = ?
             ORDER BY created_at ASC
           `
         )
-        .all(telegramChatId) as unknown as RuntimeNoticeRecord[];
+        .all(chatId) as unknown as RuntimeNoticeRecord[];
 
       return rows.map(mapRuntimeNotice);
     },
@@ -279,6 +312,7 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         `
           INSERT OR REPLACE INTO runtime_notice (
             key,
+            chat_id,
             telegram_chat_id,
             type,
             message,
@@ -288,14 +322,15 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
             turn_id,
             created_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       );
 
       for (const notice of notices) {
         statement.run(
           notice.key,
-          notice.telegramChatId,
+          notice.chatId,
+          notice.chatId,
           notice.type,
           notice.message,
           notice.parseMode ?? null,
@@ -308,9 +343,11 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
     },
 
     createRuntimeNotice(options) {
+      const chatId = resolveChatId(options);
       const notice: RuntimeNotice = {
         key: options.key ?? `notice:${randomUUID()}`,
-        telegramChatId: options.telegramChatId,
+        chatId,
+        telegramChatId: chatId,
         type: options.type,
         message: options.message,
         parseMode: options.parseMode ?? null,
@@ -325,6 +362,7 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
           `
             INSERT OR REPLACE INTO runtime_notice (
               key,
+              chat_id,
               telegram_chat_id,
               type,
               message,
@@ -334,11 +372,12 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
               turn_id,
               created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .run(
           notice.key,
+          notice.chatId,
           notice.telegramChatId,
           notice.type,
           notice.message,
@@ -354,13 +393,13 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
 
     listNoticeChatIds() {
       const rows = db
-        .prepare("SELECT DISTINCT telegram_chat_id FROM runtime_notice ORDER BY telegram_chat_id ASC")
-        .all() as Array<{ telegram_chat_id: string }>;
+        .prepare("SELECT DISTINCT chat_id FROM runtime_notice ORDER BY chat_id ASC")
+        .all() as Array<{ chat_id: string }>;
 
-      return rows.map((row) => row.telegram_chat_id);
+      return rows.map((row) => row.chat_id);
     },
 
-    rebindRuntimeNoticesChatIds(telegramChatId, previousChatIds) {
+    rebindRuntimeNoticesChatIds(chatId, previousChatIds) {
       if (previousChatIds.length === 0) {
         return;
       }
@@ -370,11 +409,11 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .prepare(
           `
             UPDATE runtime_notice
-            SET telegram_chat_id = ?
-            WHERE telegram_chat_id IN (${placeholders})
+            SET chat_id = ?, telegram_chat_id = ?
+            WHERE chat_id IN (${placeholders}) OR telegram_chat_id IN (${placeholders})
           `
         )
-        .run(telegramChatId, ...previousChatIds);
+        .run(chatId, chatId, ...previousChatIds, ...previousChatIds);
     },
 
     getRuntimeCardPreferences() {
@@ -460,39 +499,45 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
     getCurrentSessionCard,
 
     upsertCurrentSessionCard(options) {
+      const chatId = resolveChatId(options);
+      const messageId = resolveMessageId(options.messageId);
       const updatedAt = nowIso();
       db
         .prepare(
           `
             INSERT OR REPLACE INTO current_session_card (
+              chat_id,
               telegram_chat_id,
+              message_id,
               telegram_message_id,
               session_id,
               updated_at
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
           `
         )
         .run(
-          options.telegramChatId,
-          options.telegramMessageId,
+          chatId,
+          chatId,
+          messageId,
+          messageId,
           options.sessionId,
           updatedAt
         );
 
-      const saved = getCurrentSessionCard(options.telegramChatId);
+      const saved = getCurrentSessionCard(chatId);
       if (!saved) {
-        throw new Error(`persisted current session card missing after save: ${options.telegramChatId}`);
+        throw new Error(`persisted current session card missing after save: ${chatId}`);
       }
 
       return saved;
     },
 
-    deleteCurrentSessionCard(telegramChatId) {
-      db.prepare("DELETE FROM current_session_card WHERE telegram_chat_id = ?").run(telegramChatId);
+    deleteCurrentSessionCard(chatId) {
+      db.prepare("DELETE FROM current_session_card WHERE chat_id = ?").run(chatId);
     },
 
-    rebindCurrentSessionCardsChatIds(telegramChatId, previousChatIds) {
+    rebindCurrentSessionCardsChatIds(chatId, previousChatIds) {
       if (previousChatIds.length === 0) {
         return;
       }
@@ -502,11 +547,11 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .prepare(
           `
             UPDATE current_session_card
-            SET telegram_chat_id = ?
-            WHERE telegram_chat_id IN (${placeholders})
+            SET chat_id = ?, telegram_chat_id = ?
+            WHERE chat_id IN (${placeholders}) OR telegram_chat_id IN (${placeholders})
           `
         )
-        .run(telegramChatId, ...previousChatIds);
+        .run(chatId, chatId, ...previousChatIds, ...previousChatIds);
     },
 
     clearAllCurrentSessionCards() {
@@ -515,6 +560,8 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
 
     saveFinalAnswerView(options) {
       const answerId = options.answerId ?? randomUUID();
+      const chatId = resolveChatId(options);
+      const deliveryMessageId = resolveMessageId(options.deliveryMessageId);
       const createdAt = nowIso();
 
       db.exec("BEGIN");
@@ -525,7 +572,9 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
             `
               INSERT OR REPLACE INTO final_answer_view (
                 answer_id,
+                chat_id,
                 telegram_chat_id,
+                delivery_message_id,
                 telegram_message_id,
                 session_id,
                 thread_id,
@@ -537,13 +586,15 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
                 primary_action_consumed,
                 created_at
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
           )
           .run(
             answerId,
-            options.telegramChatId,
-            options.telegramMessageId ?? null,
+            chatId,
+            chatId,
+            deliveryMessageId,
+            deliveryMessageId,
             options.sessionId,
             options.threadId,
             options.turnId,
@@ -562,13 +613,13 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
               WHERE answer_id IN (
                 SELECT answer_id
                 FROM final_answer_view
-                WHERE telegram_chat_id = ?
+                WHERE chat_id = ?
                 ORDER BY created_at DESC, rowid DESC
                 LIMIT -1 OFFSET 50
               )
             `
           )
-          .run(options.telegramChatId);
+          .run(chatId);
 
         db.exec("COMMIT");
       } catch (error) {
@@ -576,7 +627,7 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         throw error;
       }
 
-      const saved = getFinalAnswerView(answerId, options.telegramChatId);
+      const saved = getFinalAnswerView(answerId, chatId);
       if (!saved) {
         throw new Error(`persisted final answer view missing after save: ${answerId}`);
       }
@@ -586,22 +637,22 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
 
     getFinalAnswerView,
 
-    listFinalAnswerViews(telegramChatId) {
+    listFinalAnswerViews(chatId) {
       const rows = db
         .prepare(
           `
             SELECT *
             FROM final_answer_view
-            WHERE telegram_chat_id = ?
+            WHERE chat_id = ?
             ORDER BY created_at DESC, rowid DESC
           `
         )
-        .all(telegramChatId) as unknown as FinalAnswerViewRecord[];
+        .all(chatId) as unknown as FinalAnswerViewRecord[];
 
       return rows.map(mapFinalAnswerView);
     },
 
-    rebindFinalAnswerViewsChatIds(telegramChatId, previousChatIds) {
+    rebindFinalAnswerViewsChatIds(chatId, previousChatIds) {
       if (previousChatIds.length === 0) {
         return;
       }
@@ -611,23 +662,23 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .prepare(
           `
             UPDATE final_answer_view
-            SET telegram_chat_id = ?
-            WHERE telegram_chat_id IN (${placeholders})
+            SET chat_id = ?, telegram_chat_id = ?
+            WHERE chat_id IN (${placeholders}) OR telegram_chat_id IN (${placeholders})
           `
         )
-        .run(telegramChatId, ...previousChatIds);
+        .run(chatId, chatId, ...previousChatIds, ...previousChatIds);
     },
 
-    setFinalAnswerMessageId(answerId, telegramMessageId) {
+    setFinalAnswerMessageId(answerId, messageId) {
       db
         .prepare(
           `
             UPDATE final_answer_view
-            SET telegram_message_id = ?
+            SET delivery_message_id = ?, telegram_message_id = ?
             WHERE answer_id = ?
           `
         )
-        .run(telegramMessageId, answerId);
+        .run(messageId, messageId, answerId);
     },
 
     setFinalAnswerDeliveryState(answerId, deliveryState) {
