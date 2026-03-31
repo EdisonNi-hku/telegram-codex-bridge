@@ -179,6 +179,7 @@ async function createControllerContext(options: {
   const editedHtml: Array<{ chatId: string; messageId: number; html: string; replyMarkup?: unknown }> = [];
   const callbackAnswers: Array<string | undefined> = [];
   const refreshReasons: string[] = [];
+  const syncCurrentSessionCardReasons: string[] = [];
   const deletedMessages: number[] = [];
   const traceEvents: string[] = [];
   let nextMessageId = options.initialSentMessageId ?? 1000;
@@ -243,6 +244,9 @@ async function createControllerContext(options: {
     },
     refreshActiveRuntimeStatusCard: async (_chatId, reason) => {
       refreshReasons.push(reason);
+    },
+    syncCurrentSessionCard: async (_chatId, reason) => {
+      syncCurrentSessionCardReasons.push(reason);
     }
   });
 
@@ -253,6 +257,7 @@ async function createControllerContext(options: {
     editedHtml,
     callbackAnswers,
     refreshReasons,
+    syncCurrentSessionCardReasons,
     deletedMessages,
     traceEvents,
     cleanup: async () => {
@@ -3225,6 +3230,59 @@ test("RuntimeSurfaceController does not leave retry timers on disposed hubs", as
 
     assert.equal(hubState.destroyed, false);
     assert.equal(hubState.timer, null);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RuntimeSurfaceController switches active session after a successful final-answer expand render", async () => {
+  const { controller, store, callbackAnswers, syncCurrentSessionCardReasons, cleanup } = await createControllerContext();
+
+  try {
+    store.upsertPendingAuthorization({
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
+      displayName: "Tester"
+    });
+    const candidate = store.listPendingAuthorizations()[0];
+    assert.ok(candidate);
+    store.confirmPendingAuthorization(candidate);
+
+    const sessionOne = await store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    const sessionTwo = await store.createSession({
+      chatId: "chat-1",
+      projectName: "Project Two",
+      projectPath: "/tmp/project-two"
+    });
+    store.setActiveSession("chat-1", sessionOne.sessionId);
+    assert.equal(store.getActiveSession("chat-1")?.sessionId, sessionOne.sessionId);
+
+    const view = store.saveFinalAnswerView({
+      answerId: "answer-session-two",
+      chatId: "chat-1",
+      sessionId: sessionTwo.sessionId,
+      threadId: "thread-2",
+      turnId: "turn-2",
+      previewHtml: "<b>Preview</b>",
+      pages: ["<b>Expanded</b>"]
+    });
+
+    await controller.renderPersistedFinalAnswer(
+      "callback-final-open",
+      "chat-1",
+      4321,
+      view.answerId,
+      { expanded: true, page: 1 }
+    );
+
+    assert.equal(callbackAnswers.at(-1), undefined);
+    assert.equal(store.getActiveSession("chat-1")?.sessionId, sessionTwo.sessionId);
+    assert.deepEqual(syncCurrentSessionCardReasons, ["final_answer_expanded_session_switched"]);
   } finally {
     await cleanup();
   }

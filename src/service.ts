@@ -331,7 +331,8 @@ export class BridgeService {
       backfillSubagentIdentities: async (activeTurn, agentEntries) =>
         this.subagentIdentityBackfiller.backfill(activeTurn as ActiveTurnState, agentEntries),
       handleRecoveryHubVisible: (chatId) => this.clearBridgeRestartRecoveryNotices(chatId),
-      refreshActiveRuntimeStatusCard: async (chatId, reason) => this.refreshActiveRuntimeStatusCard(chatId, reason)
+      refreshActiveRuntimeStatusCard: async (chatId, reason) => this.refreshActiveRuntimeStatusCard(chatId, reason),
+      syncCurrentSessionCard: async (chatId, reason) => this.currentSessionCardController.syncForChat(chatId, reason)
     });
     this.turnCoordinator = new TurnCoordinator({
       paths: { runtimeDir: this.paths.runtimeDir },

@@ -264,6 +264,7 @@ interface RuntimeSurfaceControllerDeps {
   ) => Promise<boolean>;
   handleRecoveryHubVisible: (chatId: string) => void;
   refreshActiveRuntimeStatusCard: (chatId: string, reason: string) => Promise<void>;
+  syncCurrentSessionCard: (chatId: string, reason: string) => Promise<void>;
 }
 
 export class RuntimeSurfaceController {
@@ -2974,7 +2975,10 @@ export class RuntimeSurfaceController {
           expanded: false
         })
       );
-      await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result);
+      await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result, {
+        chatId,
+        sessionId: view.sessionId
+      });
       return;
     }
 
@@ -2996,7 +3000,10 @@ export class RuntimeSurfaceController {
         currentPage: page
       })
     );
-    await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result);
+    await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result, {
+      chatId,
+      sessionId: view.sessionId
+    });
   }
 
   async renderPersistedPlanResult(
@@ -3360,11 +3367,16 @@ export class RuntimeSurfaceController {
     callbackQueryId: string,
     answerId: string,
     messageId: number,
-    result: TelegramEditResult
+    result: TelegramEditResult,
+    options?: {
+      chatId?: string;
+      sessionId?: string;
+    }
   ): Promise<void> {
     if (isTelegramEditCommitted(result)) {
       this.deps.getStore()?.setFinalAnswerMessageId(answerId, messageId);
       this.deps.getStore()?.setFinalAnswerDeliveryState(answerId, "visible");
+      await this.syncFinalAnswerActiveSessionOnSuccess(options);
       await this.deps.safeAnswerCallbackQuery(callbackQueryId);
       return;
     }
@@ -3375,6 +3387,45 @@ export class RuntimeSurfaceController {
     }
 
     await this.deps.safeAnswerCallbackQuery(callbackQueryId, "暂时无法更新这条消息，请稍后再试。");
+  }
+
+  private async syncFinalAnswerActiveSessionOnSuccess(
+    options?: {
+      chatId?: string;
+      sessionId?: string;
+    }
+  ): Promise<void> {
+    const chatId = options?.chatId ?? null;
+    const sessionId = options?.sessionId ?? null;
+    if (!chatId || !sessionId) {
+      return;
+    }
+
+    const store = this.deps.getStore();
+    if (!store) {
+      return;
+    }
+
+    const session = store.getSessionById(sessionId);
+    if (!session || session.chatId !== chatId || session.archived) {
+      return;
+    }
+
+    const activeSessionId = store.getActiveSession(chatId)?.sessionId ?? null;
+    if (activeSessionId === sessionId) {
+      return;
+    }
+
+    store.setActiveSession(chatId, sessionId);
+    try {
+      await this.deps.syncCurrentSessionCard(chatId, "final_answer_expanded_session_switched");
+    } catch (error) {
+      await this.deps.logger.warn("current session card sync failed after final answer session switch", {
+        chatId,
+        sessionId,
+        error: `${error}`
+      });
+    }
   }
 
   private getInspectableSession(chatId: string, sessionId: string): SessionRow | null {
