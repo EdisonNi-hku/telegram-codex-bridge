@@ -379,6 +379,8 @@ export class BridgeService {
       disposeRuntimeCards: (activeTurn) =>
         this.runtimeSurfaceController.disposeRuntimeCards(activeTurn as ActiveTurnState),
       safeSendMessage: async (chatId, text) => this.safeSendMessage(chatId, text),
+      safeSendDocumentResult: async (chatId, filePath, options) =>
+        this.safeSendDocumentResult(chatId, filePath, options),
       safeSendHtmlMessageResult: async (chatId, html, replyMarkup) =>
         this.safeSendHtmlMessageResult(chatId, html, replyMarkup),
       handleGlobalRuntimeNotice: async (notification) => this.runtimeNoticeBroadcaster.broadcast(notification),
@@ -2712,6 +2714,58 @@ export class BridgeService {
     await this.logger.error("telegram photo delivery failed", {
       chatId,
       path: photoPath,
+      error: `${lastError}`
+    });
+    return null;
+  }
+
+  private async safeSendDocumentResult(
+    chatId: string,
+    filePath: string,
+    options?: {
+      caption?: string;
+      parseMode?: "HTML";
+      fileName?: string;
+    }
+  ): Promise<TelegramMessage | null> {
+    if (!this.api?.sendDocument) {
+      return null;
+    }
+
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt <= TELEGRAM_SEND_RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        const sent = await this.api.sendDocument(chatId, filePath, options);
+        await this.logger.info("telegram document sent", {
+          chatId,
+          messageId: sent.message_id,
+          path: filePath,
+          preview: summarizeTextPreview(options?.caption),
+          attempts: attempt + 1
+        });
+        return sent;
+      } catch (error) {
+        lastError = error;
+        const retryDelayMs = getTelegramSendRetryDelayMs(error, attempt);
+        if (retryDelayMs === null) {
+          break;
+        }
+
+        await this.logger.warn("telegram document delivery retry scheduled", {
+          chatId,
+          path: filePath,
+          attempt: attempt + 1,
+          retryDelayMs,
+          error: `${error}`
+        });
+        await this.sleep(retryDelayMs);
+      }
+    }
+
+    await this.logger.error("telegram document delivery failed", {
+      chatId,
+      path: filePath,
       error: `${lastError}`
     });
     return null;

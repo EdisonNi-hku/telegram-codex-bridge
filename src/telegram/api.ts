@@ -189,6 +189,48 @@ export class TelegramApi {
     }
   }
 
+  async sendDocument(
+    chatId: string,
+    filePath: string,
+    options?: {
+      caption?: string;
+      parseMode?: "HTML";
+      fileName?: string;
+    }
+  ): Promise<TelegramMessage> {
+    const url = `${this.baseUrl}/bot${this.token}/sendDocument`;
+    if (shouldPreferCurl() && await this.canUseCurl()) {
+      return await this.sendDocumentWithCurl(chatId, filePath, options, 20_000, "proxy-environment");
+    }
+
+    try {
+      const fileBytes = await readFile(filePath);
+      const formData = new FormData();
+      formData.set("chat_id", chatId);
+      if (options?.caption) {
+        formData.set("caption", options.caption);
+      }
+      if (options?.parseMode) {
+        formData.set("parse_mode", options.parseMode);
+      }
+      formData.set("document", new Blob([fileBytes]), options?.fileName ?? basename(filePath));
+
+      const response = await fetch(url, {
+        method: "POST",
+        body: formData,
+        signal: AbortSignal.timeout(20_000)
+      });
+      const payload = (await response.json()) as TelegramResponse<TelegramMessage>;
+      if (!response.ok || !payload.ok || payload.result === undefined) {
+        throw new TelegramApiError("sendDocument", payload);
+      }
+
+      return payload.result;
+    } catch (error) {
+      return await this.sendDocumentWithCurl(chatId, filePath, options, 20_000, error);
+    }
+  }
+
   async getFile(fileId: string): Promise<TelegramFile> {
     return await this.call<TelegramFile>("getFile", {
       file_id: fileId
@@ -469,6 +511,55 @@ export class TelegramApi {
     const payload = JSON.parse(result.stdout) as TelegramResponse<TelegramMessage>;
     if (!payload.ok || payload.result === undefined) {
       throw new TelegramApiError("sendPhoto", payload);
+    }
+
+    return payload.result;
+  }
+
+  private async sendDocumentWithCurl(
+    chatId: string,
+    filePath: string,
+    options: {
+      caption?: string;
+      parseMode?: "HTML";
+      fileName?: string;
+    } | undefined,
+    timeoutMs: number,
+    originalError: unknown
+  ): Promise<TelegramMessage> {
+    const url = `${this.baseUrl}/bot${this.token}/sendDocument`;
+    const args = [
+      "--silent",
+      "--show-error",
+      "--max-time",
+      `${Math.ceil(timeoutMs / 1000)}`,
+      "--form",
+      `chat_id=${chatId}`,
+      "--form",
+      options?.fileName
+        ? `document=@${filePath};filename=${options.fileName}`
+        : `document=@${filePath}`
+    ];
+
+    if (options?.caption) {
+      args.push("--form", `caption=${options.caption}`);
+    }
+    if (options?.parseMode) {
+      args.push("--form", `parse_mode=${options.parseMode}`);
+    }
+
+    args.push(url);
+
+    const result = await runCommand("curl", args).catch((curlError) => {
+      throw new Error(
+        `Telegram document upload failed via fetch and curl: ${String(originalError)} | ${String(curlError)}`
+      );
+    });
+    this.assertCurlExitCode("Telegram document upload", result, originalError);
+
+    const payload = JSON.parse(result.stdout) as TelegramResponse<TelegramMessage>;
+    if (!payload.ok || payload.result === undefined) {
+      throw new TelegramApiError("sendDocument", payload);
     }
 
     return payload.result;

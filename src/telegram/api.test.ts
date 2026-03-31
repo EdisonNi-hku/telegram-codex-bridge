@@ -184,3 +184,63 @@ test("TelegramApi records successful fetch operations", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("TelegramApi sends document uploads with expected form fields", async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchCalls: Array<{ url: string; method: string; chatId: string | null; caption: string | null; parseMode: string | null }> = [];
+  const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-send-document-"));
+  const filePath = join(root, "report.txt");
+
+  await writeFile(filePath, "hello-report", "utf8");
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const form = init?.body as FormData;
+    fetchCalls.push({
+      url: String(url),
+      method: init?.method ?? "GET",
+      chatId: String(form.get("chat_id")),
+      caption: String(form.get("caption")),
+      parseMode: String(form.get("parse_mode"))
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        ok: true,
+        result: {
+          message_id: 42,
+          date: 0,
+          chat: { id: 1, type: "private" }
+        }
+      })
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    await withEnvironment({
+      HTTPS_PROXY: undefined,
+      https_proxy: undefined,
+      HTTP_PROXY: undefined,
+      http_proxy: undefined,
+      ALL_PROXY: undefined,
+      all_proxy: undefined
+    }, async () => {
+      const api = new TelegramApi("test-token", "https://api.telegram.org");
+      const result = await (api as any).sendDocument("chat-1", filePath, {
+        caption: "Here you go",
+        parseMode: "HTML",
+        fileName: "export.txt"
+      });
+      assert.equal(result.message_id, 42);
+    });
+
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls[0]?.method, "POST");
+    assert.match(fetchCalls[0]?.url ?? "", /\/sendDocument$/u);
+    assert.equal(fetchCalls[0]?.chatId, "chat-1");
+    assert.equal(fetchCalls[0]?.caption, "Here you go");
+    assert.equal(fetchCalls[0]?.parseMode, "HTML");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -36,7 +36,8 @@ import {
   type StatusCardState
 } from "./runtime-surface-state.js";
 import { extractTurnArtifactsFromHistory } from "./turn-artifacts.js";
-import { asRecord, getString } from "../util/untyped.js";
+import type { TelegramMessage } from "../telegram/api.js";
+import { asRecord, getRequiredString, getString } from "../util/untyped.js";
 import { normalizeAndTruncate, summarizeTextPreview, hasMeaningfulText } from "../util/text.js";
 import { summarizeActivityStatus, summarizeActivityStatusList } from "../activity/serialize.js";
 import { nowIso } from "../util/time.js";
@@ -166,6 +167,15 @@ interface TurnCoordinatorDeps {
   finalizeTerminalRuntimeHandoff: (chatId: string, sessionId: string) => Promise<void>;
   disposeRuntimeCards: (activeTurn: ActiveTurnState) => void;
   safeSendMessage: (chatId: string, text: string) => Promise<boolean>;
+  safeSendDocumentResult: (
+    chatId: string,
+    filePath: string,
+    options?: {
+      caption?: string;
+      parseMode?: "HTML";
+      fileName?: string;
+    }
+  ) => Promise<TelegramMessage | null>;
   safeSendHtmlMessageResult: (
     chatId: string,
     html: string,
@@ -561,6 +571,10 @@ export class TurnCoordinator {
     const store = this.deps.getStore();
     const appServer = this.deps.getAppServer();
     if (!store || !appServer) {
+      return;
+    }
+
+    if (await this.handleSendTelegramDocumentToolCall(request, appServer)) {
       return;
     }
 
@@ -1530,6 +1544,76 @@ export class TurnCoordinator {
       });
     }
   }
+
+  private async handleSendTelegramDocumentToolCall(
+    request: JsonRpcServerRequest,
+    appServer: CodexAppServerClient
+  ): Promise<boolean> {
+    if (request.method !== "item/tool/call") {
+      return false;
+    }
+
+    const requestParams = asRecord(request.params);
+    if (getString(requestParams, "tool") !== "send_telegram_document") {
+      return false;
+    }
+
+    const activeTurn = this.findActiveTurnForRequestParams(request.params);
+    const argumentsRecord = asRecord(requestParams?.arguments);
+    const path = getRequiredString(argumentsRecord, "path");
+    const caption = getString(argumentsRecord, "caption") ?? undefined;
+    const fileName = getString(argumentsRecord, "filename") ?? undefined;
+    if (!activeTurn) {
+      await appServer.respondToServerRequest(request.id, {
+        success: false,
+        contentItems: [{
+          type: "text",
+          text: "No active Telegram turn is available for send_telegram_document."
+        }]
+      });
+      return true;
+    }
+
+    if (!path) {
+      await this.appendDebugJournal(activeTurn, "bridge/serverRequest/toolCall/send_telegram_document", {
+        requestId: serializeJsonRpcRequestId(request.id),
+        tool: "send_telegram_document",
+        reason: "missing_path"
+      });
+      await appServer.respondToServerRequest(request.id, {
+        success: false,
+        contentItems: [{
+          type: "text",
+          text: "send_telegram_document requires a non-empty `path` argument."
+        }]
+      });
+      return true;
+    }
+
+    const sent = await this.deps.safeSendDocumentResult(activeTurn.chatId, path, {
+      ...(caption ? { caption } : {}),
+      parseMode: "HTML",
+      ...(fileName ? { fileName } : {})
+    });
+    await this.appendDebugJournal(activeTurn, "bridge/serverRequest/toolCall/send_telegram_document", {
+      requestId: serializeJsonRpcRequestId(request.id),
+      tool: "send_telegram_document",
+      path,
+      caption,
+      fileName,
+      delivered: sent !== null
+    });
+    await appServer.respondToServerRequest(request.id, {
+      success: sent !== null,
+      contentItems: [{
+        type: "text",
+        text: sent
+          ? `Document sent to Telegram chat (${activeTurn.chatId}).`
+          : "Failed to send document to Telegram chat. Please verify the file path and retry."
+      }]
+    });
+    return true;
+  }
 }
 
 function isMissingRemoteThreadError(error: unknown): boolean {
@@ -1557,9 +1641,12 @@ function getKnownUnsupportedServerRequest(request: JsonRpcServerRequest): {
 } | null {
   if (request.method === "item/tool/call") {
     const tool = getString(asRecord(request.params), "tool") ?? "unknown";
+    if (tool === "send_telegram_document") {
+      return null;
+    }
     return {
-      errorMessage: "Dynamic tool calls are not supported by the Telegram bridge",
-      userMessage: `Codex 发起了动态工具调用（${tool}），但 Telegram bridge 当前没有稳定的客户端工具映射，已拒绝这次调用。`,
+      errorMessage: `Dynamic tool call is not supported by the Telegram bridge: ${tool}`,
+      userMessage: `Codex 发起了动态工具调用（${tool}），但 Telegram bridge 当前只支持 send_telegram_document，已拒绝这次调用。`,
       logDetail: `tool=${tool}`
     };
   }

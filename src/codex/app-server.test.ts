@@ -14,7 +14,20 @@ test("buildThreadStartParams requests full-access sandbox", () => {
   assert.deepEqual(buildThreadStartParams({ cwd: "/tmp/project" }), {
     cwd: "/tmp/project",
     approvalPolicy: "never",
-    sandbox: "danger-full-access"
+    sandbox: "danger-full-access",
+    dynamicTools: [{
+      name: "send_telegram_document",
+      description: "Send a local server file to the current Telegram chat as a document attachment.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          caption: { type: "string" },
+          filename: { type: "string" }
+        },
+        required: ["path"]
+      }
+    }]
   });
 });
 

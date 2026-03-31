@@ -8884,9 +8884,11 @@ test("serverRequest resolved notification matches numeric request ids and closes
   }
 });
 
-test("phase6 known unsupported server requests are rejected with explicit telegram notices", async () => {
+test("phase6 handles send_telegram_document dynamic tool calls and still rejects unsupported server requests", async () => {
   const { service, store, cleanup } = await createServiceContext();
   const sent: string[] = [];
+  const sentDocuments: Array<{ chatId: string; filePath: string; options?: any }> = [];
+  const requestResults: Array<{ id: string; result: unknown }> = [];
   const requestErrors: Array<{ id: string; code: number; message: string }> = [];
 
   try {
@@ -8899,6 +8901,10 @@ test("phase6 known unsupported server requests are rejected with explicit telegr
         sent.push(text);
         return createFakeTelegramMessage(1800 + sent.length, text);
       },
+      sendDocument: async (chatId: string, filePath: string, options?: any) => {
+        sentDocuments.push({ chatId, filePath, options });
+        return createFakeTelegramMessage(1900 + sentDocuments.length, "document");
+      },
       editMessageText: async (_chatId: string, messageId: number, text: string, _options?: any) =>
         createFakeTelegramMessage(messageId, text)
     };
@@ -8908,7 +8914,9 @@ test("phase6 known unsupported server requests are rejected with explicit telegr
       startThread: async () => ({ thread: { id: "thread-phase6" } }),
       startTurn: async () => ({ turn: { id: "turn-phase6", status: "inProgress" } }),
       resumeThread: async () => ({ thread: { id: "thread-phase6", turns: [] } }),
-      respondToServerRequest: async () => {},
+      respondToServerRequest: async (id: string, result: unknown) => {
+        requestResults.push({ id, result });
+      },
       respondToServerRequestError: async (id: string, code: number, message: string) => {
         requestErrors.push({ id, code, message });
       }
@@ -8923,9 +8931,11 @@ test("phase6 known unsupported server requests are rejected with explicit telegr
         threadId: "thread-phase6",
         turnId: "turn-phase6",
         callId: "call-1",
-        tool: "view_image",
+        tool: "send_telegram_document",
         arguments: {
-          path: "/tmp/diagram.png"
+          path: "/tmp/diagram.zip",
+          caption: "artifact",
+          filename: "diagram.zip"
         }
       }
     });
@@ -8940,19 +8950,25 @@ test("phase6 known unsupported server requests are rejected with explicit telegr
     });
 
     assert.equal(store.listPendingInteractionsByChat("1").length, 0);
+    assert.deepEqual(sentDocuments, [{
+      chatId: "1",
+      filePath: "/tmp/diagram.zip",
+      options: {
+        caption: "artifact",
+        parseMode: "HTML",
+        fileName: "diagram.zip"
+      }
+    }]);
+    assert.equal(requestResults.length, 1);
+    assert.equal(requestResults[0]?.id, "tool-call-1");
+    assert.match(JSON.stringify(requestResults[0]?.result ?? {}), /"success":true/u);
     assert.deepEqual(requestErrors, [
-      {
-        id: "tool-call-1",
-        code: -32601,
-        message: "Dynamic tool calls are not supported by the Telegram bridge"
-      },
       {
         id: "auth-refresh-1",
         code: -32601,
         message: "ChatGPT auth token refresh is not supported by the Telegram bridge"
       }
     ]);
-    assert.match(sent.join("\n"), /动态工具调用/u);
     assert.match(sent.join("\n"), /ChatGPT 登录令牌刷新/u);
   } finally {
     await cleanup();

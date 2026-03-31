@@ -59,6 +59,15 @@ interface ThreadStartParams {
   approvalPolicy: "never";
   sandbox: "danger-full-access";
   model?: string;
+  dynamicTools?: Array<{
+    name: string;
+    description: string;
+    inputSchema: {
+      type: "object";
+      properties: Record<string, { type: "string" }>;
+      required?: string[];
+    };
+  }>;
 }
 
 /** Bridge-side collaboration mode config (camelCase). */
@@ -380,6 +389,19 @@ export function buildThreadStartParams(options: {
     cwd: options.cwd,
     approvalPolicy: "never",
     sandbox: "danger-full-access",
+    dynamicTools: [{
+      name: "send_telegram_document",
+      description: "Send a local server file to the current Telegram chat as a document attachment.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          caption: { type: "string" },
+          filename: { type: "string" }
+        },
+        required: ["path"]
+      }
+    }],
     ...(options.model ? { model: options.model } : {})
   };
 }
