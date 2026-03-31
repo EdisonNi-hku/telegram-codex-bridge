@@ -279,6 +279,7 @@ Responses:
 - no active session: `当前没有活动会话。`
 - active session running: `当前项目仍在执行，请先等待完成或停止当前操作。`
 - archive unavailable: `当前无法归档这个会话，请稍后重试。`
+- invalid args: `只支持 /archive 或 /archive all。`
 
 Archive rules:
 - archive only applies to the current active session
@@ -286,6 +287,25 @@ Archive rules:
 - archive immediately removes the session from bridge-owned live and recovery hub surfaces, frees any occupied slot, and deletes an emptied hub when needed
 - after archiving the active session, the bridge switches to the most recent remaining visible session when one exists
 - low-level Codex protocol events such as `thread/archived` are internal bridge signals, not Telegram commands
+
+### `/archive all`
+
+Responses:
+- success: an HTML card:
+  - `已批量归档会话`
+  - `已归档：{count} 个`
+  - optional `已跳过运行中：{count} 个`
+  - optional `失败：{count} 个`
+  - plus either the new `当前会话` and `当前项目` or the empty-state follow-up
+- no visible sessions: `当前没有可归档会话。`
+- invalid args: `只支持 /archive 或 /archive all。`
+
+Rules:
+- applies to all visible sessions in the current chat
+- running sessions are skipped and remain visible
+- non-running sessions are archived one by one; a single failure does not stop later sessions from being attempted
+- each successful archive mirrors the remote Codex thread state when that session has a `threadId`
+- after the batch finishes, the bridge re-normalizes the current visible session and refreshes the current-session card once
 
 ### `/unarchive <n>`
 

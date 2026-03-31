@@ -359,6 +359,242 @@ test("handleArchive calls the runtime-surface archive hook after local persisten
   }
 });
 
+test("handleArchive keeps using the original store after remote archive mirroring begins", async () => {
+  const { store, cleanup } = await createCoordinatorContext();
+  const currentSessionCardCalls: Array<{ chatId: string; reason: string }> = [];
+  const sentMessages: Array<{ text: string; html: boolean }> = [];
+  const archivedThreadIds: string[] = [];
+  const unarchivedThreadIds: string[] = [];
+  let getStoreCalls = 0;
+
+  try {
+    authorizeChat(store, "chat-1");
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+    store.updateSessionThreadId(session.sessionId, "thread-1");
+    store.setActiveSession("chat-1", session.sessionId);
+
+    const coordinator = new SessionProjectCoordinator({
+      logger: { warn: async () => {} },
+      paths: { homeDir: "/tmp" },
+      config: { projectScanRoots: [] },
+      getStore: () => {
+        getStoreCalls += 1;
+        return getStoreCalls === 1 ? store : null;
+      },
+      getSnapshot: () => null,
+      ensureAppServerAvailable: async () => ({
+        archiveThread: async (threadId: string) => {
+          archivedThreadIds.push(threadId);
+        },
+        unarchiveThread: async (threadId: string) => {
+          unarchivedThreadIds.push(threadId);
+        }
+      }) as any,
+      registerPendingThreadArchiveOp: () => 1,
+      markPendingThreadArchiveCommit: async () => {},
+      dropPendingThreadArchiveOp: () => {},
+      safeSendMessage: async (_chatId, text) => {
+        sentMessages.push({ text, html: false });
+        return true;
+      },
+      safeSendMessageResult: async () => ({ message_id: 1 }),
+      safeSendHtmlMessage: async (_chatId, text) => {
+        sentMessages.push({ text, html: true });
+        return true;
+      },
+      safeSendHtmlMessageResult: async () => ({ message_id: 1 }),
+      safeEditMessageText: async () => ({ outcome: "edited" }),
+      safeEditHtmlMessageText: async () => ({ outcome: "edited" }),
+      safeDeleteMessage: async () => ({ outcome: "deleted" }),
+      getActiveRuntimeStatusText: () => null,
+      reanchorRuntimeAfterBridgeReply: async () => {},
+      syncCurrentSessionCard: async (chatId, reason) => {
+        currentSessionCardCalls.push({ chatId, reason });
+      },
+      handleSessionArchived: async () => {},
+      handleSessionUnarchived: async () => {}
+    });
+
+    await coordinator.handleArchive("chat-1");
+
+    assert.deepEqual(archivedThreadIds, ["thread-1"]);
+    assert.deepEqual(unarchivedThreadIds, []);
+    assert.equal(store.getSessionById(session.sessionId)?.archived, true);
+    assert.deepEqual(currentSessionCardCalls, [{ chatId: "chat-1", reason: "session_archived" }]);
+    assert.equal(sentMessages.at(-1)?.html, true);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("handleArchive falls back to local-only archive when the remote thread is missing", async () => {
+  const {
+    coordinator,
+    store,
+    archiveHookCalls,
+    currentSessionCardCalls,
+    sentMessages,
+    cleanup
+  } = await createCoordinatorContext();
+  const droppedPendingOps: Array<{ threadId: string; opId: number | null }> = [];
+  const warnings: Array<{ message: string; meta: Record<string, unknown> | undefined }> = [];
+
+  try {
+    authorizeChat(store, "chat-1");
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+    store.updateSessionThreadId(session.sessionId, "thread-1");
+    store.setActiveSession("chat-1", session.sessionId);
+
+    (coordinator as any).deps.ensureAppServerAvailable = async () => ({
+      archiveThread: async () => {
+        throw new Error("thread not loaded: thread-1");
+      },
+      unarchiveThread: async () => {
+        throw new Error("should not rollback stale thread archives");
+      }
+    });
+    (coordinator as any).deps.registerPendingThreadArchiveOp = () => 7;
+    (coordinator as any).deps.dropPendingThreadArchiveOp = (threadId: string, opId: number | null) => {
+      droppedPendingOps.push({ threadId, opId });
+    };
+    (coordinator as any).deps.logger = {
+      warn: async (message: string, meta?: Record<string, unknown>) => {
+        warnings.push({ message, meta });
+      }
+    };
+
+    await coordinator.handleArchive("chat-1");
+
+    assert.equal(store.getSessionById(session.sessionId)?.archived, true);
+    assert.deepEqual(archiveHookCalls, [{
+      chatId: "chat-1",
+      sessionId: session.sessionId,
+      reason: "telegram_archive"
+    }]);
+    assert.deepEqual(currentSessionCardCalls, [{
+      chatId: "chat-1",
+      reason: "session_archived"
+    }]);
+    assert.equal(sentMessages.at(-1)?.html, true);
+    assert.deepEqual(droppedPendingOps, [{ threadId: "thread-1", opId: 7 }]);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0]?.message, "archive falling back to local-only state after stale remote thread");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("handleArchive falls back to local-only archive when the remote thread has a stale rollout path", async () => {
+  const {
+    coordinator,
+    store,
+    archiveHookCalls,
+    currentSessionCardCalls,
+    sentMessages,
+    cleanup
+  } = await createCoordinatorContext();
+  const droppedPendingOps: Array<{ threadId: string; opId: number | null }> = [];
+
+  try {
+    authorizeChat(store, "chat-1");
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+    store.updateSessionThreadId(session.sessionId, "thread-1");
+    store.setActiveSession("chat-1", session.sessionId);
+
+    (coordinator as any).deps.ensureAppServerAvailable = async () => ({
+      archiveThread: async () => {
+        throw new Error("state db returned stale rollout path for thread thread-1");
+      },
+      unarchiveThread: async () => {
+        throw new Error("should not rollback stale rollout archives");
+      }
+    });
+    (coordinator as any).deps.registerPendingThreadArchiveOp = () => 9;
+    (coordinator as any).deps.dropPendingThreadArchiveOp = (threadId: string, opId: number | null) => {
+      droppedPendingOps.push({ threadId, opId });
+    };
+
+    await coordinator.handleArchive("chat-1");
+
+    assert.equal(store.getSessionById(session.sessionId)?.archived, true);
+    assert.deepEqual(archiveHookCalls, [{
+      chatId: "chat-1",
+      sessionId: session.sessionId,
+      reason: "telegram_archive"
+    }]);
+    assert.deepEqual(currentSessionCardCalls, [{
+      chatId: "chat-1",
+      reason: "session_archived"
+    }]);
+    assert.equal(sentMessages.at(-1)?.html, true);
+    assert.deepEqual(droppedPendingOps, [{ threadId: "thread-1", opId: 9 }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("handleArchive keeps hard-failing when the remote archive error is not a stale thread", async () => {
+  const {
+    coordinator,
+    store,
+    archiveHookCalls,
+    currentSessionCardCalls,
+    sentMessages,
+    cleanup
+  } = await createCoordinatorContext();
+  const droppedPendingOps: Array<{ threadId: string; opId: number | null }> = [];
+
+  try {
+    authorizeChat(store, "chat-1");
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+    store.updateSessionThreadId(session.sessionId, "thread-1");
+    store.setActiveSession("chat-1", session.sessionId);
+
+    (coordinator as any).deps.ensureAppServerAvailable = async () => ({
+      archiveThread: async () => {
+        throw new Error("app-server child is not running");
+      },
+      unarchiveThread: async () => {
+        throw new Error("should not rollback failed archives");
+      }
+    });
+    (coordinator as any).deps.registerPendingThreadArchiveOp = () => 11;
+    (coordinator as any).deps.dropPendingThreadArchiveOp = (threadId: string, opId: number | null) => {
+      droppedPendingOps.push({ threadId, opId });
+    };
+
+    await coordinator.handleArchive("chat-1");
+
+    assert.equal(store.getSessionById(session.sessionId)?.archived, false);
+    assert.deepEqual(archiveHookCalls, []);
+    assert.deepEqual(currentSessionCardCalls, []);
+    assert.equal(sentMessages.at(-1)?.text, "当前无法归档这个会话，请稍后重试。");
+    assert.deepEqual(droppedPendingOps, [{ threadId: "thread-1", opId: 11 }]);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("handleUnarchive calls only the lightweight runtime-surface unarchive hook", async () => {
   const {
     coordinator,

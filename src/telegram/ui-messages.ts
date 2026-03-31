@@ -388,6 +388,44 @@ export function buildArchiveSuccessText(
   return lines.join("\n");
 }
 
+export function buildArchiveAllSuccessText(options: {
+  archivedCount: number;
+  skippedRunningCount: number;
+  failedCount: number;
+  nextActiveSession?: {
+    displayName: string;
+    projectName: string;
+    projectAlias?: string | null;
+  } | null;
+}): string {
+  const lines = [
+    formatHtmlHeading("已批量归档会话"),
+    formatHtmlField("已归档：", `${options.archivedCount} 个`)
+  ];
+
+  if (options.skippedRunningCount > 0) {
+    lines.push(formatHtmlField("已跳过运行中：", `${options.skippedRunningCount} 个`));
+  }
+
+  if (options.failedCount > 0) {
+    lines.push(formatHtmlField("失败：", `${options.failedCount} 个`));
+  }
+
+  if (options.nextActiveSession) {
+    lines.push(formatHtmlField("当前会话：", options.nextActiveSession.displayName));
+    lines.push(
+      formatHtmlField(
+        "当前项目：",
+        displayProjectName(options.nextActiveSession.projectName, options.nextActiveSession.projectAlias ?? null)
+      )
+    );
+  } else {
+    lines.push("当前没有活动会话，请发送 /new 选择项目。");
+  }
+
+  return lines.join("\n");
+}
+
 export function buildUnarchiveSuccessText(sessionName: string, projectName: string): string {
   return buildSessionProjectContextBlock("已恢复会话", sessionName, projectName);
 }

@@ -10,6 +10,7 @@ import {
 } from "./runtime-surface-state.js";
 import type { BridgeStateStore } from "../state/store.js";
 import {
+  buildArchiveAllSuccessText,
   buildArchiveSuccessText,
   buildManualPathConfirmMessage,
   buildManualPathPrompt,
@@ -106,6 +107,11 @@ interface SessionProjectCoordinatorDeps {
   syncCurrentSessionCard: (chatId: string, reason: string) => Promise<void>;
   handleSessionArchived: (chatId: string, sessionId: string, reason: string) => Promise<void>;
   handleSessionUnarchived: (chatId: string, sessionId: string, reason: string) => Promise<void>;
+}
+
+function isStaleRemoteThreadArchiveError(error: unknown): boolean {
+  const normalized = `${error}`.toLowerCase();
+  return normalized.includes("thread not loaded") || normalized.includes("stale rollout path");
 }
 
 export class SessionProjectCoordinator {
@@ -451,12 +457,27 @@ export class SessionProjectCoordinator {
     );
   }
 
-  async handleArchive(chatId: string): Promise<void> {
+  async handleArchive(chatId: string, args = ""): Promise<void> {
     const store = this.deps.getStore();
     if (!store) {
       return;
     }
 
+    const normalizedArgs = args.trim().toLowerCase();
+    if (normalizedArgs === "") {
+      await this.handleArchiveActiveSession(chatId, store);
+      return;
+    }
+
+    if (normalizedArgs === "all") {
+      await this.handleArchiveAllSessions(chatId, store);
+      return;
+    }
+
+    await this.deps.safeSendMessage(chatId, "只支持 /archive 或 /archive all。");
+  }
+
+  private async handleArchiveActiveSession(chatId: string, store: BridgeStateStore): Promise<void> {
     const activeSession = store.getActiveSession(chatId);
     if (!activeSession) {
       await this.deps.safeSendMessage(chatId, "当前没有活动会话。");
@@ -468,71 +489,164 @@ export class SessionProjectCoordinator {
       return;
     }
 
+    const result = await this.archiveSession(chatId, store, activeSession);
+    if (!result.ok) {
+      await this.deps.safeSendMessage(chatId, "当前无法归档这个会话，请稍后重试。");
+      return;
+    }
+
+    await this.deps.syncCurrentSessionCard(chatId, "session_archived");
+    const nextActiveSession = store.getActiveSession(chatId);
+    await this.deps.safeSendHtmlMessage(
+      chatId,
+      buildArchiveSuccessText(
+        {
+          displayName: activeSession.displayName,
+          projectName: activeSession.projectName,
+          projectAlias: activeSession.projectAlias
+        },
+        nextActiveSession
+          ? {
+              displayName: nextActiveSession.displayName,
+              projectName: nextActiveSession.projectName,
+              projectAlias: nextActiveSession.projectAlias
+            }
+          : null
+      )
+    );
+  }
+
+  private async handleArchiveAllSessions(chatId: string, store: BridgeStateStore): Promise<void> {
+    const visibleSessions = store.listSessions(chatId, { archived: false, limit: 2_147_483_647 });
+    if (visibleSessions.length === 0) {
+      await this.deps.safeSendMessage(chatId, "当前没有可归档会话。");
+      return;
+    }
+
+    let archivedCount = 0;
+    let skippedRunningCount = 0;
+    let failedCount = 0;
+
+    for (const session of visibleSessions) {
+      if (session.status === "running") {
+        skippedRunningCount += 1;
+        continue;
+      }
+
+      const result = await this.archiveSession(chatId, store, session);
+      if (result.ok) {
+        archivedCount += 1;
+      } else {
+        failedCount += 1;
+      }
+    }
+
+    await this.deps.syncCurrentSessionCard(chatId, "session_archived");
+    const nextActiveSession = store.getActiveSession(chatId);
+    await this.deps.safeSendHtmlMessage(
+      chatId,
+      buildArchiveAllSuccessText({
+        archivedCount,
+        skippedRunningCount,
+        failedCount,
+        nextActiveSession: nextActiveSession
+          ? {
+              displayName: nextActiveSession.displayName,
+              projectName: nextActiveSession.projectName,
+              projectAlias: nextActiveSession.projectAlias
+            }
+          : null
+      })
+    );
+  }
+
+  private async archiveSession(
+    chatId: string,
+    store: BridgeStateStore,
+    session: Pick<
+      SessionRow,
+      "sessionId" | "threadId" | "displayName" | "projectName" | "projectAlias" | "status"
+    >
+  ): Promise<{ ok: boolean }> {
     let mirroredRemotely = false;
     let pendingOpId: number | null = null;
     try {
-      if (activeSession.threadId) {
+      if (session.threadId) {
         pendingOpId = this.deps.registerPendingThreadArchiveOp(
-          activeSession.threadId,
-          activeSession.sessionId,
+          session.threadId,
+          session.sessionId,
           "archived",
           "telegram_archive"
         );
         const appServer = await this.deps.ensureAppServerAvailable();
-        await appServer.archiveThread(activeSession.threadId);
+        await appServer.archiveThread(session.threadId);
         mirroredRemotely = true;
       }
 
-      store.archiveSession(activeSession.sessionId);
-      if (activeSession.threadId) {
-        await this.deps.markPendingThreadArchiveCommit(activeSession.threadId, pendingOpId);
+      store.archiveSession(session.sessionId);
+      if (session.threadId) {
+        await this.deps.markPendingThreadArchiveCommit(session.threadId, pendingOpId);
       }
+
       try {
-        await this.deps.handleSessionArchived(chatId, activeSession.sessionId, "telegram_archive");
+        await this.deps.handleSessionArchived(chatId, session.sessionId, "telegram_archive");
       } catch (error) {
         await this.deps.logger.warn("runtime hub archive cleanup failed", {
           chatId,
-          sessionId: activeSession.sessionId,
+          sessionId: session.sessionId,
           error: `${error}`
         });
       }
-      await this.deps.syncCurrentSessionCard(chatId, "session_archived");
-      const nextActiveSession = store.getActiveSession(chatId);
-      await this.deps.safeSendHtmlMessage(
-        chatId,
-        buildArchiveSuccessText(
-          {
-            displayName: activeSession.displayName,
-            projectName: activeSession.projectName,
-            projectAlias: activeSession.projectAlias
-          },
-          nextActiveSession
-            ? {
-                displayName: nextActiveSession.displayName,
-                projectName: nextActiveSession.projectName,
-                projectAlias: nextActiveSession.projectAlias
-              }
-            : null
-        )
-      );
-    } catch {
-      if (activeSession.threadId && pendingOpId !== null) {
-        this.deps.dropPendingThreadArchiveOp(activeSession.threadId, pendingOpId);
+
+      return { ok: true };
+    } catch (error) {
+      if (session.threadId && pendingOpId !== null) {
+        this.deps.dropPendingThreadArchiveOp(session.threadId, pendingOpId);
       }
-      if (mirroredRemotely && activeSession.threadId) {
+      if (!mirroredRemotely && isStaleRemoteThreadArchiveError(error)) {
+        await this.deps.logger.warn("archive falling back to local-only state after stale remote thread", {
+          chatId,
+          sessionId: session.sessionId,
+          threadId: session.threadId ?? null,
+          error: `${error}`
+        });
+
+        try {
+          store.archiveSession(session.sessionId);
+          try {
+            await this.deps.handleSessionArchived(chatId, session.sessionId, "telegram_archive");
+          } catch (hookError) {
+            await this.deps.logger.warn("runtime hub archive cleanup failed", {
+              chatId,
+              sessionId: session.sessionId,
+              error: `${hookError}`
+            });
+          }
+
+          return { ok: true };
+        } catch (localArchiveError) {
+          await this.deps.logger.warn("local-only archive fallback failed after stale remote thread", {
+            chatId,
+            sessionId: session.sessionId,
+            threadId: session.threadId ?? null,
+            error: `${localArchiveError}`
+          });
+        }
+      }
+      if (mirroredRemotely && session.threadId) {
         try {
           const appServer = await this.deps.ensureAppServerAvailable();
-          await appServer.unarchiveThread(activeSession.threadId);
+          await appServer.unarchiveThread(session.threadId);
         } catch (rollbackError) {
           await this.deps.logger.warn("archive rollback failed after local persistence error", {
-            sessionId: activeSession.sessionId,
-            threadId: activeSession.threadId,
+            sessionId: session.sessionId,
+            threadId: session.threadId,
             error: `${rollbackError}`
           });
         }
       }
 
-      await this.deps.safeSendMessage(chatId, "当前无法归档这个会话，请稍后重试。");
+      return { ok: false };
     }
   }
 

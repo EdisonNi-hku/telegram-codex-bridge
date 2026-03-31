@@ -1374,7 +1374,7 @@ export class BridgeService {
         await this.handleSessions(chatId, args);
       },
       handleArchive: async () => {
-        await this.sessionProjectCoordinator.handleArchive(chatId);
+        await this.sessionProjectCoordinator.handleArchive(chatId, args);
       },
       sendWhere: async () => {
         await this.sessionProjectCoordinator.sendWhere(chatId);

@@ -977,6 +977,72 @@ test("archive command archives the active session, switches active session, and 
   }
 });
 
+test("archive all archives every non-running visible session and reports skipped running sessions", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const sent: Array<{ text: string; parseMode?: string }> = [];
+  const archivedThreadIds: string[] = [];
+
+  try {
+    authorizeChat(store, "chat-1");
+
+    const first = createSession(store, "chat-1");
+    store.renameSession(first.sessionId, "Session Alpha");
+    store.updateSessionThreadId(first.sessionId, "thread-alpha");
+
+    const second = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project Two",
+      projectPath: "/tmp/project-two"
+    });
+    store.renameSession(second.sessionId, "Session Beta");
+    store.updateSessionThreadId(second.sessionId, "thread-beta");
+
+    const running = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project Three",
+      projectPath: "/tmp/project-three"
+    });
+    store.renameSession(running.sessionId, "Session Gamma");
+    store.updateSessionThreadId(running.sessionId, "thread-gamma");
+    store.updateSessionStatus(running.sessionId, "running");
+    store.setActiveSession("chat-1", second.sessionId);
+
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        sent.push({ text, parseMode: options?.parseMode });
+        return createFakeTelegramMessage(sent.length, text);
+      }
+    };
+    (service as any).appServer = {
+      isRunning: true,
+      archiveThread: async (threadId: string) => {
+        archivedThreadIds.push(threadId);
+      }
+    };
+
+    await (service as any).routeCommand("chat-1", "archive", "all");
+
+    assert.deepEqual(archivedThreadIds, ["thread-beta", "thread-alpha"]);
+    assert.equal(store.listSessions("chat-1").length, 1);
+    assert.equal(store.listSessions("chat-1")[0]?.sessionId, running.sessionId);
+    assert.equal(store.listSessions("chat-1", { archived: true, limit: 10 }).length, 2);
+    assert.equal(store.getActiveSession("chat-1")?.sessionId, running.sessionId);
+    assert.equal(sent.at(-1)?.parseMode, "HTML");
+    assert.equal(
+      sent.at(-1)?.text,
+      [
+        "<b>已批量归档会话</b>",
+        "<b>已归档：</b> 2 个",
+        "<b>已跳过运行中：</b> 1 个",
+        "<b>当前会话：</b> Session Gamma",
+        "<b>当前项目：</b> Project Three"
+      ].join("\n")
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
 test("sessions archived and unarchive command expose and restore archived sessions", async () => {
   const { service, store, cleanup } = await createServiceContext();
   const sent: Array<{ text: string; parseMode?: string }> = [];
