@@ -253,7 +253,7 @@ test("status-card, inspect, and persisted-result callbacks preserve their routin
     { parsed: { kind: "agent_collapse", sessionId: "session-2" }, expected: [{ name: "toggleStatusCardSection", args: ["session-2", false, "agents"] }] },
     { parsed: { kind: "status_inspect", sessionId: "session-2b" }, expected: [{ name: "handleStatusCardInspect", args: ["session-2b"] }] },
     { parsed: { kind: "status_interrupt", sessionId: "session-2c" }, expected: [{ name: "handleStatusCardInterrupt", args: ["session-2c"] }] },
-    { parsed: { kind: "final_open", answerId: "answer-1" }, expected: [{ name: "renderPersistedFinalAnswer", args: ["answer-1", { expanded: true, page: 1 }] }] },
+    { parsed: { kind: "final_open", answerId: "answer-1" }, expected: [{ name: "renderPersistedFinalAnswer", args: ["answer-1", { expanded: true }] }] },
     { parsed: { kind: "final_page", answerId: "answer-2", page: 4 }, expected: [{ name: "renderPersistedFinalAnswer", args: ["answer-2", { expanded: true, page: 4 }] }] },
     { parsed: { kind: "plan_result_close", answerId: "answer-3" }, expected: [{ name: "renderPersistedPlanResult", args: ["answer-3", { expanded: false }] }] },
     {

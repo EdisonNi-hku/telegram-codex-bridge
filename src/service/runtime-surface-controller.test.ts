@@ -3277,12 +3277,118 @@ test("RuntimeSurfaceController switches active session after a successful final-
       "chat-1",
       4321,
       view.answerId,
-      { expanded: true, page: 1 }
+      { expanded: true }
     );
 
     assert.equal(callbackAnswers.at(-1), undefined);
     assert.equal(store.getActiveSession("chat-1")?.sessionId, sessionTwo.sessionId);
     assert.deepEqual(syncCurrentSessionCardReasons, ["final_answer_expanded_session_switched"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RuntimeSurfaceController does not switch active session after a successful final-answer collapse render", async () => {
+  const { controller, store, callbackAnswers, syncCurrentSessionCardReasons, cleanup } = await createControllerContext();
+
+  try {
+    store.upsertPendingAuthorization({
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
+      displayName: "Tester"
+    });
+    const candidate = store.listPendingAuthorizations()[0];
+    assert.ok(candidate);
+    store.confirmPendingAuthorization(candidate);
+
+    const sessionOne = await store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    const sessionTwo = await store.createSession({
+      chatId: "chat-1",
+      projectName: "Project Two",
+      projectPath: "/tmp/project-two"
+    });
+    store.setActiveSession("chat-1", sessionOne.sessionId);
+    assert.equal(store.getActiveSession("chat-1")?.sessionId, sessionOne.sessionId);
+
+    const view = store.saveFinalAnswerView({
+      answerId: "answer-session-two-collapse",
+      chatId: "chat-1",
+      sessionId: sessionTwo.sessionId,
+      threadId: "thread-2",
+      turnId: "turn-2",
+      previewHtml: "<b>Preview</b>",
+      pages: ["<b>Expanded</b>"]
+    });
+
+    await controller.renderPersistedFinalAnswer(
+      "callback-final-close",
+      "chat-1",
+      4321,
+      view.answerId,
+      { expanded: false }
+    );
+
+    assert.equal(callbackAnswers.at(-1), undefined);
+    assert.equal(store.getActiveSession("chat-1")?.sessionId, sessionOne.sessionId);
+    assert.deepEqual(syncCurrentSessionCardReasons, []);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RuntimeSurfaceController does not switch active session when paging persisted final answer", async () => {
+  const { controller, store, callbackAnswers, syncCurrentSessionCardReasons, cleanup } = await createControllerContext();
+
+  try {
+    store.upsertPendingAuthorization({
+      userId: "user-1",
+      chatId: "chat-1",
+      username: "tester",
+      displayName: "Tester"
+    });
+    const candidate = store.listPendingAuthorizations()[0];
+    assert.ok(candidate);
+    store.confirmPendingAuthorization(candidate);
+
+    const sessionOne = await store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    const sessionTwo = await store.createSession({
+      chatId: "chat-1",
+      projectName: "Project Two",
+      projectPath: "/tmp/project-two"
+    });
+    store.setActiveSession("chat-1", sessionOne.sessionId);
+    assert.equal(store.getActiveSession("chat-1")?.sessionId, sessionOne.sessionId);
+
+    const view = store.saveFinalAnswerView({
+      answerId: "answer-session-two-page",
+      chatId: "chat-1",
+      sessionId: sessionTwo.sessionId,
+      threadId: "thread-2",
+      turnId: "turn-2",
+      previewHtml: "<b>Preview</b>",
+      pages: ["<b>Page 1</b>", "<b>Page 2</b>"]
+    });
+
+    await controller.renderPersistedFinalAnswer(
+      "callback-final-page",
+      "chat-1",
+      4321,
+      view.answerId,
+      { expanded: true, page: 2 }
+    );
+
+    assert.equal(callbackAnswers.at(-1), undefined);
+    assert.equal(store.getActiveSession("chat-1")?.sessionId, sessionOne.sessionId);
+    assert.deepEqual(syncCurrentSessionCardReasons, []);
   } finally {
     await cleanup();
   }

@@ -134,7 +134,7 @@ export async function routeBridgeCallback(
       await handlers.handleStatusCardInterrupt(parsed.sessionId);
       return;
     case "final_open":
-      await handlers.renderPersistedFinalAnswer(parsed.answerId, { expanded: true, page: 1 });
+      await handlers.renderPersistedFinalAnswer(parsed.answerId, { expanded: true });
       return;
     case "final_close":
       await handlers.renderPersistedFinalAnswer(parsed.answerId, { expanded: false });

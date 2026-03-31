@@ -2977,11 +2977,13 @@ export class RuntimeSurfaceController {
       );
       await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result, {
         chatId,
-        sessionId: view.sessionId
+        sessionId: view.sessionId,
+        syncActiveSession: false
       });
       return;
     }
 
+    const isOpenAction = mode.page === undefined;
     const page = mode.page ?? 1;
     const pageHtml = view.pages[page - 1];
     if (!pageHtml) {
@@ -3002,7 +3004,8 @@ export class RuntimeSurfaceController {
     );
     await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result, {
       chatId,
-      sessionId: view.sessionId
+      sessionId: view.sessionId,
+      syncActiveSession: isOpenAction
     });
   }
 
@@ -3371,12 +3374,15 @@ export class RuntimeSurfaceController {
     options?: {
       chatId?: string;
       sessionId?: string;
+      syncActiveSession?: boolean;
     }
   ): Promise<void> {
     if (isTelegramEditCommitted(result)) {
       this.deps.getStore()?.setFinalAnswerMessageId(answerId, messageId);
       this.deps.getStore()?.setFinalAnswerDeliveryState(answerId, "visible");
-      await this.syncFinalAnswerActiveSessionOnSuccess(options);
+      if (options?.syncActiveSession) {
+        await this.syncFinalAnswerActiveSessionOnSuccess(options);
+      }
       await this.deps.safeAnswerCallbackQuery(callbackQueryId);
       return;
     }

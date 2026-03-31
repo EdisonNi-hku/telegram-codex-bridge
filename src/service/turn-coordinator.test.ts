@@ -1786,7 +1786,7 @@ test("TurnCoordinator handles send_telegram_document tool calls by sending docum
         tool: "send_telegram_document",
         arguments: {
           path: "/tmp/tool-output.zip",
-          caption: "artifact",
+          caption: "artifact <a&b>",
           filename: "tool-output.zip"
         }
       }
@@ -1797,8 +1797,7 @@ test("TurnCoordinator handles send_telegram_document tool calls by sending docum
       chatId: "chat-1",
       filePath: "/tmp/tool-output.zip",
       options: {
-        caption: "artifact",
-        parseMode: "HTML",
+        caption: "artifact <a&b>",
         fileName: "tool-output.zip"
       }
     }]);

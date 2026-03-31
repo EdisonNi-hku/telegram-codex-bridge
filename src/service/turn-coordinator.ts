@@ -1592,7 +1592,6 @@ export class TurnCoordinator {
 
     const sent = await this.deps.safeSendDocumentResult(activeTurn.chatId, path, {
       ...(caption ? { caption } : {}),
-      parseMode: "HTML",
       ...(fileName ? { fileName } : {})
     });
     await this.appendDebugJournal(activeTurn, "bridge/serverRequest/toolCall/send_telegram_document", {
@@ -1609,7 +1608,7 @@ export class TurnCoordinator {
         type: "text",
         text: sent
           ? `Document sent to Telegram chat (${activeTurn.chatId}).`
-          : "Failed to send document to Telegram chat. Please verify the file path and retry."
+          : "Failed to send document to Telegram chat. Please verify the file path and retry (if this is an older session, try creating a new session first)."
       }]
     });
     return true;

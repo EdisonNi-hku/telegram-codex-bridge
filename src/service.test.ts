@@ -8934,7 +8934,7 @@ test("phase6 handles send_telegram_document dynamic tool calls and still rejects
         tool: "send_telegram_document",
         arguments: {
           path: "/tmp/diagram.zip",
-          caption: "artifact",
+          caption: "artifact <a&b>",
           filename: "diagram.zip"
         }
       }
@@ -8954,8 +8954,7 @@ test("phase6 handles send_telegram_document dynamic tool calls and still rejects
       chatId: "1",
       filePath: "/tmp/diagram.zip",
       options: {
-        caption: "artifact",
-        parseMode: "HTML",
+        caption: "artifact <a&b>",
         fileName: "diagram.zip"
       }
     }]);
