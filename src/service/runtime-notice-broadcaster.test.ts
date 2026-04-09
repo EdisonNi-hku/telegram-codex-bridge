@@ -16,6 +16,7 @@ test("RuntimeNoticeBroadcaster persists failed deliveries per chat binding", asy
 
   const broadcaster = new RuntimeNoticeBroadcaster({
     getStore: () => store,
+    activePack: "telegram",
     safeSendMessage: async (chatId, text) => {
       sent.push({ chatId, text });
       return chatId !== "chat-fail";
@@ -48,6 +49,7 @@ test("RuntimeNoticeBroadcaster skips notices that do not render a user-facing me
 
   const broadcaster = new RuntimeNoticeBroadcaster({
     getStore: () => store,
+    activePack: "telegram",
     safeSendMessage: async (_chatId, text) => {
       sent.push(text);
       return true;

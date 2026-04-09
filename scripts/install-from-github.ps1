@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$TelegramToken,
+  [string]$Pack = "",
+  [string]$TelegramToken = "",
+  [string[]]$PackOption = @(),
   [string]$CodexBin = "",
   [string]$ProjectScanRoots = "",
   [string]$Ref = "master",
@@ -51,6 +52,21 @@ function Get-ArchiveUrl {
   return "https://github.com/$Owner/$Name/archive/refs/tags/$GitRef.zip"
 }
 
+function Resolve-Pack {
+  param(
+    [Parameter(Mandatory = $true)][string]$ManifestPath,
+    [string]$RequestedPack
+  )
+
+  $manifest = Get-Content -Raw -Path $ManifestPath | ConvertFrom-Json
+  $resolvedPack = if ($RequestedPack) { $RequestedPack } else { $manifest.defaultPack }
+  if (-not $resolvedPack -or -not $manifest.supportedPacks.PSObject.Properties.Name.Contains($resolvedPack)) {
+    throw "unsupported --pack: $RequestedPack"
+  }
+
+  return $resolvedPack
+}
+
 Test-Command -Name "node"
 Test-Command -Name "npm"
 Test-NodeVersion
@@ -81,7 +97,15 @@ try {
       throw "npm run build failed"
     }
 
-    $installArgs = @("dist/cli.js", "install", "--telegram-token", $TelegramToken)
+    $resolvedPack = Resolve-Pack -ManifestPath (Join-Path $sourceDir.FullName "pack-manifest.json") -RequestedPack $Pack
+
+    $installArgs = @("dist/cli.js", "install", "--pack", $resolvedPack)
+    if ($TelegramToken) {
+      $installArgs += @("--telegram-token", $TelegramToken)
+    }
+    foreach ($option in $PackOption) {
+      $installArgs += @("--pack-option", $option)
+    }
     if ($CodexBin) {
       $installArgs += @("--codex-bin", $CodexBin)
     }

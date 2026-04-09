@@ -3,10 +3,11 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { TelegramApi } from "./telegram/api.js";
 import { CodexAppServerClient } from "./codex/app-server.js";
 import type { Logger } from "./logger.js";
 import type { BridgePaths } from "./paths.js";
+import { getActiveBridgePack } from "./packs/registry.js";
+import type { PackHealthReport } from "./packs/contract.js";
 import { commandExists, resolveCommand, runCommand, type CommandResult } from "./process.js";
 import { getHostPlatform, type ServiceManager } from "./platform.js";
 import type { BridgeConfig } from "./config.js";
@@ -68,13 +69,6 @@ interface CapabilityCheckCacheEntry {
   summary: CapabilityCheckSummary;
 }
 
-interface TelegramValidationResult {
-  ok: boolean;
-  botId?: string;
-  username?: string;
-  issue?: string;
-}
-
 interface AppServerLifecycle {
   pid?: number | null;
   initializeAndProbe(): Promise<void>;
@@ -99,13 +93,18 @@ interface ReadinessDependencies {
   detectServiceManager?: (deps: {
     commandExists: typeof commandExists;
   }) => Promise<ServiceManagerStatus>;
-  validateTelegramToken?: (token: string, baseUrl: string) => Promise<TelegramValidationResult>;
   createAppServer?: (options: {
     codexBin: string;
     appServerLogPath: string;
     logger: Logger;
     experimentalApi: boolean;
   }) => AppServerLifecycle;
+  runPackHealthCheck?: (options: {
+    pack: ReturnType<typeof getActiveBridgePack>;
+    config: BridgeConfig;
+    store: BridgeStateStore;
+    logger: Logger;
+  }) => Promise<PackHealthReport>;
   evaluateCapabilities?: (options: {
     codexBin: string;
     codexVersionText: string;
@@ -239,26 +238,6 @@ async function defaultDetectServiceManager(deps: {
     health: "warning",
     issues: ["no supported service manager found"]
   };
-}
-
-async function defaultValidateTelegramToken(token: string, baseUrl: string): Promise<TelegramValidationResult> {
-  try {
-    const telegram = new TelegramApi(token, baseUrl);
-    const bot = await telegram.getMe();
-    const result: TelegramValidationResult = {
-      ok: true,
-      botId: `${bot.id}`
-    };
-    if (bot.username) {
-      result.username = bot.username;
-    }
-    return result;
-  } catch (error) {
-    return {
-      ok: false,
-      issue: `${error}`
-    };
-  }
 }
 
 function defaultCreateAppServer(options: {
@@ -480,17 +459,29 @@ export async function probeReadiness(options: {
     }),
     runCommand: options.deps?.runCommand ?? runCommand,
     detectServiceManager: options.deps?.detectServiceManager ?? defaultDetectServiceManager,
-    validateTelegramToken: options.deps?.validateTelegramToken ?? defaultValidateTelegramToken,
     createAppServer: options.deps?.createAppServer ?? defaultCreateAppServer,
+    runPackHealthCheck: options.deps?.runPackHealthCheck,
     evaluateCapabilities: options.deps?.evaluateCapabilities ?? defaultEvaluateCapabilities
   };
+  const pack = getActiveBridgePack(config);
+  const sharedChecks: NonNullable<ReadinessDetails["sharedChecks"]> = [];
+  const packChecks: NonNullable<ReadinessDetails["packChecks"]> = [];
+  const sharedIssues: string[] = [];
+  const packIssues: string[] = [];
   const details: ReadinessDetails = {
+    activePack: config.activePack,
     codexInstalled: false,
     codexAuthenticated: false,
     appServerAvailable: false,
-    telegramTokenValid: false,
-    authorizedUserBound: store.getAuthorizedUser() !== null,
+    packState: "awaiting_authorization",
+    setupState: "complete",
+    packMetadata: {},
+    authorizedUserBound: store.getAuthorizedUser(config.activePack) !== null,
     issues: [],
+    sharedChecks,
+    packChecks,
+    sharedIssues,
+    packIssues,
     nodeVersion: deps.nodeVersion,
     voiceInputEnabled: config.voiceInputEnabled,
     ...(config.voiceInputEnabled ? {
@@ -510,9 +501,17 @@ export async function probeReadiness(options: {
   const requiredNodeRange = await readDeclaredNodeEngine(paths);
   details.nodeVersionSupported = isVersionAtLeast(deps.nodeVersion, parseVersionParts(requiredNodeRange) ?? [24, 0, 0]);
   if (!details.nodeVersionSupported) {
-    details.issues.push(`Node ${deps.nodeVersion} does not satisfy required range ${requiredNodeRange}`);
+    const summary = `Node ${deps.nodeVersion} does not satisfy required range ${requiredNodeRange}`;
+    sharedChecks.push({ id: "node_version", ok: false, summary });
+    sharedIssues.push(summary);
+    details.issues.push(summary);
     return finalizeFailure("bridge_unhealthy", details, store, persist);
   }
+  sharedChecks.push({
+    id: "node_version",
+    ok: true,
+    summary: `node version satisfies ${requiredNodeRange}`
+  });
 
   [details.stateRootWritable, details.configRootWritable, details.installRootWritable] = await Promise.all([
     isDirectoryWritable(paths.stateRoot),
@@ -521,21 +520,45 @@ export async function probeReadiness(options: {
   ]);
 
   if (!details.stateRootWritable) {
-    details.issues.push(`state root is not writable: ${paths.stateRoot}`);
+    const summary = `state root is not writable: ${paths.stateRoot}`;
+    sharedChecks.push({ id: "state_root_writable", ok: false, summary });
+    sharedIssues.push(summary);
+    details.issues.push(summary);
     return finalizeFailure("bridge_unhealthy", details, store, persist);
   }
+  sharedChecks.push({
+    id: "state_root_writable",
+    ok: true,
+    summary: `state root writable: ${paths.stateRoot}`
+  });
 
   if (!details.configRootWritable) {
-    details.issues.push(`config root is not writable: ${paths.configRoot}`);
+    const summary = `config root is not writable: ${paths.configRoot}`;
+    sharedChecks.push({ id: "config_root_writable", ok: false, summary });
+    sharedIssues.push(summary);
+    details.issues.push(summary);
     return finalizeFailure("bridge_unhealthy", details, store, persist);
   }
+  sharedChecks.push({
+    id: "config_root_writable",
+    ok: true,
+    summary: `config root writable: ${paths.configRoot}`
+  });
 
   const serviceManager = await deps.detectServiceManager({
     commandExists: deps.commandExists
   });
   details.serviceManager = serviceManager.manager;
   details.serviceManagerHealth = serviceManager.health;
+  sharedChecks.push({
+    id: "service_manager",
+    ok: serviceManager.manager !== "none",
+    summary: serviceManager.manager === "none"
+      ? "no supported service manager found"
+      : `service manager available: ${serviceManager.manager}`
+  });
   if (serviceManager.manager === "none") {
+    sharedIssues.push(...serviceManager.issues.map((issue) => normalizeIssue(`service manager warning: ${issue}`)));
     details.issues.push(...serviceManager.issues.map((issue) => normalizeIssue(`service manager warning: ${issue}`)));
   }
 
@@ -544,13 +567,27 @@ export async function probeReadiness(options: {
     details.codexBinResolvedPath = resolvedCodexBin.resolvedPath;
   }
   if (!resolvedCodexBin) {
+    sharedChecks.push({
+      id: "codex_bin",
+      ok: false,
+      summary: "codex binary not found in PATH"
+    });
+    sharedIssues.push("codex binary not found in PATH");
     details.issues.push("codex binary not found in PATH");
     return finalizeFailure("bridge_unhealthy", details, store, persist);
   }
+  sharedChecks.push({
+    id: "codex_bin",
+    ok: true,
+    summary: `codex binary resolved: ${resolvedCodexBin.resolvedPath}`
+  });
 
   const versionResult = await deps.runCommand(config.codexBin, ["--version"]);
   if (versionResult.exitCode !== 0) {
-    details.issues.push(versionResult.stderr || "failed to read codex version");
+    const summary = versionResult.stderr || "failed to read codex version";
+    sharedChecks.push({ id: "codex_version", ok: false, summary });
+    sharedIssues.push(summary);
+    details.issues.push(summary);
     return finalizeFailure("bridge_unhealthy", details, store, persist);
   }
 
@@ -558,11 +595,17 @@ export async function probeReadiness(options: {
   details.codexVersion = versionResult.stdout;
   details.codexVersionSupported = isVersionAtLeast(versionResult.stdout, MIN_CODEX_VERSION);
   if (!details.codexVersionSupported) {
-    details.issues.push(
-      `Codex version ${versionResult.stdout} is below required floor ${MIN_CODEX_VERSION.join(".")}`
-    );
+    const summary = `Codex version ${versionResult.stdout} is below required floor ${MIN_CODEX_VERSION.join(".")}`;
+    sharedChecks.push({ id: "codex_version", ok: false, summary });
+    sharedIssues.push(summary);
+    details.issues.push(summary);
     return finalizeFailure("bridge_unhealthy", details, store, persist);
   }
+  sharedChecks.push({
+    id: "codex_version",
+    ok: true,
+    summary: `codex version supported: ${versionResult.stdout}`
+  });
 
   const capabilitySummary = await deps.evaluateCapabilities({
     codexBin: config.codexBin,
@@ -573,9 +616,20 @@ export async function probeReadiness(options: {
   details.capabilityCheckPassed = capabilitySummary.ok;
   details.capabilityCheckSource = capabilitySummary.source;
   if (!capabilitySummary.ok) {
+    sharedChecks.push({
+      id: "app_server_capability_surface",
+      ok: false,
+      summary: capabilitySummary.issues.join("; ") || "capability check failed"
+    });
+    sharedIssues.push(...capabilitySummary.issues.map((issue) => normalizeIssue(issue)));
     details.issues.push(...capabilitySummary.issues.map((issue) => normalizeIssue(issue)));
     return finalizeFailure("bridge_unhealthy", details, store, persist);
   }
+  sharedChecks.push({
+    id: "app_server_capability_surface",
+    ok: true,
+    summary: `required app-server surface available (${capabilitySummary.source})`
+  });
 
   const loginStatus = await deps.runCommand(config.codexBin, ["login", "status"]);
   const loginOutput = loginStatus.stdout || loginStatus.stderr;
@@ -583,28 +637,20 @@ export async function probeReadiness(options: {
   details.codexAuthenticated = loginStatus.exitCode === 0 && loginOutput.includes("Logged in");
 
   if (!details.codexAuthenticated) {
+    sharedChecks.push({
+      id: "codex_login",
+      ok: false,
+      summary: "codex login status is not ready"
+    });
+    sharedIssues.push("codex login status is not ready");
     details.issues.push("codex login status is not ready");
     return finalizeFailure("codex_not_authenticated", details, store, persist);
   }
-
-  if (!config.telegramBotToken) {
-    details.issues.push("missing TELEGRAM_BOT_TOKEN");
-    return finalizeFailure("telegram_token_invalid", details, store, persist);
-  }
-
-  const telegramValidation = await deps.validateTelegramToken(config.telegramBotToken, config.telegramApiBaseUrl);
-  if (!telegramValidation.ok) {
-    details.issues.push(telegramValidation.issue ?? "telegram token validation failed");
-    return finalizeFailure("telegram_token_invalid", details, store, persist);
-  }
-
-  details.telegramTokenValid = true;
-  if (telegramValidation.username) {
-    details.telegramBotUsername = telegramValidation.username;
-  }
-  if (telegramValidation.botId) {
-    details.telegramBotId = telegramValidation.botId;
-  }
+  sharedChecks.push({
+    id: "codex_login",
+    ok: true,
+    summary: "codex login status is ready"
+  });
 
   let appServer: AppServerLifecycle | null = null;
 
@@ -617,6 +663,11 @@ export async function probeReadiness(options: {
     });
     await appServer.initializeAndProbe();
     details.appServerAvailable = true;
+    sharedChecks.push({
+      id: "app_server_runtime",
+      ok: true,
+      summary: "app-server initialized successfully"
+    });
     if (config.voiceInputEnabled && appServer.listModels) {
       try {
         details.voiceRealtimeSupported = await hasAudioCapableModel(appServer);
@@ -625,7 +676,14 @@ export async function probeReadiness(options: {
       }
     }
   } catch (error) {
-    details.issues.push(`${error}`);
+    const summary = `${error}`;
+    sharedChecks.push({
+      id: "app_server_runtime",
+      ok: false,
+      summary
+    });
+    sharedIssues.push(summary);
+    details.issues.push(summary);
 
     if (appServer) {
       await appServer.stop().catch(() => {});
@@ -644,7 +702,40 @@ export async function probeReadiness(options: {
     return finalizeFailure("bridge_unhealthy", details, store, persist);
   }
 
-  const state = details.authorizedUserBound ? "ready" : "awaiting_authorization";
+  const packReport = await (deps.runPackHealthCheck
+    ? deps.runPackHealthCheck({
+        pack,
+        config,
+        store,
+        logger
+      })
+    : pack.healthChecks.run({
+        config,
+        store,
+        logger
+      }));
+  packChecks.push(...packReport.checks);
+  packIssues.push(...packReport.issues.map((issue) => normalizeIssue(issue)));
+  details.issues.push(...packReport.issues.map((issue) => normalizeIssue(issue)));
+  details.packState = packReport.state;
+  details.setupState = packReport.setupState ?? "complete";
+  details.authorizedUserBound = pack.authBinding.isBound(store);
+  details.packMetadata = {
+    ...(details.packMetadata ?? {}),
+    ...(packReport.metadata ?? {})
+  };
+  if (packReport.setupChecklist) {
+    details.setupChecklist = [...packReport.setupChecklist];
+  }
+
+  if (packReport.state === "pack_unhealthy") {
+    if (appServer) {
+      await appServer.stop().catch(() => {});
+    }
+    return finalizeFailure("pack_unhealthy", details, store, persist);
+  }
+
+  const state = packReport.state === "awaiting_authorization" ? "awaiting_authorization" : "ready";
   const snapshot = buildSnapshot(state, details, appServer.pid);
   if (persist) {
     store.writeReadinessSnapshot(snapshot);

@@ -7,6 +7,51 @@ import { delimiter, join } from "node:path";
 import { loadConfig, withInstallOverrides, writeConfig, type BridgeConfig } from "./config.js";
 import type { BridgePaths } from "./paths.js";
 
+function createBridgeConfig(root: string): BridgeConfig {
+  return {
+    activePack: "telegram",
+    shared: {
+      activePack: "telegram",
+      codexBin: "codex",
+      projectScanRoots: [],
+      voiceInputEnabled: false,
+      voiceOpenaiApiKey: "",
+      voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+      voiceFfmpegBin: "ffmpeg",
+      perfMonitorEnabled: false,
+      perfMonitorSampleIntervalMs: 15_000,
+      perfMonitorRetentionDays: 7,
+      appServerGuardEnabled: true,
+      appServerGuardSampleIntervalMs: 30_000,
+      appServerGuardMcpWorkerThreshold: 6,
+      appServerGuardConsecutiveWindows: 3,
+      appServerGuardCooldownMs: 900_000
+    },
+    packs: {
+      telegram: {
+        botToken: "test-token",
+        apiBaseUrl: "https://api.telegram.org",
+        pollTimeoutSeconds: 20,
+        pollIntervalMs: 1500
+      }
+    },
+    codexBin: "codex",
+    projectScanRoots: [],
+    voiceInputEnabled: false,
+    voiceOpenaiApiKey: "",
+    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+    voiceFfmpegBin: "ffmpeg",
+    perfMonitorEnabled: false,
+    perfMonitorSampleIntervalMs: 15_000,
+    perfMonitorRetentionDays: 7,
+    appServerGuardEnabled: true,
+    appServerGuardSampleIntervalMs: 30_000,
+    appServerGuardMcpWorkerThreshold: 6,
+    appServerGuardConsecutiveWindows: 3,
+    appServerGuardCooldownMs: 900_000
+  };
+}
+
 function createTestPaths(root: string): BridgePaths {
   const logsDir = join(root, "logs");
   const telegramSessionFlowLogsDir = join(logsDir, "telegram-session-flow");
@@ -132,24 +177,12 @@ test("writeConfig persists PROJECT_SCAN_ROOTS and withInstallOverrides can repla
   const root = await mkdtemp(join(tmpdir(), "ctb-config-test-"));
   const paths = createTestPaths(root);
   const initialConfig: BridgeConfig = {
-    telegramBotToken: "test-token",
-    codexBin: "codex",
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramPollTimeoutSeconds: 20,
-    telegramPollIntervalMs: 1500,
-    projectScanRoots: [join(root, "projects"), join(root, "work")],
-    voiceInputEnabled: false,
-    voiceOpenaiApiKey: "",
-    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
-    voiceFfmpegBin: "ffmpeg",
-    perfMonitorEnabled: false,
-    perfMonitorSampleIntervalMs: 15_000,
-    perfMonitorRetentionDays: 7,
-    appServerGuardEnabled: true,
-    appServerGuardSampleIntervalMs: 30_000,
-    appServerGuardMcpWorkerThreshold: 6,
-    appServerGuardConsecutiveWindows: 3,
-    appServerGuardCooldownMs: 900_000
+    ...createBridgeConfig(root),
+    shared: {
+      ...createBridgeConfig(root).shared,
+      projectScanRoots: [join(root, "projects"), join(root, "work")]
+    },
+    projectScanRoots: [join(root, "projects"), join(root, "work")]
   };
 
   try {
@@ -202,24 +235,12 @@ test("writeConfig persists perf monitor settings and withInstallOverrides can re
   const root = await mkdtemp(join(tmpdir(), "ctb-config-test-"));
   const paths = createTestPaths(root);
   const initialConfig = {
-    telegramBotToken: "test-token",
-    codexBin: "codex",
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramPollTimeoutSeconds: 20,
-    telegramPollIntervalMs: 1500,
-    projectScanRoots: [],
-    voiceInputEnabled: false,
-    voiceOpenaiApiKey: "",
-    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
-    voiceFfmpegBin: "ffmpeg",
-    perfMonitorEnabled: true,
-    perfMonitorSampleIntervalMs: 15_000,
-    perfMonitorRetentionDays: 7,
-    appServerGuardEnabled: true,
-    appServerGuardSampleIntervalMs: 30_000,
-    appServerGuardMcpWorkerThreshold: 6,
-    appServerGuardConsecutiveWindows: 3,
-    appServerGuardCooldownMs: 900_000
+    ...createBridgeConfig(root),
+    shared: {
+      ...createBridgeConfig(root).shared,
+      perfMonitorEnabled: true
+    },
+    perfMonitorEnabled: true
   } as BridgeConfig & {
     perfMonitorEnabled: boolean;
     perfMonitorSampleIntervalMs: number;
@@ -287,24 +308,12 @@ test("writeConfig persists app server guard settings and withInstallOverrides ca
   const root = await mkdtemp(join(tmpdir(), "ctb-config-test-"));
   const paths = createTestPaths(root);
   const initialConfig: BridgeConfig = {
-    telegramBotToken: "test-token",
-    codexBin: "codex",
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramPollTimeoutSeconds: 20,
-    telegramPollIntervalMs: 1500,
-    projectScanRoots: [],
-    voiceInputEnabled: false,
-    voiceOpenaiApiKey: "",
-    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
-    voiceFfmpegBin: "ffmpeg",
-    perfMonitorEnabled: true,
-    perfMonitorSampleIntervalMs: 15_000,
-    perfMonitorRetentionDays: 7,
-    appServerGuardEnabled: true,
-    appServerGuardSampleIntervalMs: 30_000,
-    appServerGuardMcpWorkerThreshold: 6,
-    appServerGuardConsecutiveWindows: 3,
-    appServerGuardCooldownMs: 900_000
+    ...createBridgeConfig(root),
+    shared: {
+      ...createBridgeConfig(root).shared,
+      perfMonitorEnabled: true
+    },
+    perfMonitorEnabled: true
   };
 
   try {

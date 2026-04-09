@@ -1,4 +1,8 @@
 import { getObject, getString, getNumber, getNumberString, getStringArray } from "../util/untyped.js";
+import {
+  isCompactionItemType,
+  parseAgentMessagePhase
+} from "./protocol-truth.js";
 import type {
   AgentMessageDeltaNotification,
   CommandOutputNotification,
@@ -121,6 +125,14 @@ export function classifyNotification(method: string, params: unknown): Classifie
       } satisfies ItemStartedNotification;
 
     case "item/completed":
+      if (isCompactionItemType(getItemType(params))) {
+        return {
+          kind: "thread_compaction_completed",
+          ...context,
+          itemId: getItemId(params),
+          itemType: getItemType(params)
+        };
+      }
       return {
         kind: "item_completed",
         ...context,
@@ -394,12 +406,7 @@ function getRequestId(params: unknown): string | number | null {
 }
 
 function getMessagePhase(params: unknown): "commentary" | "final_answer" | null {
-  const phase = getString(getObject(params)?.item, "phase");
-  if (phase === "commentary" || phase === "final_answer") {
-    return phase;
-  }
-
-  return null;
+  return parseAgentMessagePhase(getString(getObject(params)?.item, "phase"));
 }
 
 function getThreadName(params: unknown): string | null {

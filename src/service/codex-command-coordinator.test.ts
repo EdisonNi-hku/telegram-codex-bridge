@@ -420,3 +420,26 @@ test("CodexCommandCoordinator direct rollback updates session head and clears re
     await cleanup();
   }
 });
+
+test("CodexCommandCoordinator compact requests thread compaction for the active idle session", async () => {
+  const compactCalls: string[] = [];
+  const { coordinator, store, sentMessages, cleanup } = await createCoordinatorContext({
+    appServer: {
+      compactThread: async (threadId: string) => {
+        compactCalls.push(threadId);
+      }
+    }
+  });
+
+  try {
+    const session = authorizeChatWithSession(store, "1");
+    store.updateSessionThreadId(session.sessionId, "thread-compact");
+
+    await coordinator.handleCompact("1");
+
+    assert.deepEqual(compactCalls, ["thread-compact"]);
+    assert.match(sentMessages.at(-1) ?? "", /已为会话「Project One」请求压缩当前线程/u);
+  } finally {
+    await cleanup();
+  }
+});

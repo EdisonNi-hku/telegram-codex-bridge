@@ -262,7 +262,8 @@ export function buildStatusText(
   const lines = [
     formatHtmlHeading("服务状态"),
     formatHtmlField("桥接状态：", snapshot.state),
-    formatHtmlField("Telegram 连通：", snapshot.details.telegramTokenValid ? "正常" : "异常"),
+    formatHtmlField("平台连通：", snapshot.details.packState === "pack_unhealthy" ? "异常" : "正常"),
+    formatHtmlField("配置完成：", snapshot.details.setupState === "incomplete" ? "否" : "是"),
     formatHtmlField(
       "Codex 可用：",
       snapshot.details.codexAuthenticated && snapshot.details.appServerAvailable ? "正常" : "异常"

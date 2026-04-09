@@ -170,3 +170,23 @@ test("classifies review item completed notifications with direct review text", (
   assert.equal(notification.itemReview, "The review found one blocking issue.");
   assert.equal(notification.itemText, null);
 });
+
+test("classifies compaction completed items as the modern compaction truth", () => {
+  const notification = classifyNotification("item/completed", {
+    threadId: "thread-compact",
+    turnId: "turn-compact",
+    item: {
+      id: "item-compact",
+      type: "compaction"
+    }
+  });
+
+  assert.equal(notification.kind, "thread_compaction_completed");
+  if (notification.kind !== "thread_compaction_completed") {
+    throw new Error("expected thread_compaction_completed notification");
+  }
+  assert.equal(notification.threadId, "thread-compact");
+  assert.equal(notification.turnId, "turn-compact");
+  assert.equal(notification.itemId, "item-compact");
+  assert.equal(notification.itemType, "compaction");
+});

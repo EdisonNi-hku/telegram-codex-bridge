@@ -1,6 +1,11 @@
 import type { InspectSnapshot } from "../../activity/types.js";
 import type { SessionPresentationContext } from "../domain/context.js";
 import type {
+  RollbackConfirmView,
+  RollbackPickerView,
+  RuntimeInspectControlsView,
+  RuntimeInspectView,
+  RuntimePreferencesView,
   RuntimeStatusCardView,
   RuntimeStatusControlsView
 } from "../interaction-model/runtime.js";
@@ -121,5 +126,48 @@ export function createRuntimeStatusControlsView(options: {
     planExpanded: options.planExpanded,
     agentEntries: options.inspect.agentSnapshot,
     agentsExpanded: options.agentsExpanded
+  };
+}
+
+export function createRuntimePreferencesView(options: RuntimePreferencesView): RuntimePreferencesView {
+  return {
+    token: options.token,
+    fields: [...options.fields],
+    page: options.page
+  };
+}
+
+export function createRuntimeInspectView(options: RuntimeInspectView): RuntimeInspectView {
+  return {
+    sessionId: options.sessionId,
+    ...(options.sessionName !== undefined ? { sessionName: options.sessionName } : {}),
+    ...(options.projectName !== undefined ? { projectName: options.projectName } : {}),
+    html: options.html
+  };
+}
+
+export function createRuntimeInspectControlsView(
+  options: RuntimeInspectControlsView
+): RuntimeInspectControlsView {
+  return {
+    sessionId: options.sessionId,
+    page: options.page,
+    collapsed: options.collapsed
+  };
+}
+
+export function createRollbackPickerView(options: RollbackPickerView): RollbackPickerView {
+  return {
+    sessionId: options.sessionId,
+    page: options.page,
+    targets: [...options.targets]
+  };
+}
+
+export function createRollbackConfirmView(options: RollbackConfirmView): RollbackConfirmView {
+  return {
+    sessionId: options.sessionId,
+    page: options.page,
+    target: options.target
   };
 }

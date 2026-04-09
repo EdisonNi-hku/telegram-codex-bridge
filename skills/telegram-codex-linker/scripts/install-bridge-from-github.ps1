@@ -1,5 +1,7 @@
 [CmdletBinding()]
 param(
+  [ValidateSet("telegram")]
+  [string]$Pack = "telegram",
   [Parameter(Mandatory = $true)]
   [string]$TelegramToken,
   [string]$CodexBin = "",
@@ -86,7 +88,7 @@ try {
       throw "npm run build failed"
     }
 
-    $installArgs = @("dist/cli.js", "install", "--telegram-token", $TelegramToken)
+    $installArgs = @("dist/cli.js", "install", "--pack", $Pack, "--telegram-token", $TelegramToken)
     if ($CodexBin) {
       $installArgs += @("--codex-bin", $CodexBin)
     }

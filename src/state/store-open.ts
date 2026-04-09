@@ -25,7 +25,7 @@ const LEGACY_RUNTIME_STATUS_FIELD_MIGRATIONS: ReadonlyMap<string, RuntimeStatusF
   ["thread_id", "session-id"]
 ]);
 const RUNTIME_STATUS_FIELD_V4_MIGRATION_CUTOFF = "2026-03-17T00:00:00.000Z";
-const CURRENT_SCHEMA_VERSION = 18;
+const CURRENT_SCHEMA_VERSION = 21;
 
 export function parseRuntimeStatusFields(fieldsJson: string): RuntimeStatusField[] {
   try {
@@ -177,7 +177,6 @@ function initialSchema(): string {
     CREATE TABLE IF NOT EXISTS runtime_notice (
       key TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL,
-      telegram_chat_id TEXT NOT NULL,
       type TEXT NOT NULL,
       message TEXT NOT NULL,
       parse_mode TEXT NULL,
@@ -190,9 +189,7 @@ function initialSchema(): string {
     CREATE TABLE IF NOT EXISTS final_answer_view (
       answer_id TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL,
-      telegram_chat_id TEXT NOT NULL,
       delivery_message_id INTEGER NULL,
-      telegram_message_id INTEGER NULL,
       session_id TEXT NOT NULL,
       thread_id TEXT NOT NULL,
       turn_id TEXT NOT NULL,
@@ -206,9 +203,7 @@ function initialSchema(): string {
 
     CREATE TABLE IF NOT EXISTS current_session_card (
       chat_id TEXT PRIMARY KEY,
-      telegram_chat_id TEXT NOT NULL,
       message_id INTEGER NULL,
-      telegram_message_id INTEGER NULL,
       session_id TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -228,18 +223,19 @@ function initialSchema(): string {
     CREATE TABLE IF NOT EXISTS pending_interaction (
       interaction_id TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL,
-      telegram_chat_id TEXT NOT NULL,
       session_id TEXT NOT NULL,
       thread_id TEXT NOT NULL,
       turn_id TEXT NOT NULL,
       request_id TEXT NOT NULL,
+      request_id_canonical TEXT NOT NULL,
+      request_id_legacy TEXT NULL,
+      request_id_kind TEXT NOT NULL,
       request_method TEXT NOT NULL,
       interaction_kind TEXT NOT NULL,
       state TEXT NOT NULL,
       prompt_json TEXT NOT NULL,
       response_json TEXT NULL,
       message_id INTEGER NULL,
-      telegram_message_id INTEGER NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       resolved_at TEXT NULL,
@@ -262,10 +258,10 @@ function initialSchema(): string {
       ON session(telegram_chat_id);
 
     CREATE INDEX IF NOT EXISTS idx_final_answer_view_chat_created_at
-      ON final_answer_view(telegram_chat_id, created_at DESC);
+      ON final_answer_view(chat_id, created_at DESC);
 
     CREATE INDEX IF NOT EXISTS idx_pending_interaction_chat_state
-      ON pending_interaction(telegram_chat_id, state, created_at DESC);
+      ON pending_interaction(chat_id, state, created_at DESC);
 
     CREATE INDEX IF NOT EXISTS idx_pending_interaction_turn
       ON pending_interaction(thread_id, turn_id, created_at DESC);
@@ -557,11 +553,14 @@ function applyMigrations(db: DatabaseSync): void {
       db.exec("ALTER TABLE final_answer_view ADD COLUMN delivery_state TEXT NOT NULL DEFAULT 'pending'");
     }
 
+    const finalAnswerMessageColumn = hasColumn(db, "final_answer_view", "telegram_message_id")
+      ? "COALESCE(delivery_message_id, telegram_message_id)"
+      : "delivery_message_id";
     db.exec(
       `
         UPDATE final_answer_view
         SET delivery_state = CASE
-          WHEN telegram_message_id IS NOT NULL THEN 'visible'
+          WHEN ${finalAnswerMessageColumn} IS NOT NULL THEN 'visible'
           ELSE 'pending'
         END
         WHERE delivery_state NOT IN ('pending', 'visible', 'deferred_notice_visible')
@@ -601,6 +600,39 @@ function applyMigrations(db: DatabaseSync): void {
   if (!applied.has(17)) {
     db.exec(
       `
+        CREATE TABLE IF NOT EXISTS runtime_notice (
+          key TEXT PRIMARY KEY,
+          telegram_chat_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          message TEXT NOT NULL,
+          parse_mode TEXT NULL,
+          reply_markup_json TEXT NULL,
+          session_id TEXT NULL,
+          turn_id TEXT NULL,
+          created_at TEXT NOT NULL
+        )
+      `
+    );
+    db.exec(
+      `
+        CREATE TABLE IF NOT EXISTS final_answer_view (
+          answer_id TEXT PRIMARY KEY,
+          telegram_chat_id TEXT NOT NULL,
+          telegram_message_id INTEGER NULL,
+          session_id TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          kind TEXT NOT NULL DEFAULT 'final_answer',
+          delivery_state TEXT NOT NULL DEFAULT 'pending',
+          preview_html TEXT NOT NULL,
+          pages_json TEXT NOT NULL,
+          primary_action_consumed INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        )
+      `
+    );
+    db.exec(
+      `
         CREATE TABLE IF NOT EXISTS current_session_card (
           chat_id TEXT PRIMARY KEY,
           telegram_chat_id TEXT NOT NULL,
@@ -611,14 +643,39 @@ function applyMigrations(db: DatabaseSync): void {
         )
       `
     );
+    db.exec(
+      `
+        CREATE TABLE IF NOT EXISTS pending_interaction (
+          interaction_id TEXT PRIMARY KEY,
+          telegram_chat_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          request_id TEXT NOT NULL,
+          request_method TEXT NOT NULL,
+          interaction_kind TEXT NOT NULL,
+          state TEXT NOT NULL,
+          prompt_json TEXT NOT NULL,
+          response_json TEXT NULL,
+          telegram_message_id INTEGER NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          resolved_at TEXT NULL,
+          error_reason TEXT NULL
+        )
+      `
+    );
 
     if (!hasColumn(db, "runtime_notice", "chat_id")) {
       db.exec("ALTER TABLE runtime_notice ADD COLUMN chat_id TEXT NULL");
     }
+    const runtimeNoticeChatSource = hasColumn(db, "runtime_notice", "telegram_chat_id")
+      ? "COALESCE(chat_id, telegram_chat_id)"
+      : "chat_id";
     db.exec(
       `
         UPDATE runtime_notice
-        SET chat_id = COALESCE(chat_id, telegram_chat_id)
+        SET chat_id = ${runtimeNoticeChatSource}
         WHERE chat_id IS NULL
       `
     );
@@ -629,12 +686,18 @@ function applyMigrations(db: DatabaseSync): void {
     if (!hasColumn(db, "final_answer_view", "delivery_message_id")) {
       db.exec("ALTER TABLE final_answer_view ADD COLUMN delivery_message_id INTEGER NULL");
     }
+    const finalAnswerChatSource = hasColumn(db, "final_answer_view", "telegram_chat_id")
+      ? "COALESCE(chat_id, telegram_chat_id)"
+      : "chat_id";
+    const finalAnswerMessageSource = hasColumn(db, "final_answer_view", "telegram_message_id")
+      ? "COALESCE(delivery_message_id, telegram_message_id)"
+      : "delivery_message_id";
     db.exec(
       `
         UPDATE final_answer_view
         SET
-          chat_id = COALESCE(chat_id, telegram_chat_id),
-          delivery_message_id = COALESCE(delivery_message_id, telegram_message_id)
+          chat_id = ${finalAnswerChatSource},
+          delivery_message_id = ${finalAnswerMessageSource}
         WHERE chat_id IS NULL OR delivery_message_id IS NULL
       `
     );
@@ -645,12 +708,18 @@ function applyMigrations(db: DatabaseSync): void {
     if (!hasColumn(db, "current_session_card", "message_id")) {
       db.exec("ALTER TABLE current_session_card ADD COLUMN message_id INTEGER NULL");
     }
+    const currentCardChatSource = hasColumn(db, "current_session_card", "telegram_chat_id")
+      ? "COALESCE(chat_id, telegram_chat_id)"
+      : "chat_id";
+    const currentCardMessageSource = hasColumn(db, "current_session_card", "telegram_message_id")
+      ? "COALESCE(message_id, telegram_message_id)"
+      : "message_id";
     db.exec(
       `
         UPDATE current_session_card
         SET
-          chat_id = COALESCE(chat_id, telegram_chat_id),
-          message_id = COALESCE(message_id, telegram_message_id)
+          chat_id = ${currentCardChatSource},
+          message_id = ${currentCardMessageSource}
         WHERE chat_id IS NULL OR message_id IS NULL
       `
     );
@@ -661,12 +730,18 @@ function applyMigrations(db: DatabaseSync): void {
     if (!hasColumn(db, "pending_interaction", "message_id")) {
       db.exec("ALTER TABLE pending_interaction ADD COLUMN message_id INTEGER NULL");
     }
+    const pendingInteractionChatSource = hasColumn(db, "pending_interaction", "telegram_chat_id")
+      ? "COALESCE(chat_id, telegram_chat_id)"
+      : "chat_id";
+    const pendingInteractionMessageSource = hasColumn(db, "pending_interaction", "telegram_message_id")
+      ? "COALESCE(message_id, telegram_message_id)"
+      : "message_id";
     db.exec(
       `
         UPDATE pending_interaction
         SET
-          chat_id = COALESCE(chat_id, telegram_chat_id),
-          message_id = COALESCE(message_id, telegram_message_id)
+          chat_id = ${pendingInteractionChatSource},
+          message_id = ${pendingInteractionMessageSource}
         WHERE chat_id IS NULL OR message_id IS NULL
       `
     );
@@ -864,6 +939,586 @@ function applyMigrations(db: DatabaseSync): void {
 
     recordMigration(db, 18);
   }
+
+  if (!applied.has(19)) {
+    db.exec(
+      `
+        CREATE TABLE IF NOT EXISTS pending_interaction (
+          interaction_id TEXT PRIMARY KEY,
+          chat_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          request_id TEXT NOT NULL,
+          request_method TEXT NOT NULL,
+          interaction_kind TEXT NOT NULL,
+          state TEXT NOT NULL,
+          prompt_json TEXT NOT NULL,
+          response_json TEXT NULL,
+          message_id INTEGER NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          resolved_at TEXT NULL,
+          error_reason TEXT NULL
+        )
+      `
+    );
+
+    if (!hasColumn(db, "pending_interaction", "request_id_canonical")) {
+      db.exec("ALTER TABLE pending_interaction ADD COLUMN request_id_canonical TEXT NULL");
+    }
+    if (!hasColumn(db, "pending_interaction", "request_id_legacy")) {
+      db.exec("ALTER TABLE pending_interaction ADD COLUMN request_id_legacy TEXT NULL");
+    }
+    if (!hasColumn(db, "pending_interaction", "request_id_kind")) {
+      db.exec("ALTER TABLE pending_interaction ADD COLUMN request_id_kind TEXT NULL");
+    }
+
+    db.exec(
+      `
+        UPDATE pending_interaction
+        SET
+          request_id_canonical = CASE
+            WHEN json_valid(request_id) = 1
+              AND json_type(request_id, '$') IN ('text', 'integer', 'real')
+              THEN request_id
+            ELSE json_quote(request_id)
+          END,
+          request_id_legacy = CASE
+            WHEN json_valid(request_id) = 1 AND json_type(request_id, '$') = 'text'
+              THEN json_extract(request_id, '$')
+            WHEN json_valid(request_id) = 1 AND json_type(request_id, '$') IN ('integer', 'real')
+              THEN NULL
+            ELSE request_id
+          END,
+          request_id_kind = CASE
+            WHEN json_valid(request_id) = 1 AND json_type(request_id, '$') = 'text'
+              THEN 'string'
+            WHEN json_valid(request_id) = 1 AND json_type(request_id, '$') IN ('integer', 'real')
+              THEN 'number'
+            ELSE 'string'
+          END
+        WHERE request_id_canonical IS NULL
+           OR request_id_kind IS NULL
+           OR (request_id_kind = 'string' AND request_id_legacy IS NULL)
+      `
+    );
+
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_pending_interaction_request_canonical_v19
+          ON pending_interaction(thread_id, request_id_kind, request_id_canonical, state, created_at DESC)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_pending_interaction_request_legacy_v19
+          ON pending_interaction(thread_id, request_id_kind, request_id_legacy, state, created_at DESC)
+      `
+    );
+
+    recordMigration(db, 19);
+  }
+
+  if (!applied.has(20)) {
+    db.exec(
+      `
+        CREATE TABLE IF NOT EXISTS runtime_notice (
+          key TEXT PRIMARY KEY,
+          chat_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          message TEXT NOT NULL,
+          parse_mode TEXT NULL,
+          reply_markup_json TEXT NULL,
+          session_id TEXT NULL,
+          turn_id TEXT NULL,
+          created_at TEXT NOT NULL
+        )
+      `
+    );
+    db.exec(
+      `
+        CREATE TABLE IF NOT EXISTS final_answer_view (
+          answer_id TEXT PRIMARY KEY,
+          chat_id TEXT NOT NULL,
+          delivery_message_id INTEGER NULL,
+          session_id TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          kind TEXT NOT NULL DEFAULT 'final_answer',
+          delivery_state TEXT NOT NULL DEFAULT 'pending',
+          preview_html TEXT NOT NULL,
+          pages_json TEXT NOT NULL,
+          primary_action_consumed INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        )
+      `
+    );
+    db.exec(
+      `
+        CREATE TABLE IF NOT EXISTS current_session_card (
+          chat_id TEXT PRIMARY KEY,
+          message_id INTEGER NULL,
+          session_id TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `
+    );
+    db.exec(
+      `
+        CREATE TABLE IF NOT EXISTS pending_interaction (
+          interaction_id TEXT PRIMARY KEY,
+          chat_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          request_id TEXT NOT NULL,
+          request_id_canonical TEXT NOT NULL,
+          request_id_legacy TEXT NULL,
+          request_id_kind TEXT NOT NULL,
+          request_method TEXT NOT NULL,
+          interaction_kind TEXT NOT NULL,
+          state TEXT NOT NULL,
+          prompt_json TEXT NOT NULL,
+          response_json TEXT NULL,
+          message_id INTEGER NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          resolved_at TEXT NULL,
+          error_reason TEXT NULL
+        )
+      `
+    );
+
+    if (hasColumn(db, "runtime_notice", "telegram_chat_id")) {
+      db.exec(
+        `
+          CREATE TABLE runtime_notice_v20 (
+            key TEXT PRIMARY KEY,
+            chat_id TEXT NOT NULL,
+            type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            parse_mode TEXT NULL,
+            reply_markup_json TEXT NULL,
+            session_id TEXT NULL,
+            turn_id TEXT NULL,
+            created_at TEXT NOT NULL
+          )
+        `
+      );
+      db.exec(
+        `
+          INSERT INTO runtime_notice_v20 (
+            key,
+            chat_id,
+            type,
+            message,
+            parse_mode,
+            reply_markup_json,
+            session_id,
+            turn_id,
+            created_at
+          )
+          SELECT
+            key,
+            COALESCE(chat_id, telegram_chat_id),
+            type,
+            message,
+            parse_mode,
+            reply_markup_json,
+            session_id,
+            turn_id,
+            created_at
+          FROM runtime_notice
+        `
+      );
+      db.exec("DROP TABLE runtime_notice");
+      db.exec("ALTER TABLE runtime_notice_v20 RENAME TO runtime_notice");
+    }
+
+    if (hasColumn(db, "final_answer_view", "telegram_chat_id") || hasColumn(db, "final_answer_view", "telegram_message_id")) {
+      db.exec(
+        `
+          CREATE TABLE final_answer_view_v20 (
+            answer_id TEXT PRIMARY KEY,
+            chat_id TEXT NOT NULL,
+            delivery_message_id INTEGER NULL,
+            session_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'final_answer',
+            delivery_state TEXT NOT NULL DEFAULT 'pending',
+            preview_html TEXT NOT NULL,
+            pages_json TEXT NOT NULL,
+            primary_action_consumed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+          )
+        `
+      );
+      db.exec(
+        `
+          INSERT INTO final_answer_view_v20 (
+            answer_id,
+            chat_id,
+            delivery_message_id,
+            session_id,
+            thread_id,
+            turn_id,
+            kind,
+            delivery_state,
+            preview_html,
+            pages_json,
+            primary_action_consumed,
+            created_at
+          )
+          SELECT
+            answer_id,
+            COALESCE(chat_id, telegram_chat_id),
+            COALESCE(delivery_message_id, telegram_message_id),
+            session_id,
+            thread_id,
+            turn_id,
+            kind,
+            delivery_state,
+            preview_html,
+            pages_json,
+            primary_action_consumed,
+            created_at
+          FROM final_answer_view
+        `
+      );
+      db.exec("DROP TABLE final_answer_view");
+      db.exec("ALTER TABLE final_answer_view_v20 RENAME TO final_answer_view");
+    }
+
+    if (hasColumn(db, "current_session_card", "telegram_chat_id") || hasColumn(db, "current_session_card", "telegram_message_id")) {
+      db.exec(
+        `
+          CREATE TABLE current_session_card_v20 (
+            chat_id TEXT PRIMARY KEY,
+            message_id INTEGER NULL,
+            session_id TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          )
+        `
+      );
+      db.exec(
+        `
+          INSERT INTO current_session_card_v20 (
+            chat_id,
+            message_id,
+            session_id,
+            updated_at
+          )
+          SELECT
+            COALESCE(chat_id, telegram_chat_id),
+            COALESCE(message_id, telegram_message_id),
+            session_id,
+            updated_at
+          FROM current_session_card
+        `
+      );
+      db.exec("DROP TABLE current_session_card");
+      db.exec("ALTER TABLE current_session_card_v20 RENAME TO current_session_card");
+    }
+
+    if (hasColumn(db, "pending_interaction", "telegram_chat_id") || hasColumn(db, "pending_interaction", "telegram_message_id")) {
+      db.exec(
+        `
+          CREATE TABLE pending_interaction_v20 (
+            interaction_id TEXT PRIMARY KEY,
+            chat_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            request_id TEXT NOT NULL,
+            request_id_canonical TEXT NOT NULL,
+            request_id_legacy TEXT NULL,
+            request_id_kind TEXT NOT NULL,
+            request_method TEXT NOT NULL,
+            interaction_kind TEXT NOT NULL,
+            state TEXT NOT NULL,
+            prompt_json TEXT NOT NULL,
+            response_json TEXT NULL,
+            message_id INTEGER NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT NULL,
+            error_reason TEXT NULL
+          )
+        `
+      );
+      db.exec(
+        `
+          INSERT INTO pending_interaction_v20 (
+            interaction_id,
+            chat_id,
+            session_id,
+            thread_id,
+            turn_id,
+            request_id,
+            request_id_canonical,
+            request_id_legacy,
+            request_id_kind,
+            request_method,
+            interaction_kind,
+            state,
+            prompt_json,
+            response_json,
+            message_id,
+            created_at,
+            updated_at,
+            resolved_at,
+            error_reason
+          )
+          SELECT
+            interaction_id,
+            COALESCE(chat_id, telegram_chat_id),
+            session_id,
+            thread_id,
+            turn_id,
+            request_id,
+            request_id_canonical,
+            request_id_legacy,
+            request_id_kind,
+            request_method,
+            interaction_kind,
+            state,
+            prompt_json,
+            response_json,
+            COALESCE(message_id, telegram_message_id),
+            created_at,
+            updated_at,
+            resolved_at,
+            error_reason
+          FROM pending_interaction
+        `
+      );
+      db.exec("DROP TABLE pending_interaction");
+      db.exec("ALTER TABLE pending_interaction_v20 RENAME TO pending_interaction");
+    }
+
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_runtime_notice_chat_id_created_at
+          ON runtime_notice(chat_id, created_at ASC)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_final_answer_view_chat_created_at
+          ON final_answer_view(chat_id, created_at DESC)
+      `
+    );
+    db.exec(
+      `
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_current_session_card_chat_id
+          ON current_session_card(chat_id)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_pending_interaction_chat_state
+          ON pending_interaction(chat_id, state, created_at DESC)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_pending_interaction_turn
+          ON pending_interaction(thread_id, turn_id, created_at DESC)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_pending_interaction_request_canonical_v19
+          ON pending_interaction(thread_id, request_id_kind, request_id_canonical, state, created_at DESC)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_pending_interaction_request_legacy_v19
+          ON pending_interaction(thread_id, request_id_kind, request_id_legacy, state, created_at DESC)
+      `
+    );
+
+    recordMigration(db, 20);
+  }
+
+  if (!applied.has(21)) {
+    db.exec(
+      `
+        CREATE TABLE authorized_user_v21 (
+          platform TEXT NOT NULL DEFAULT 'telegram',
+          user_id TEXT NOT NULL,
+          username TEXT NULL,
+          telegram_user_id TEXT NOT NULL,
+          telegram_username TEXT NULL,
+          display_name TEXT NULL,
+          first_seen_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (platform, user_id)
+        )
+      `
+    );
+    db.exec(
+      `
+        INSERT OR REPLACE INTO authorized_user_v21 (
+          platform,
+          user_id,
+          username,
+          telegram_user_id,
+          telegram_username,
+          display_name,
+          first_seen_at,
+          updated_at
+        )
+        SELECT
+          COALESCE(platform, 'telegram'),
+          COALESCE(user_id, telegram_user_id),
+          COALESCE(username, telegram_username),
+          COALESCE(telegram_user_id, user_id),
+          telegram_username,
+          display_name,
+          first_seen_at,
+          updated_at
+        FROM authorized_user
+        ORDER BY updated_at ASC, rowid ASC
+      `
+    );
+    db.exec("DROP TABLE authorized_user");
+    db.exec("ALTER TABLE authorized_user_v21 RENAME TO authorized_user");
+
+    db.exec(
+      `
+        CREATE TABLE pending_authorization_v21 (
+          platform TEXT NOT NULL DEFAULT 'telegram',
+          user_id TEXT NOT NULL,
+          chat_id TEXT NOT NULL,
+          username TEXT NULL,
+          telegram_user_id TEXT NOT NULL,
+          telegram_chat_id TEXT NOT NULL,
+          telegram_username TEXT NULL,
+          display_name TEXT NULL,
+          first_seen_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          PRIMARY KEY (platform, user_id)
+        )
+      `
+    );
+    db.exec(
+      `
+        INSERT OR REPLACE INTO pending_authorization_v21 (
+          platform,
+          user_id,
+          chat_id,
+          username,
+          telegram_user_id,
+          telegram_chat_id,
+          telegram_username,
+          display_name,
+          first_seen_at,
+          last_seen_at
+        )
+        SELECT
+          COALESCE(platform, 'telegram'),
+          COALESCE(user_id, telegram_user_id),
+          COALESCE(chat_id, telegram_chat_id),
+          COALESCE(username, telegram_username),
+          COALESCE(telegram_user_id, user_id),
+          COALESCE(telegram_chat_id, chat_id),
+          telegram_username,
+          display_name,
+          first_seen_at,
+          last_seen_at
+        FROM pending_authorization
+        ORDER BY last_seen_at ASC, first_seen_at ASC, rowid ASC
+      `
+    );
+    db.exec("DROP TABLE pending_authorization");
+    db.exec("ALTER TABLE pending_authorization_v21 RENAME TO pending_authorization");
+
+    db.exec(
+      `
+        CREATE TABLE chat_binding_v21 (
+          platform TEXT NOT NULL DEFAULT 'telegram',
+          chat_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          telegram_chat_id TEXT NOT NULL,
+          telegram_user_id TEXT NOT NULL,
+          active_session_id TEXT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (platform, chat_id)
+        )
+      `
+    );
+    db.exec(
+      `
+        INSERT OR REPLACE INTO chat_binding_v21 (
+          platform,
+          chat_id,
+          user_id,
+          telegram_chat_id,
+          telegram_user_id,
+          active_session_id,
+          created_at,
+          updated_at
+        )
+        SELECT
+          COALESCE(platform, 'telegram'),
+          COALESCE(chat_id, telegram_chat_id),
+          COALESCE(user_id, telegram_user_id),
+          COALESCE(telegram_chat_id, chat_id),
+          COALESCE(telegram_user_id, user_id),
+          active_session_id,
+          created_at,
+          updated_at
+        FROM chat_binding
+        ORDER BY updated_at ASC, created_at ASC, rowid ASC
+      `
+    );
+    db.exec("DROP TABLE chat_binding");
+    db.exec("ALTER TABLE chat_binding_v21 RENAME TO chat_binding");
+
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_authorized_user_updated_at
+          ON authorized_user(updated_at DESC)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_authorized_user_platform_updated_at
+          ON authorized_user(platform, updated_at DESC)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_pending_authorization_last_seen
+          ON pending_authorization(last_seen_at DESC)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_pending_authorization_platform_last_seen
+          ON pending_authorization(platform, last_seen_at DESC, first_seen_at DESC)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_chat_binding_user_id
+          ON chat_binding(user_id)
+      `
+    );
+    db.exec(
+      `
+        CREATE INDEX IF NOT EXISTS idx_chat_binding_platform_user_id
+          ON chat_binding(platform, user_id, updated_at DESC, created_at DESC)
+      `
+    );
+
+    recordMigration(db, 21);
+  }
 }
 
 export function openInitializedDatabase(dbPath: string): DatabaseSync {
@@ -874,6 +1529,7 @@ export function openInitializedDatabase(dbPath: string): DatabaseSync {
 }
 
 function initializeDatabase(db: DatabaseSync): void {
+  db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
   applyMigrations(db);

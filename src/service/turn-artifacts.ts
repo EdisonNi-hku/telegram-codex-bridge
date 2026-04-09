@@ -1,13 +1,18 @@
 import type { CodexAppServerClient } from "../codex/app-server.js";
-import { hasMeaningfulText } from "../util/text.js";
+import {
+  extractTerminalArtifactsFromTurnItems,
+  turnItemsContainCompactionTruth,
+  type TerminalMessageSource
+} from "../codex/protocol-truth.js";
 
 type HistoryTurn = Awaited<ReturnType<CodexAppServerClient["resumeThread"]>>["thread"]["turns"][number];
-type FinalMessageSource = "final_answer" | "review_exit" | "agent_message" | null;
+type FinalMessageSource = TerminalMessageSource;
 
 export interface TurnArtifactsFromHistory {
   finalMessage: string | null;
   finalMessageSource: FinalMessageSource;
   proposedPlan: string | null;
+  compactionDetected: boolean;
   requestedTurnFound: boolean;
   usedReviewFallback: boolean;
   reviewArtifactsPresent: boolean;
@@ -61,6 +66,7 @@ export async function extractTurnArtifactsFromHistory(
       finalMessage: null,
       finalMessageSource: null,
       proposedPlan: null,
+      compactionDetected: false,
       requestedTurnFound,
       usedReviewFallback: false,
       reviewArtifactsPresent,
@@ -72,6 +78,7 @@ export async function extractTurnArtifactsFromHistory(
     finalMessage: extracted?.finalMessage ?? null,
     finalMessageSource: extracted?.finalMessageSource ?? null,
     proposedPlan: extracted?.proposedPlan ?? null,
+    compactionDetected: extracted?.compactionDetected ?? false,
     requestedTurnFound,
     usedReviewFallback: fallbackTurn !== null || (preferredTurn !== null && preferredTurn.id !== turnId),
     reviewArtifactsPresent,
@@ -88,50 +95,14 @@ function extractArtifactsFromTurn(
   finalMessage: string | null;
   finalMessageSource: FinalMessageSource;
   proposedPlan: string | null;
+  compactionDetected: boolean;
 } {
-  const finalItem = targetTurn.items.find(
-    (item) => item.type === "agentMessage" && item.phase === "final_answer" && hasMeaningfulText(item.text)
-  );
-  const reviewExitItem = [...targetTurn.items].reverse().find(
-    (item) => item.type === "exitedReviewMode" && hasMeaningfulText(item.review)
-  );
-  const trailingAgentMessage = options?.allowTrailingAgentMessage
-    ? [...targetTurn.items].reverse().find(
-      (item) => item.type === "agentMessage" && item.phase !== "commentary" && hasMeaningfulText(item.text)
-    )
-    : null;
-  const planItem = [...targetTurn.items].reverse().find(
-    (item) => item.type === "plan" && typeof item.text === "string"
-  );
-
-  if (finalItem) {
-    return {
-      finalMessage: finalItem.text ?? null,
-      finalMessageSource: "final_answer",
-      proposedPlan: planItem?.text ?? null
-    };
-  }
-
-  if (trailingAgentMessage) {
-    return {
-      finalMessage: trailingAgentMessage.text ?? null,
-      finalMessageSource: "agent_message",
-      proposedPlan: planItem?.text ?? null
-    };
-  }
-
-  if (reviewExitItem) {
-    return {
-      finalMessage: reviewExitItem.review ?? null,
-      finalMessageSource: "review_exit",
-      proposedPlan: planItem?.text ?? null
-    };
-  }
-
+  const extracted = extractTerminalArtifactsFromTurnItems(targetTurn.items, options);
   return {
-    finalMessage: null,
-    finalMessageSource: null,
-    proposedPlan: planItem?.text ?? null
+    finalMessage: extracted.terminalMessage,
+    finalMessageSource: extracted.terminalMessageSource,
+    proposedPlan: extracted.proposedPlan,
+    compactionDetected: turnItemsContainCompactionTruth(targetTurn.items)
   };
 }
 function turnContainsReviewArtifacts(turn: HistoryTurn): boolean {

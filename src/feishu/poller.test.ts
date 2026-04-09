@@ -1,0 +1,261 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { FeishuTelegramApiCompat } from "./api.js";
+import { buildFeishuWsClientOptions, FeishuTelegramPollerCompat } from "./poller.js";
+import type { BridgeConfig } from "../config.js";
+import type { Logger } from "../logger.js";
+import type { BridgePaths } from "../paths.js";
+
+const testLogger: Logger = {
+  info: async () => {},
+  warn: async () => {},
+  error: async () => {}
+};
+
+function createPaths(root: string): BridgePaths {
+  const logsDir = join(root, "logs");
+  const runtimeDir = join(root, "runtime");
+  const telegramSessionFlowLogsDir = join(logsDir, "telegram-session-flow");
+
+  return {
+    homeDir: root,
+    repoRoot: root,
+    installRoot: join(root, "install"),
+    stateRoot: join(root, "state"),
+    configRoot: join(root, "config"),
+    logsDir,
+    perfLogsDir: join(logsDir, "perf"),
+    telegramSessionFlowLogsDir,
+    runtimeDir,
+    cacheDir: join(root, "cache"),
+    dbPath: join(root, "state", "bridge.db"),
+    stateStoreFailurePath: join(root, "state", "state-store-open-failure.json"),
+    envPath: join(root, "config", "bridge.env"),
+    servicePath: join(root, "service", "bridge.service"),
+    launchAgentPath: join(root, "LaunchAgents", "bridge.plist"),
+    binPath: join(root, "bin", "ctb"),
+    manifestPath: join(root, "install", "install-manifest.json"),
+    offsetPath: join(runtimeDir, "telegram-offset.json"),
+    bridgeLogPath: join(logsDir, "bridge.log"),
+    bootstrapLogPath: join(logsDir, "bootstrap.log"),
+    appServerLogPath: join(logsDir, "app-server.log"),
+    telegramStatusCardLogPath: join(telegramSessionFlowLogsDir, "status-card.log"),
+    telegramPlanCardLogPath: join(telegramSessionFlowLogsDir, "plan-card.log"),
+    telegramErrorCardLogPath: join(telegramSessionFlowLogsDir, "error-card.log")
+  };
+}
+
+function createConfig(): BridgeConfig {
+  return {
+    activePack: "feishu",
+    shared: {
+      activePack: "feishu",
+      codexBin: "codex",
+      projectScanRoots: [],
+      voiceInputEnabled: false,
+      voiceOpenaiApiKey: "",
+      voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+      voiceFfmpegBin: "ffmpeg",
+      perfMonitorEnabled: false,
+      perfMonitorSampleIntervalMs: 15_000,
+      perfMonitorRetentionDays: 7,
+      appServerGuardEnabled: true,
+      appServerGuardSampleIntervalMs: 30_000,
+      appServerGuardMcpWorkerThreshold: 6,
+      appServerGuardConsecutiveWindows: 3,
+      appServerGuardCooldownMs: 900_000
+    },
+    packs: {
+      feishu: {
+        appId: "cli_test",
+        appSecret: "secret",
+        apiBaseUrl: "https://open.feishu.cn"
+      }
+    },
+    codexBin: "codex",
+    projectScanRoots: [],
+    voiceInputEnabled: false,
+    voiceOpenaiApiKey: "",
+    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+    voiceFfmpegBin: "ffmpeg",
+    perfMonitorEnabled: false,
+    perfMonitorSampleIntervalMs: 15_000,
+    perfMonitorRetentionDays: 7,
+    appServerGuardEnabled: true,
+    appServerGuardSampleIntervalMs: 30_000,
+    appServerGuardMcpWorkerThreshold: 6,
+    appServerGuardConsecutiveWindows: 3,
+    appServerGuardCooldownMs: 900_000
+  };
+}
+
+test("FeishuTelegramPollerCompat translates message receive events into Telegram-compatible updates", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-feishu-poller-test-"));
+  const paths = createPaths(root);
+
+  try {
+    const api = new FeishuTelegramApiCompat({
+      appId: "cli_test",
+      appSecret: "secret",
+      apiBaseUrl: "https://open.feishu.cn"
+    }, paths);
+    const poller = new FeishuTelegramPollerCompat(
+      api,
+      createConfig(),
+      paths,
+      testLogger,
+      async () => {},
+      {
+        createWsClient: () => ({
+          start: async () => {},
+          close: () => {}
+        }),
+        createEventDispatcher: () => ({
+          register: () => {}
+        })
+      }
+    );
+
+    const update = await (poller as any).translateMessageEvent({
+      sender: {
+        sender_id: {
+          open_id: "ou_user_1"
+        }
+      },
+      message: {
+        message_id: "om_message_1",
+        chat_id: "oc_chat_1",
+        create_time: "1710000000000",
+        message_type: "text",
+        content: JSON.stringify({
+          text: "/status"
+        })
+      }
+    });
+
+    assert.equal(update?.message?.text, "/status");
+    assert.equal(update?.message?.chat.type, "private");
+    assert.equal(typeof update?.message?.message_id, "number");
+    assert.equal(typeof update?.message?.from?.id, "number");
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("FeishuTelegramPollerCompat accepts modern nested card callback payloads", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-feishu-poller-test-"));
+  const paths = createPaths(root);
+
+  try {
+    const api = new FeishuTelegramApiCompat({
+      appId: "cli_test",
+      appSecret: "secret",
+      apiBaseUrl: "https://open.feishu.cn"
+    }, paths);
+    await api.ready();
+    const refs = api.refsStore;
+    refs.getOrCreateLocalUserId("ou_user_1");
+    refs.getOrCreateLocalChatId("oc_chat_1");
+    const localMessageId = refs.recordRemoteMessage("om_message_1", "oc_chat_1");
+    const poller = new FeishuTelegramPollerCompat(
+      api,
+      createConfig(),
+      paths,
+      testLogger,
+      async () => {},
+      {
+        createWsClient: () => ({
+          start: async () => {},
+          close: () => {}
+        }),
+        createEventDispatcher: () => ({
+          register: () => {}
+        })
+      }
+    );
+
+    const update = await (poller as any).translateCardCallbackEvent({
+      token: "callback-token",
+      operator: {
+        open_id: "ou_user_1"
+      },
+      context: {
+        open_message_id: "om_message_1"
+      },
+      action: {
+        value: {
+          callback_data: "runtime:refresh"
+        }
+      }
+    });
+
+    assert.equal(update?.callback_query?.id, "callback-token");
+    assert.equal(update?.callback_query?.data, "runtime:refresh");
+    assert.equal(update?.callback_query?.message?.message_id, localMessageId);
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("FeishuTelegramPollerCompat bounds queued updates when downstream handling stalls", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-feishu-poller-test-"));
+  const paths = createPaths(root);
+  const warnings: Array<Record<string, unknown> | undefined> = [];
+
+  try {
+    const api = new FeishuTelegramApiCompat({
+      appId: "cli_test",
+      appSecret: "secret",
+      apiBaseUrl: "https://open.feishu.cn"
+    }, paths);
+    const poller = new FeishuTelegramPollerCompat(
+      api,
+      createConfig(),
+      paths,
+      {
+        ...testLogger,
+        warn: async (_message, meta) => {
+          warnings.push(meta);
+        }
+      },
+      async () => {},
+      {
+        maxQueueSize: 2,
+        createWsClient: () => ({
+          start: async () => {},
+          close: () => {}
+        }),
+        createEventDispatcher: () => ({
+          register: () => {}
+        })
+      }
+    );
+
+    (poller as any).enqueue({ update_id: 1 });
+    (poller as any).enqueue({ update_id: 2 });
+    (poller as any).enqueue({ update_id: 3 });
+
+    assert.deepEqual((poller as any).queue.map((update: { update_id: number }) => update.update_id), [2, 3]);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0]?.maxQueueSize, 2);
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("buildFeishuWsClientOptions preserves custom api base urls", () => {
+  assert.deepEqual(buildFeishuWsClientOptions({
+    appId: "cli_test",
+    appSecret: "secret",
+    apiBaseUrl: "https://proxy.example.test"
+  }), {
+    appId: "cli_test",
+    appSecret: "secret",
+    domain: "https://proxy.example.test",
+    autoReconnect: true
+  });
+});

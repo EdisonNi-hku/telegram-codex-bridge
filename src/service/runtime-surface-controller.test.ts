@@ -8,6 +8,7 @@ import type { ActivityStatus, InspectSnapshot } from "../activity/types.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import type { TelegramInlineKeyboardMarkup, TelegramMessage } from "../telegram/api.js";
+import { TELEGRAM_SURFACE_CAPABILITY_SNAPSHOT } from "../telegram/surface-adapter.js";
 import { parseCallbackData } from "../telegram/ui.js";
 import { BridgeStateStore } from "../state/store.js";
 import type { TelegramDeleteResult, TelegramEditResult } from "./runtime-surface-state.js";
@@ -227,6 +228,7 @@ async function createControllerContext(options: {
       callbackAnswers.push(text);
     },
     getUiLanguage: () => options.getUiLanguage?.() ?? "zh",
+    capabilities: TELEGRAM_SURFACE_CAPABILITY_SNAPSHOT,
     getRuntimeCardContext: () => ({
       sessionName: "Session Alpha",
       projectName: "Project One"

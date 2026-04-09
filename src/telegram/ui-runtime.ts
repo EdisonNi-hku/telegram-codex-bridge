@@ -13,10 +13,15 @@ import type {
 } from "../core/interaction-model/interaction.js";
 import type {
   RuntimeCommandEntryView,
+  RuntimeInspectControlsView,
+  RuntimeInspectView,
   RuntimeHubSessionView,
   RuntimeHubTerminalSummaryView,
   RuntimeHubView,
+  RollbackConfirmView,
+  RollbackPickerView,
   RollbackTargetView,
+  RuntimePreferencesView,
   RuntimeStatusCardView,
   RuntimeStatusControlsView
 } from "../core/interaction-model/runtime.js";
@@ -69,10 +74,15 @@ export type {
 } from "../core/interaction-model/interaction.js";
 export type {
   RuntimeCommandEntryView,
+  RuntimeInspectControlsView,
+  RuntimeInspectView,
   RuntimeHubSessionView,
   RuntimeHubTerminalSummaryView,
   RuntimeHubView,
+  RollbackConfirmView,
+  RollbackPickerView,
   RollbackTargetView,
+  RuntimePreferencesView,
   RuntimeStatusCardView,
   RuntimeStatusControlsView
 } from "../core/interaction-model/runtime.js";
@@ -808,11 +818,7 @@ export function buildRuntimePreferencesClosedMessage(fields: RuntimeStatusField[
   ].join("\n");
 }
 
-export function buildRuntimePreferencesMessage(options: {
-  token: string;
-  fields: RuntimeStatusField[];
-  page: number;
-}): {
+export function buildRuntimePreferencesMessage(options: RuntimePreferencesView): {
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
 } {
@@ -871,12 +877,7 @@ export function buildRuntimePreferencesMessage(options: {
   };
 }
 
-export function buildInspectViewMessage(options: {
-  sessionId: string;
-  html: string;
-  page: number;
-  collapsed: boolean;
-}): {
+export function buildInspectViewMessage(options: RuntimeInspectView & RuntimeInspectControlsView): {
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
   totalPages: number;
@@ -929,11 +930,7 @@ export function buildInspectViewMessage(options: {
   };
 }
 
-export function buildRollbackPickerMessage(options: {
-  sessionId: string;
-  page: number;
-  targets: RollbackTargetView[];
-}): {
+export function buildRollbackPickerMessage(options: RollbackPickerView): {
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
   totalPages: number;
@@ -977,11 +974,7 @@ export function buildRollbackPickerMessage(options: {
   };
 }
 
-export function buildRollbackConfirmMessage(options: {
-  sessionId: string;
-  page: number;
-  target: RollbackTargetView;
-}): {
+export function buildRollbackConfirmMessage(options: RollbackConfirmView): {
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
 } {

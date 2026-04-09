@@ -110,11 +110,28 @@ test("TelegramPoller.run survives a corrupted offset file at startup", async () 
   const { paths, cleanup } = await createOffsetFixture();
   const { logger } = createCollectingLogger();
   const config: BridgeConfig = {
-    telegramBotToken: "token",
+    activePack: "telegram",
+    shared: {
+      activePack: "telegram",
+      codexBin: "codex",
+      projectScanRoots: [],
+      voiceInputEnabled: false,
+      voiceOpenaiApiKey: "",
+      voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+      voiceFfmpegBin: "ffmpeg",
+      perfMonitorEnabled: false,
+      perfMonitorSampleIntervalMs: 15_000,
+      perfMonitorRetentionDays: 7
+    },
+    packs: {
+      telegram: {
+        botToken: "token",
+        apiBaseUrl: "https://api.telegram.org",
+        pollTimeoutSeconds: 1,
+        pollIntervalMs: 0
+      }
+    },
     codexBin: "codex",
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramPollTimeoutSeconds: 1,
-    telegramPollIntervalMs: 0,
     projectScanRoots: [],
     voiceInputEnabled: false,
     voiceOpenaiApiKey: "",

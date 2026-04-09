@@ -159,6 +159,7 @@ interface ClassifiedNotificationBase {
     | "thread_name_updated"
     | "thread_token_usage_updated"
     | "thread_compacted"
+    | "thread_compaction_completed"
     | "turn_started"
     | "turn_completed"
     | "turn_diff_updated"
@@ -210,6 +211,12 @@ export interface ThreadTokenUsageUpdatedNotification extends ClassifiedNotificat
 
 export interface ThreadCompactedNotification extends ClassifiedNotificationBase {
   kind: "thread_compacted";
+}
+
+export interface ThreadCompactionCompletedNotification extends ClassifiedNotificationBase {
+  kind: "thread_compaction_completed";
+  itemId: string | null;
+  itemType: string | null;
 }
 
 export interface TurnStartedNotification extends ClassifiedNotificationBase {
@@ -375,6 +382,7 @@ export type ClassifiedNotification =
   | ThreadNameUpdatedNotification
   | ThreadTokenUsageUpdatedNotification
   | ThreadCompactedNotification
+  | ThreadCompactionCompletedNotification
   | TurnStartedNotification
   | TurnCompletedNotification
   | TurnDiffUpdatedNotification

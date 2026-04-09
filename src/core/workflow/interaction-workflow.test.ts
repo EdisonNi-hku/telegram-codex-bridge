@@ -264,7 +264,7 @@ test("createInteractionCardView returns semantic terminal views for failed or ex
     createPendingInteractionRow({
       interactionId: "ix-failed",
       state: "failed",
-      errorReason: "telegram_delivery_failed"
+      errorReason: "interaction_delivery_failed"
     }),
     createApprovalInteraction()
   );
@@ -281,7 +281,7 @@ test("createInteractionCardView returns semantic terminal views for failed or ex
     kind: "resolved",
     title: "Codex 需要命令批准",
     state: "failed",
-    summary: "Telegram 未能发送这张交互卡片。",
+    summary: "当前控制面未能送达这条交互。",
     details: [],
     expandable: false,
     expanded: false,

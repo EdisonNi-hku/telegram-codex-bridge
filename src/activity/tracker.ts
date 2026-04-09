@@ -14,6 +14,10 @@ import type {
   TokenUsageSnapshot,
   TurnStatus
 } from "./types.js";
+import {
+  isCommentaryAgentMessagePhase,
+  isCompactionItemType
+} from "../codex/protocol-truth.js";
 import { normalizeWhitespace, truncateText, normalizeAndTruncate, normalizeNullableText } from "../util/text.js";
 import { isBlockedProgress, BLOCKED_PROGRESS_APPROVAL, BLOCKED_PROGRESS_USER_INPUT } from "../util/blocked-progress.js";
 
@@ -36,6 +40,7 @@ interface ActivityTrackerState {
   threadRuntimeState: ActivityStatus["threadRuntimeState"];
   activeItemType: ActiveItemType | null;
   activeItemId: string | null;
+  activeItemRawType: string | null;
   activeItemLabel: string | null;
   lastActivityAt: string | null;
   currentItemStartedAt: string | null;
@@ -60,6 +65,7 @@ interface TrackedSubagent {
   status: CollabAgentStatus;
   latestCommentary: string | null;
   latestOperationalProgress: string | null;
+  activeItemRawType: string | null;
   activeItemLabel: string | null;
   lastActivityAt: string | null;
 }
@@ -120,6 +126,7 @@ export class ActivityTracker {
       threadRuntimeState: null,
       activeItemType: null,
       activeItemId: null,
+      activeItemRawType: null,
       activeItemLabel: null,
       lastActivityAt: null,
       currentItemStartedAt: null,
@@ -157,9 +164,8 @@ export class ActivityTracker {
         return;
 
       case "thread_compacted":
-        this.markActivity(receivedAt);
-        this.pushUniqueSummary(this.recentNoticeSummaries, "上下文已压缩");
-        this.pushTransition(receivedAt, "thread", "thread compacted");
+      case "thread_compaction_completed":
+        this.completeCompactionLifecycle(notification, receivedAt);
         return;
 
       case "turn_started":
@@ -177,6 +183,7 @@ export class ActivityTracker {
         this.state.turnStatus = mapCompletionStatus(notification.status);
         this.state.activeItemType = null;
         this.state.activeItemId = null;
+        this.state.activeItemRawType = null;
         this.state.activeItemLabel = null;
         this.state.currentItemStartedAt = null;
         this.state.latestProgress = null;
@@ -259,6 +266,7 @@ export class ActivityTracker {
         this.syncCollabAgentStates(notification.collabAgentStates);
         this.state.activeItemType = activeItemType;
         this.state.activeItemId = notification.itemId;
+        this.state.activeItemRawType = notification.itemType;
         this.state.activeItemLabel = notification.label ?? buildItemLabel(activeItemType, notification.itemType);
         this.state.currentItemStartedAt = receivedAt;
         this.state.latestProgress = null;
@@ -293,6 +301,7 @@ export class ActivityTracker {
         if (!notification.itemId || notification.itemId === this.state.activeItemId) {
           this.state.activeItemType = null;
           this.state.activeItemId = null;
+          this.state.activeItemRawType = null;
           this.state.activeItemLabel = null;
           this.state.currentItemStartedAt = null;
           this.state.latestProgress = completedItemType === "agentMessage" ? null : `${completedLabel} completed`;
@@ -305,7 +314,7 @@ export class ActivityTracker {
 
         const summary = `${completedLabel} completed`;
         this.pushTransition(receivedAt, "item", summary);
-        if (completedItemType === "agentMessage" && notification.itemPhase === "commentary") {
+        if (completedItemType === "agentMessage" && isCommentaryAgentMessagePhase(notification.itemPhase)) {
           const commentaryText = normalizeNullableText(notification.itemText);
           if (commentaryText) {
             this.pushUniqueSummary(this.completedCommentary, commentaryText);
@@ -380,7 +389,7 @@ export class ActivityTracker {
       }
 
       case "server_request_resolved":
-        if (notification.requestId) {
+        if (notification.requestId !== null) {
           const summary = `交互已完成：${notification.requestId}`;
           this.markActivity(receivedAt);
           this.pushUniqueSummary(this.recentNoticeSummaries, summary);
@@ -506,6 +515,7 @@ export class ActivityTracker {
         this.state.turnStatus = "interrupted";
         this.state.activeItemType = null;
         this.state.activeItemId = null;
+        this.state.activeItemRawType = null;
         this.state.activeItemLabel = null;
         this.state.currentItemStartedAt = null;
         this.state.latestProgress = null;
@@ -523,6 +533,7 @@ export class ActivityTracker {
         this.state.turnStatus = "failed";
         this.state.activeItemType = null;
         this.state.activeItemId = null;
+        this.state.activeItemRawType = null;
         this.state.activeItemLabel = null;
         this.state.currentItemStartedAt = null;
         this.state.latestProgress = errorSummary;
@@ -611,6 +622,37 @@ export class ActivityTracker {
     return this.recordSubagentIdentity(threadId, identity, receivedAt, "backfill", "fillMissing");
   }
 
+  private completeCompactionLifecycle(
+    notification: Extract<ClassifiedNotification, { kind: "thread_compacted" | "thread_compaction_completed" }>,
+    receivedAt: string
+  ): void {
+    const itemType = "itemType" in notification ? notification.itemType : this.state.activeItemRawType;
+    const itemId = "itemId" in notification ? notification.itemId : null;
+    if (this.shouldClearCompactionItem(itemType, itemId)) {
+      this.state.activeItemType = null;
+      this.state.activeItemId = null;
+      this.state.activeItemRawType = null;
+      this.state.activeItemLabel = null;
+      this.state.currentItemStartedAt = null;
+      this.state.latestProgress = null;
+    }
+
+    this.markActivity(receivedAt);
+    this.pushUniqueSummary(this.recentNoticeSummaries, "上下文已压缩");
+    this.pushTransition(
+      receivedAt,
+      "thread",
+      notification.kind === "thread_compacted"
+        ? "thread compacted (compatibility notification)"
+        : "thread compaction completed"
+    );
+  }
+
+  private shouldClearCompactionItem(itemType: string | null | undefined, itemId: string | null): boolean {
+    return isCompactionItemType(itemType)
+      && (itemId === null || itemId === this.state.activeItemId || itemType === this.state.activeItemRawType);
+  }
+
   private pushStreamBlock(block: StreamBlock): void {
     this.streamBlocks.push(block);
     if (this.streamBlocks.length > STREAM_BLOCK_LIMIT) {
@@ -696,6 +738,7 @@ export class ActivityTracker {
         subagent.status = "running";
         subagent.latestCommentary = null;
         subagent.latestOperationalProgress = null;
+        subagent.activeItemRawType = null;
         subagent.activeItemLabel = null;
         subagent.lastActivityAt = receivedAt;
         return;
@@ -729,6 +772,7 @@ export class ActivityTracker {
         const activeItemType = mapActiveItemType(notification.itemType);
         subagent.status = "running";
         subagent.latestOperationalProgress = null;
+        subagent.activeItemRawType = notification.itemType;
         subagent.activeItemLabel = notification.label ?? buildItemLabel(activeItemType, notification.itemType);
         subagent.lastActivityAt = receivedAt;
         if (activeItemType === "commandExecution" && notification.itemId) {
@@ -743,7 +787,7 @@ export class ActivityTracker {
       case "item_completed": {
         this.syncCollabAgentStates(notification.collabAgentStates);
         const completedItemType = mapActiveItemType(notification.itemType);
-        if (completedItemType === "agentMessage" && notification.itemPhase === "commentary") {
+        if (completedItemType === "agentMessage" && isCommentaryAgentMessagePhase(notification.itemPhase)) {
           const commentaryText = normalizeNullableText(notification.itemText);
           if (commentaryText) {
             subagent.latestCommentary = commentaryText;
@@ -752,6 +796,7 @@ export class ActivityTracker {
         if (notification.itemId) {
           this.commandOutputBuffers.delete(buildCommandBufferKey(threadId, notification.itemId));
         }
+        subagent.activeItemRawType = null;
         subagent.activeItemLabel = null;
         subagent.lastActivityAt = receivedAt;
         return;
@@ -826,6 +871,11 @@ export class ActivityTracker {
       case "agent_message_delta":
       case "thread_token_usage_updated":
       case "thread_compacted":
+      case "thread_compaction_completed":
+        if (isCompactionItemType(subagent.activeItemRawType)) {
+          subagent.activeItemRawType = null;
+          subagent.activeItemLabel = null;
+        }
       case "turn_diff_updated":
       case "hook_started":
       case "hook_completed":
@@ -873,6 +923,7 @@ export class ActivityTracker {
       status: "pendingInit",
       latestCommentary: null,
       latestOperationalProgress: null,
+      activeItemRawType: null,
       activeItemLabel: null,
       lastActivityAt: null
     };
@@ -1248,8 +1299,8 @@ function summarizeHookEntry(kind: string | null, text: string | null): string | 
 function summarizeTerminalInteraction(stdin: string | null): string {
   const preview = cleanSummary(stdin ?? "");
   return preview
-    ? `终端输入请求未转发到 Telegram：${preview}`
-    : "终端输入请求未转发到 Telegram";
+    ? `终端输入请求未转发到当前控制面：${preview}`
+    : "终端输入请求未转发到当前控制面";
 }
 
 function summarizeNotice(summary: string | null, detail: string | null, prefix: string): string | null {

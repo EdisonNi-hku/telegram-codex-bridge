@@ -3,11 +3,21 @@ import { access, cp, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, unlink,
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 
-import { loadConfig, serializeProjectScanRoots, withInstallOverrides, writeConfig, type BridgeConfig } from "./config.js";
+import {
+  buildConfigEnvironment,
+  loadConfig,
+  withInstallOverrides,
+  writeConfig,
+  type BridgeConfig,
+  type BridgeInstallOverrides,
+  type SharedBridgeConfig
+} from "./config.js";
 import { collectArchiveDriftDiagnostics } from "./archive-drift.js";
 import { CodexAppServerClient } from "./codex/app-server.js";
 import type { Logger } from "./logger.js";
 import { ensureBridgeDirectories, type BridgePaths } from "./paths.js";
+import { DEFAULT_BRIDGE_PACK, type BridgePackName } from "./packs/names.js";
+import { getActiveBridgePack, getBridgePack } from "./packs/registry.js";
 import { commandExists, resolveCommand, runCommand, type CommandResult } from "./process.js";
 import {
   captureSystemdStopAudit,
@@ -29,9 +39,8 @@ import {
   readStateStoreFailure,
   type StateStoreFailureRecord
 } from "./state/store.js";
-import { TelegramApi } from "./telegram/api.js";
-import { syncTelegramCommands } from "./telegram/commands.js";
 import {
+  isSetupComplete,
   isOperationalReadinessState,
   type InstallManifest,
   type InstallSourceMetadata,
@@ -40,6 +49,8 @@ import {
 } from "./types.js";
 import { normalizeComparablePath, pathStartsWithin, pathsOverlap } from "./util/path.js";
 import { readRepoPackageJson } from "./util/package-json.js";
+import { resetFeishuSetupCycle } from "./packs/feishu/setup.js";
+import type { PackHealthCheck } from "./packs/contract.js";
 
 type CommandRunner = (
   command: string,
@@ -51,8 +62,11 @@ interface InstallDependencies {
   detectServiceManager?: () => Promise<ServiceManager>;
   runCommand?: typeof runCommand;
   probeReadiness?: typeof probeReadiness;
-  createTelegramApi?: (token: string, baseUrl: string) => Pick<TelegramApi, "getMe" | "setMyCommands">;
-  syncTelegramCommands?: typeof syncTelegramCommands;
+  syncPackControlSurface?: (options: {
+    pack: ReturnType<typeof getActiveBridgePack>;
+    config: BridgeConfig;
+    logger: Logger;
+  }) => Promise<void>;
   scanArchiveDrift?: (options: {
     store: BridgeStateStore;
     listThreads: Pick<CodexAppServerClient, "listThreads">["listThreads"];
@@ -66,8 +80,6 @@ interface InstallDependencies {
     }>;
   }>;
 }
-
-const CODEX_SKILL_NAME = "telegram-codex-linker";
 const GITHUB_ARCHIVE_INSTALL_SOURCE_KIND = "github-archive";
 const INSTALL_SOURCE_ENV_KEYS = {
   kind: "CTB_INSTALL_SOURCE_KIND",
@@ -142,6 +154,14 @@ async function replaceOptionalDirectory(sourcePath: string, targetPath: string):
   }
 }
 
+async function replaceOptionalFile(sourcePath: string, targetPath: string): Promise<void> {
+  await rm(targetPath, { force: true });
+
+  if (await pathExists(sourcePath)) {
+    await cp(sourcePath, targetPath);
+  }
+}
+
 function formatOptionalBoolean(value: boolean | undefined): string {
   if (value === undefined) {
     return "unknown";
@@ -161,8 +181,28 @@ function formatSnapshot(snapshot: ReadinessSnapshot | null): string {
 
   const issueText =
     snapshot.details.issues.length === 0 ? "issues=none" : `issues=${snapshot.details.issues.join("; ")}`;
+  const sharedCheckLines = (snapshot.details.sharedChecks ?? []).map((check, index) => (
+    `shared_check_${index + 1}=${check.id}:${check.ok ? "ok" : "failed"}:${check.summary}`
+  ));
+  const packCheckLines = (snapshot.details.packChecks ?? []).map((check: PackHealthCheck, index) => (
+    `pack_check_${index + 1}=${check.id}:${check.ok ? "ok" : "failed"}:${check.summary}${
+      check.source ? `:source=${check.source}` : ""
+    }${
+      check.blocking !== undefined ? `:blocking=${check.blocking ? "true" : "false"}` : ""
+    }${
+      check.missingEnv && check.missingEnv.length > 0 ? `:missing_env=${check.missingEnv.join(",")}` : ""
+    }`
+  ));
+  const packMetadataLines = Object.entries(snapshot.details.packMetadata ?? {}).map(([key, value]) => (
+    `pack_metadata_${key}=${value === null || value === undefined ? "unknown" : `${value}`}`
+  ));
+  const setupChecklistLines = (snapshot.details.setupChecklist ?? []).map((item, index) => (
+    `setup_checklist_${index + 1}=${item}`
+  ));
+
   return [
     `readiness=${snapshot.state}`,
+    `active_pack=${snapshot.details.activePack ?? "unknown"}`,
     `checked_at=${snapshot.checkedAt}`,
     `node_version=${formatOptionalValue(snapshot.details.nodeVersion)}`,
     `node_version_supported=${formatOptionalBoolean(snapshot.details.nodeVersionSupported)}`,
@@ -171,7 +211,7 @@ function formatSnapshot(snapshot: ReadinessSnapshot | null): string {
     `codex_version_supported=${formatOptionalBoolean(snapshot.details.codexVersionSupported)}`,
     `codex_bin_resolved=${formatOptionalValue(snapshot.details.codexBinResolvedPath)}`,
     `codex_authenticated=${snapshot.details.codexAuthenticated}`,
-    `telegram_token_valid=${snapshot.details.telegramTokenValid}`,
+    `pack_state=${snapshot.details.packState ?? "unknown"}`,
     `app_server_available=${snapshot.details.appServerAvailable}`,
     `authorized_user_bound=${snapshot.details.authorizedUserBound}`,
     `service_manager_health=${formatOptionalValue(snapshot.details.serviceManagerHealth)}`,
@@ -185,8 +225,52 @@ function formatSnapshot(snapshot: ReadinessSnapshot | null): string {
     `voice_realtime_supported=${formatOptionalBoolean(snapshot.details.voiceRealtimeSupported)}`,
     `capability_check_passed=${formatOptionalBoolean(snapshot.details.capabilityCheckPassed)}`,
     `capability_check_source=${formatOptionalValue(snapshot.details.capabilityCheckSource)}`,
-    issueText
+    `setup_state=${snapshot.details.setupState ?? "complete"}`,
+    `shared_check_failures=${snapshot.details.sharedChecks?.filter((check) => !check.ok).length ?? 0}`,
+    `pack_check_failures=${snapshot.details.packChecks?.filter((check) => !check.ok).length ?? 0}`,
+    issueText,
+    ...sharedCheckLines,
+    ...packCheckLines,
+    ...packMetadataLines,
+    ...setupChecklistLines
   ].join("\n");
+}
+
+function isTransientSqliteLockError(error: unknown): boolean {
+  const message = `${error}`.toLowerCase();
+  return message.includes("database is locked")
+    || message.includes("database busy")
+    || message.includes("sqlite_busy")
+    || message.includes("busy");
+}
+
+async function sleep(delayMs: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function retryStateMutation<T>(action: () => T, operationName: string): Promise<T> {
+  const retryDelaysMs = [150, 400, 900];
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+    try {
+      return action();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientSqliteLockError(error) || attempt === retryDelaysMs.length) {
+        const detail = isTransientSqliteLockError(error)
+          ? `${operationName} failed because the bridge state store is busy; retry in a few seconds.`
+          : `${error}`;
+        throw new Error(detail);
+      }
+      const delayMs = retryDelaysMs[attempt];
+      if (delayMs !== undefined) {
+        await sleep(delayMs);
+      }
+    }
+  }
+
+  throw new Error(`${operationName} failed: ${lastError}`);
 }
 
 function formatStateStoreFailure(failure: StateStoreFailureRecord | null): string {
@@ -265,31 +349,18 @@ function buildInstallEnvironment(
 ): NodeJS.ProcessEnv {
   return applyInstallSourceMetadataToEnv({
     ...process.env,
-    TELEGRAM_BOT_TOKEN: config.telegramBotToken,
-    CODEX_BIN: config.codexBin,
-    TELEGRAM_API_BASE_URL: config.telegramApiBaseUrl,
-    PROJECT_SCAN_ROOTS: serializeProjectScanRoots(config.projectScanRoots),
-    VOICE_INPUT_ENABLED: config.voiceInputEnabled ? "1" : "0",
-    VOICE_OPENAI_API_KEY: config.voiceOpenaiApiKey,
-    VOICE_OPENAI_TRANSCRIBE_MODEL: config.voiceOpenaiTranscribeModel,
-    VOICE_FFMPEG_BIN: config.voiceFfmpegBin,
-    PERF_MONITOR_ENABLED: config.perfMonitorEnabled ? "1" : "0",
-    PERF_MONITOR_SAMPLE_INTERVAL_MS: `${config.perfMonitorSampleIntervalMs}`,
-    PERF_MONITOR_RETENTION_DAYS: `${config.perfMonitorRetentionDays}`,
-    APP_SERVER_GUARD_ENABLED: config.appServerGuardEnabled ? "1" : "0",
-    APP_SERVER_GUARD_SAMPLE_INTERVAL_MS: `${config.appServerGuardSampleIntervalMs ?? 30_000}`,
-    APP_SERVER_GUARD_MCP_WORKER_THRESHOLD: `${config.appServerGuardMcpWorkerThreshold ?? 6}`,
-    APP_SERVER_GUARD_CONSECUTIVE_WINDOWS: `${config.appServerGuardConsecutiveWindows ?? 3}`,
-    APP_SERVER_GUARD_COOLDOWN_MS: `${config.appServerGuardCooldownMs ?? 900_000}`
+    ...buildConfigEnvironment(config)
   }, installSource);
 }
 
 async function writeInstallManifest(paths: BridgePaths): Promise<void> {
   const installSource = parseInstallSourceMetadataFromEnv();
+  const config = await loadConfig(paths);
   const manifest: InstallManifest = {
     version: await readPackageVersion(paths),
     sourceRoot: installSource ? null : (pathStartsWithin(paths.repoRoot, paths.installRoot, getHostPlatform()) ? null : paths.repoRoot),
     installedAt: new Date().toISOString(),
+    activePack: config.activePack,
     installSource
   };
 
@@ -691,15 +762,24 @@ async function buildRelease(paths: BridgePaths, run: CommandRunner): Promise<voi
 export async function prepareRelease(paths: BridgePaths, run: CommandRunner = runCommand): Promise<void> {
   await buildRelease(paths, run);
   await rm(join(paths.installRoot, "dist"), { recursive: true, force: true });
+  await rm(join(paths.installRoot, "node_modules"), { recursive: true, force: true });
   await cp(join(paths.repoRoot, "dist"), join(paths.installRoot, "dist"), { recursive: true });
   await cp(join(paths.repoRoot, "package.json"), join(paths.installRoot, "package.json"));
+  await replaceOptionalFile(join(paths.repoRoot, "package-lock.json"), join(paths.installRoot, "package-lock.json"));
   await replaceOptionalDirectory(join(paths.repoRoot, "skills"), join(paths.installRoot, "skills"));
+
+  const installResult = await run("npm", ["install", "--omit=dev"], {
+    cwd: paths.installRoot
+  });
+  if (installResult.exitCode !== 0) {
+    throw new Error(installResult.stderr || installResult.stdout || "npm install --omit=dev failed");
+  }
 }
 
-async function resolveBundledSkillPath(paths: BridgePaths): Promise<string> {
+async function resolveBundledSkillPath(paths: BridgePaths, skillName: string): Promise<string> {
   const candidates = [
-    join(paths.repoRoot, "skills", CODEX_SKILL_NAME),
-    join(paths.installRoot, "skills", CODEX_SKILL_NAME)
+    join(paths.repoRoot, "skills", skillName),
+    join(paths.installRoot, "skills", skillName)
   ];
 
   for (const candidate of candidates) {
@@ -708,19 +788,22 @@ async function resolveBundledSkillPath(paths: BridgePaths): Promise<string> {
     }
   }
 
-  throw new Error(`bundled skill ${CODEX_SKILL_NAME} not found in install or source tree`);
+  throw new Error(`bundled skill ${skillName} not found in install or source tree`);
 }
 
-export async function installCodexSkill(paths: BridgePaths): Promise<string> {
-  const sourcePath = await resolveBundledSkillPath(paths);
+export async function installCodexSkill(paths: BridgePaths, packName?: BridgePackName): Promise<string> {
+  const config = await loadConfig(paths).catch(() => null);
+  const activePack = packName ?? config?.activePack ?? DEFAULT_BRIDGE_PACK;
+  const skillName = getBridgePack(activePack).skillName;
+  const sourcePath = await resolveBundledSkillPath(paths, skillName);
   const codexHome = process.env.CODEX_HOME ?? join(paths.homeDir, ".codex");
-  const targetPath = join(codexHome, "skills", CODEX_SKILL_NAME);
+  const targetPath = join(codexHome, "skills", skillName);
 
   await mkdir(join(codexHome, "skills"), { recursive: true });
   await rm(targetPath, { recursive: true, force: true });
   await cp(sourcePath, targetPath, { recursive: true });
 
-  return `codex skill ${CODEX_SKILL_NAME} installed at ${targetPath}; restart Codex to load it`;
+  return `active_pack=${activePack}\ncodex skill ${skillName} installed at ${targetPath}; restart Codex to load it`;
 }
 
 function githubArchiveUrl(
@@ -858,40 +941,16 @@ async function reinstallFromSourceRoot(
 export async function installBridge(
   paths: BridgePaths,
   logger: Logger,
-  overrides: {
-    telegramBotToken?: string;
-    codexBin?: string;
-    projectScanRoots?: string[];
-    voiceInputEnabled?: boolean;
-    voiceOpenaiApiKey?: string;
-    voiceOpenaiTranscribeModel?: string;
-    voiceFfmpegBin?: string;
-    perfMonitorEnabled?: boolean;
-    perfMonitorSampleIntervalMs?: number;
-    perfMonitorRetentionDays?: number;
-    appServerGuardEnabled?: boolean;
-    appServerGuardSampleIntervalMs?: number;
-    appServerGuardMcpWorkerThreshold?: number;
-    appServerGuardConsecutiveWindows?: number;
-    appServerGuardCooldownMs?: number;
-  },
+  overrides: BridgeInstallOverrides,
   deps: InstallDependencies = {}
 ): Promise<void> {
   const detectManager = deps.detectServiceManager ?? detectServiceManager;
   const run = deps.runCommand ?? runCommand;
   const readinessProbe = deps.probeReadiness ?? probeReadiness;
-  const createTelegramApi = deps.createTelegramApi ?? ((token: string, baseUrl: string) => new TelegramApi(token, baseUrl));
-  const syncCommands = deps.syncTelegramCommands ?? syncTelegramCommands;
   await ensureBridgeDirectories(paths);
-  const overrideConfig: Partial<BridgeConfig> = {};
-  if (overrides.telegramBotToken) {
-    overrideConfig.telegramBotToken = overrides.telegramBotToken;
-  }
-
-  if (overrides.codexBin) {
-    overrideConfig.codexBin = overrides.codexBin;
-  }
-
+  const overrideConfig: BridgeInstallOverrides = {
+    ...overrides
+  };
   if (overrides.projectScanRoots !== undefined) {
     overrideConfig.projectScanRoots = await validateProjectScanRoots(
       paths.homeDir,
@@ -900,48 +959,9 @@ export async function installBridge(
     );
   }
 
-  if (overrides.voiceInputEnabled !== undefined) {
-    overrideConfig.voiceInputEnabled = overrides.voiceInputEnabled;
-  }
-  if (overrides.voiceOpenaiApiKey !== undefined) {
-    overrideConfig.voiceOpenaiApiKey = overrides.voiceOpenaiApiKey;
-  }
-  if (overrides.voiceOpenaiTranscribeModel !== undefined) {
-    overrideConfig.voiceOpenaiTranscribeModel = overrides.voiceOpenaiTranscribeModel;
-  }
-  if (overrides.voiceFfmpegBin !== undefined) {
-    overrideConfig.voiceFfmpegBin = overrides.voiceFfmpegBin;
-  }
-  if (overrides.perfMonitorEnabled !== undefined) {
-    overrideConfig.perfMonitorEnabled = overrides.perfMonitorEnabled;
-  }
-  if (overrides.perfMonitorSampleIntervalMs !== undefined) {
-    overrideConfig.perfMonitorSampleIntervalMs = overrides.perfMonitorSampleIntervalMs;
-  }
-  if (overrides.perfMonitorRetentionDays !== undefined) {
-    overrideConfig.perfMonitorRetentionDays = overrides.perfMonitorRetentionDays;
-  }
-  if (overrides.appServerGuardEnabled !== undefined) {
-    overrideConfig.appServerGuardEnabled = overrides.appServerGuardEnabled;
-  }
-  if (overrides.appServerGuardSampleIntervalMs !== undefined) {
-    overrideConfig.appServerGuardSampleIntervalMs = overrides.appServerGuardSampleIntervalMs;
-  }
-  if (overrides.appServerGuardMcpWorkerThreshold !== undefined) {
-    overrideConfig.appServerGuardMcpWorkerThreshold = overrides.appServerGuardMcpWorkerThreshold;
-  }
-  if (overrides.appServerGuardConsecutiveWindows !== undefined) {
-    overrideConfig.appServerGuardConsecutiveWindows = overrides.appServerGuardConsecutiveWindows;
-  }
-  if (overrides.appServerGuardCooldownMs !== undefined) {
-    overrideConfig.appServerGuardCooldownMs = overrides.appServerGuardCooldownMs;
-  }
-
   const config = withInstallOverrides(await loadConfig(paths), overrideConfig);
-
-  if (!config.telegramBotToken) {
-    throw new Error("missing Telegram bot token; pass --telegram-token or set TELEGRAM_BOT_TOKEN");
-  }
+  const pack = getActiveBridgePack(config);
+  pack.install.validateInstallConfig(config);
 
   await prepareRelease(paths);
   await writeConfig(paths, config);
@@ -963,21 +983,42 @@ export async function installBridge(
     : false;
 
   const store = await BridgeStateStore.open(paths, logger);
+  let snapshot: ReadinessSnapshot | null = null;
   try {
-    const { snapshot } = await readinessProbe({
+    if (config.activePack === "feishu") {
+      const previousSnapshot = store.getReadinessSnapshot();
+      if (previousSnapshot) {
+        store.writeReadinessSnapshot(resetFeishuSetupCycle(previousSnapshot, new Date().toISOString()));
+      }
+    }
+
+    const readiness = await readinessProbe({
       config,
       store,
       paths,
       logger,
       persist: true
     });
+    snapshot = readiness.snapshot;
 
     if (!isOperationalReadinessState(snapshot.state)) {
       throw new Error(formatSnapshot(snapshot));
     }
 
-    const telegramApi = createTelegramApi(config.telegramBotToken, config.telegramApiBaseUrl);
-    await syncCommands(telegramApi);
+    if (pack.install.shouldSyncControlSurface(snapshot)) {
+      const syncPackControlSurface = deps.syncPackControlSurface
+        ?? (async ({ pack: targetPack, config: targetConfig, logger: targetLogger }) => {
+          await targetPack.egress.syncControlSurface({
+            config: targetConfig,
+            logger: targetLogger
+          });
+        });
+      await syncPackControlSurface({
+        pack,
+        config,
+        logger
+      });
+    }
   } finally {
     store.close();
   }
@@ -998,6 +1039,10 @@ export async function installBridge(
   } else {
     await logger.warn("no supported service manager found; service files were not enabled");
   }
+
+  if (snapshot && !isSetupComplete(snapshot)) {
+    throw new Error(formatSnapshot(snapshot));
+  }
 }
 
 export async function getStatus(paths: BridgePaths, deps: InstallDependencies = {}): Promise<string> {
@@ -1005,6 +1050,7 @@ export async function getStatus(paths: BridgePaths, deps: InstallDependencies = 
   const run = deps.runCommand ?? runCommand;
   const manifest = await readInstallManifest(paths);
   const configExists = await pathExists(paths.envPath);
+  const config = configExists ? await loadConfig(paths).catch(() => null) : null;
   const serviceManager = await detectManager();
   const taskSchedulerStatus = serviceManager === "task_scheduler"
     ? await getTaskSchedulerStatus(paths)
@@ -1054,7 +1100,7 @@ export async function getStatus(paths: BridgePaths, deps: InstallDependencies = 
       });
       snapshot = store.getReadinessSnapshot();
       pendingNotices = countPendingRuntimeNotices(store);
-      const binding = store.listChatBindings()[0];
+      const binding = store.listChatBindings(config?.activePack)[0];
       const activeSession = binding?.activeSessionId ? store.getSessionById(binding.activeSessionId) : null;
       if (activeSession) {
         activeSessionSummary = `${activeSession.projectName}/${activeSession.displayName}/${activeSession.status}`;
@@ -1070,6 +1116,7 @@ export async function getStatus(paths: BridgePaths, deps: InstallDependencies = 
 
   const lines = [
     `installed=${installExists}`,
+    `active_pack=${config?.activePack ?? manifest?.activePack ?? "unknown"}`,
     `install_root=${paths.installRoot}`,
     `state_root=${paths.stateRoot}`,
     `config_present=${configExists}`,
@@ -1103,8 +1150,6 @@ export async function getStatus(paths: BridgePaths, deps: InstallDependencies = 
 export async function runDoctor(paths: BridgePaths, logger: Logger, deps: InstallDependencies = {}): Promise<string> {
   const readinessProbe = deps.probeReadiness ?? probeReadiness;
   const detectManager = deps.detectServiceManager ?? detectServiceManager;
-  const createTelegramApi = deps.createTelegramApi ?? ((token: string, baseUrl: string) => new TelegramApi(token, baseUrl));
-  const syncCommands = deps.syncTelegramCommands ?? syncTelegramCommands;
   const scanArchiveDrift = deps.scanArchiveDrift ?? collectArchiveDriftDiagnostics;
   await ensureBridgeDirectories(paths);
   const serviceAudit = await readLatestServiceAudit(paths);
@@ -1121,6 +1166,7 @@ export async function runDoctor(paths: BridgePaths, logger: Logger, deps: Instal
 
   try {
     const config = await loadConfig(paths);
+    const pack = getActiveBridgePack(config);
     const serviceManager = await detectManager();
     const taskSchedulerStatus = serviceManager === "task_scheduler"
       ? await getTaskSchedulerStatus(paths)
@@ -1136,12 +1182,23 @@ export async function runDoctor(paths: BridgePaths, logger: Logger, deps: Instal
     const { snapshot } = result;
     appServer = result.appServer;
     const pendingNoticeCount = countPendingRuntimeNotices(store);
-    if (snapshot.details.telegramTokenValid) {
-      const telegramApi = createTelegramApi(config.telegramBotToken, config.telegramApiBaseUrl);
-      await syncCommands(telegramApi);
+    if (pack.install.shouldSyncControlSurface(snapshot)) {
+      const syncPackControlSurface = deps.syncPackControlSurface
+        ?? (async ({ pack: targetPack, config: targetConfig, logger: targetLogger }) => {
+          await targetPack.egress.syncControlSurface({
+            config: targetConfig,
+            logger: targetLogger
+          });
+        });
+      await syncPackControlSurface({
+        pack,
+        config,
+        logger
+      });
     }
     const lines = [
       "state_store_open=ok",
+      `active_pack=${config.activePack}`,
       `service_manager=${serviceManager}`,
       `task_scheduler_task_present=${taskSchedulerStatus?.exists ?? false}`,
       `task_scheduler_state=${taskSchedulerStatus?.state ?? "unknown"}`,
@@ -1318,8 +1375,10 @@ async function removeSharedInstallArtifacts(paths: BridgePaths): Promise<void> {
   await Promise.all([
     rm(join(paths.installRoot, "bin"), { recursive: true, force: true }),
     rm(join(paths.installRoot, "dist"), { recursive: true, force: true }),
+    rm(join(paths.installRoot, "node_modules"), { recursive: true, force: true }),
     rm(join(paths.installRoot, "skills"), { recursive: true, force: true }),
     rm(join(paths.installRoot, "package.json"), { recursive: true, force: true }),
+    rm(join(paths.installRoot, "package-lock.json"), { recursive: true, force: true }),
     rm(paths.manifestPath, { recursive: true, force: true })
   ]);
 
@@ -1359,10 +1418,17 @@ export async function listPendingAuthorizations(
   }
 ): Promise<string> {
   await ensureBridgeDirectories(paths);
+  const config = await loadConfig(paths).catch(() => null);
   const store = await BridgeStateStore.open(paths, logger);
 
   try {
-    const listOptions: { includeExpired?: boolean } = {};
+    const activePack = config?.activePack ?? store.getReadinessSnapshot()?.details.activePack ?? null;
+    const listOptions: {
+      includeExpired?: boolean;
+      platform?: "telegram" | "feishu";
+    } = {
+      ...(activePack ? { platform: activePack } : {})
+    };
     if (options?.includeExpired) {
       listOptions.includeExpired = true;
     }
@@ -1384,15 +1450,21 @@ export async function listPendingAuthorizations(
         throw new Error("no matching pending authorization candidate");
       }
 
-      store.confirmPendingAuthorization(target);
-      return `authorized user ${target.userId} bound to chat ${target.chatId}`;
+      await retryStateMutation(
+        () => store.confirmPendingAuthorization(target),
+        "authorization confirmation"
+      );
+      return `active_pack=${activePack ?? "unknown"}\nauthorized user ${target.userId} bound to chat ${target.chatId}`;
     }
 
     if (candidates.length === 0) {
-      return "no pending authorization candidates";
+      return `active_pack=${activePack ?? "unknown"}\nno pending authorization candidates`;
     }
 
-    return candidates.map((candidate, index) => formatCandidate(candidate, index)).join("\n");
+    return [
+      `active_pack=${activePack ?? "unknown"}`,
+      ...candidates.map((candidate, index) => formatCandidate(candidate, index))
+    ].join("\n");
   } finally {
     store.close();
   }
@@ -1400,10 +1472,22 @@ export async function listPendingAuthorizations(
 
 export async function clearAuthorization(paths: BridgePaths, logger: Logger): Promise<string> {
   await ensureBridgeDirectories(paths);
+  const config = await pathExists(paths.envPath)
+    ? await loadConfig(paths).catch(() => null)
+    : null;
   const store = await BridgeStateStore.open(paths, logger);
   try {
-    store.clearAuthorization();
-    return "authorization cleared; bridge returned to awaiting_authorization";
+    const activePack = config?.activePack
+      ?? store.getReadinessSnapshot()?.details.activePack
+      ?? null;
+    if (!activePack) {
+      throw new Error("active pack is unknown; refusing to clear authorization across every platform");
+    }
+    await retryStateMutation(
+      () => store.clearAuthorization(activePack),
+      "authorization reset"
+    );
+    return `active_pack=${activePack}\nauthorization cleared; bridge returned to ${store.getReadinessSnapshot()?.state ?? "awaiting_authorization"}`;
   } finally {
     store.close();
   }

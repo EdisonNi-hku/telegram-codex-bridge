@@ -1,13 +1,13 @@
 ---
 name: telegram-codex-linker
-description: Install, configure, repair, update, or rebind the Telegram Codex Bridge after the user installs this skill. Use when the user wants Codex to take over bridge setup with minimal user action, only interrupting for unavoidable external steps like providing a Telegram bot token or messaging the bot once.
+description: Install, configure, repair, update, or rebind the Codex Bridge core with the Telegram pack after the user installs this skill. Use when the user wants Codex to take over bridge setup with minimal user action, only interrupting for unavoidable external steps like providing a Telegram bot token or messaging the bot once.
 ---
 
 # Telegram Codex Linker
 
 ## Overview
 
-This skill exists so the public entrypoint is only "install the skill". After that, the skill should do the bridge work itself.
+This skill exists so the public entrypoint is only "install the skill". After that, the skill should do the bridge-core plus chosen-pack work itself.
 
 The user should not be told to manually `git clone`, `npm install`, `npm run build`, or poke service managers unless local automation is genuinely blocked.
 
@@ -18,7 +18,7 @@ Assume the user already installed this skill with a one-line GitHub command.
 After that, the user should be able to say things like:
 
 - `Use $telegram-codex-linker to set up my Telegram bridge`
-- `Install the Telegram Codex Bridge`
+- `Install the Codex Bridge with the Telegram pack`
 - `Repair my Telegram bridge`
 - `Rebind the bridge to a new Telegram account`
 
@@ -49,16 +49,16 @@ $ctbBin = Join-Path $localAppData "codex-telegram-bridge\bin\ctb.cmd"
 For first install, use the bundled script:
 
 ```bash
-bash "$INSTALL_SCRIPT" --telegram-token '<token>' --project-scan-roots '<path1:path2:path3>'
+bash "$INSTALL_SCRIPT" --pack telegram --telegram-token '<token>' --project-scan-roots '<path1:path2:path3>'
 ```
 
 On Windows, use PowerShell instead:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File $installScript -TelegramToken '<token>' -ProjectScanRoots '<path1;path2;path3>'
+powershell -ExecutionPolicy Bypass -File $installScript -Pack telegram -TelegramToken '<token>' -ProjectScanRoots '<path1;path2;path3>'
 ```
 
-That script is the default install path. Do not narrate the build steps unless the install fails.
+That script is the default install path. Today the only shipped pack is Telegram, but the skill should still treat the flow as bridge core plus active pack. Do not narrate the build steps unless the install fails.
 
 ## Rules
 

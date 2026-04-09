@@ -17,11 +17,28 @@ const testLogger: Logger = {
 };
 
 const testConfig: BridgeConfig = {
-  telegramBotToken: "test-token",
+  activePack: "telegram",
+  shared: {
+    activePack: "telegram",
+    codexBin: "codex",
+    projectScanRoots: [],
+    voiceInputEnabled: false,
+    voiceOpenaiApiKey: "",
+    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+    voiceFfmpegBin: "ffmpeg",
+    perfMonitorEnabled: false,
+    perfMonitorSampleIntervalMs: 15_000,
+    perfMonitorRetentionDays: 7
+  },
+  packs: {
+    telegram: {
+      botToken: "test-token",
+      apiBaseUrl: "https://api.telegram.org",
+      pollTimeoutSeconds: 20,
+      pollIntervalMs: 1500
+    }
+  },
   codexBin: "codex",
-  telegramApiBaseUrl: "https://api.telegram.org",
-  telegramPollTimeoutSeconds: 20,
-  telegramPollIntervalMs: 1500,
   projectScanRoots: [],
   voiceInputEnabled: false,
   voiceOpenaiApiKey: "",

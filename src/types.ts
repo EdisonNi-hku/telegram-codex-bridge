@@ -1,4 +1,6 @@
 import type { TelegramInlineKeyboardMarkup } from "./telegram/api.js";
+import type { JsonRpcRequestId } from "./codex/app-server.js";
+import type { BridgePackName } from "./packs/names.js";
 import type {
   PlatformBindingRef,
   PlatformUserRef
@@ -28,8 +30,10 @@ export type BridgeReadinessState =
   | "awaiting_authorization"
   | "codex_not_authenticated"
   | "app_server_unavailable"
-  | "telegram_token_invalid"
+  | "pack_unhealthy"
   | "bridge_unhealthy";
+
+export type PackSetupState = "complete" | "incomplete";
 
 export function isOperationalReadinessState(state: BridgeReadinessState): boolean {
   return state === "ready" || state === "awaiting_authorization";
@@ -117,10 +121,12 @@ export const DEFAULT_RUNTIME_STATUS_FIELDS: RuntimeStatusField[] = [];
 export type TurnInputSourceKind = "voice";
 
 export interface ReadinessDetails {
+  activePack?: BridgePackName;
   codexInstalled: boolean;
   codexAuthenticated: boolean;
   appServerAvailable: boolean;
-  telegramTokenValid: boolean;
+  packState?: "ready" | "awaiting_authorization" | "pack_unhealthy";
+  setupState?: PackSetupState;
   authorizedUserBound: boolean;
   issues: string[];
   nodeVersion?: string;
@@ -129,8 +135,7 @@ export interface ReadinessDetails {
   codexVersionSupported?: boolean;
   codexBinResolvedPath?: string;
   codexLoginStatus?: string;
-  telegramBotUsername?: string;
-  telegramBotId?: string;
+  packMetadata?: Record<string, string | boolean | null | undefined>;
   systemdAvailable?: boolean;
   serviceManager?: "systemd" | "launchd" | "task_scheduler" | "none";
   serviceManagerHealth?: "ok" | "warning" | "error";
@@ -144,6 +149,20 @@ export interface ReadinessDetails {
   voiceFfmpegAvailable?: boolean;
   voiceFfmpegResolvedPath?: string;
   voiceRealtimeSupported?: boolean;
+  sharedChecks?: Array<{
+    id: string;
+    ok: boolean;
+    summary: string;
+  }>;
+  packChecks?: Array<{
+    id: string;
+    ok: boolean;
+    summary: string;
+    missingEnv?: string[] | undefined;
+  }>;
+  sharedIssues?: string[];
+  packIssues?: string[];
+  setupChecklist?: string[];
 }
 
 export interface ReadinessSnapshot {
@@ -151,6 +170,44 @@ export interface ReadinessSnapshot {
   checkedAt: string;
   details: ReadinessDetails;
   appServerPid?: string | null;
+}
+
+export function isSetupComplete(snapshot: ReadinessSnapshot): boolean {
+  return (snapshot.details.setupState ?? "complete") === "complete";
+}
+
+export function normalizeReadinessSnapshot(snapshot: ReadinessSnapshot): ReadinessSnapshot {
+  const legacyState = snapshot.state as string;
+  const legacyDetails = snapshot.details as ReadinessDetails & {
+    telegramBotUsername?: string;
+    telegramBotId?: string;
+  };
+  const packMetadata = {
+    ...(snapshot.details.packMetadata ?? {})
+  };
+
+  if (legacyDetails.telegramBotUsername !== undefined && packMetadata.telegramBotUsername === undefined) {
+    packMetadata.telegramBotUsername = legacyDetails.telegramBotUsername;
+  }
+  if (legacyDetails.telegramBotId !== undefined && packMetadata.telegramBotId === undefined) {
+    packMetadata.telegramBotId = legacyDetails.telegramBotId;
+  }
+
+  return {
+    ...snapshot,
+    state: legacyState === "telegram_token_invalid" ? "pack_unhealthy" : snapshot.state,
+    details: {
+      ...snapshot.details,
+      packState: snapshot.details.packState
+        ?? (snapshot.state === "pack_unhealthy" || legacyState === "telegram_token_invalid"
+          ? "pack_unhealthy"
+          : snapshot.state === "ready"
+            ? "ready"
+            : "awaiting_authorization"),
+      setupState: snapshot.details.setupState ?? "complete",
+      packMetadata
+    }
+  };
 }
 
 export interface AuthorizedUserRow extends PlatformUserRef {
@@ -191,6 +248,7 @@ export interface InstallManifest {
   version: string;
   sourceRoot: string | null;
   installedAt: string;
+  activePack?: BridgePackName | null;
   installSource?: InstallSourceMetadata | null;
 }
 
@@ -207,8 +265,6 @@ export type InstallSourceMetadata = GitHubArchiveInstallSource;
 export interface RuntimeNotice {
   key: string;
   chatId: string;
-  /** @deprecated Use `chatId`. */
-  telegramChatId: string;
   type: RuntimeNoticeType;
   message: string;
   parseMode?: "HTML" | null;
@@ -218,14 +274,10 @@ export interface RuntimeNotice {
   createdAt: string;
 }
 
-export interface FinalAnswerViewRow {
+export interface TerminalResultViewRow {
   answerId: string;
   chatId: string;
-  /** @deprecated Use `chatId`. */
-  telegramChatId: string;
   deliveryMessageId: number | null;
-  /** @deprecated Use `deliveryMessageId`. */
-  telegramMessageId: number | null;
   sessionId: string;
   threadId: string;
   turnId: string;
@@ -237,13 +289,12 @@ export interface FinalAnswerViewRow {
   createdAt: string;
 }
 
+/** @deprecated Use `TerminalResultViewRow`. */
+export interface FinalAnswerViewRow extends TerminalResultViewRow {}
+
 export interface CurrentSessionCardRow {
   chatId: string;
-  /** @deprecated Use `chatId`. */
-  telegramChatId: string;
   messageId: number | null;
-  /** @deprecated Use `messageId`. */
-  telegramMessageId: number | null;
   sessionId: string;
   updatedAt: string;
 }
@@ -271,20 +322,16 @@ export interface TurnInputSourceRow {
 export interface PendingInteractionRow {
   interactionId: string;
   chatId: string;
-  /** @deprecated Use `chatId`. */
-  telegramChatId: string;
   sessionId: string;
   threadId: string;
   turnId: string;
-  requestId: string;
+  requestId: JsonRpcRequestId;
   requestMethod: string;
   interactionKind: PendingInteractionKind;
   state: PendingInteractionState;
   promptJson: string;
   responseJson: string | null;
   messageId: number | null;
-  /** @deprecated Use `messageId`. */
-  telegramMessageId: number | null;
   createdAt: string;
   updatedAt: string;
   resolvedAt: string | null;

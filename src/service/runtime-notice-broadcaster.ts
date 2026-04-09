@@ -1,13 +1,23 @@
 import { classifyNotification } from "../codex/notification-classifier.js";
+import type { BridgePlatform } from "../core/domain/binding.js";
 import type { BridgeStateStore } from "../state/store.js";
 
 type GlobalRuntimeNotice = Extract<
   ReturnType<typeof classifyNotification>,
-  { kind: "config_warning" | "deprecation_notice" | "model_rerouted" | "skills_changed" | "thread_compacted" }
+  {
+    kind:
+      | "config_warning"
+      | "deprecation_notice"
+      | "model_rerouted"
+      | "skills_changed"
+      | "thread_compacted"
+      | "thread_compaction_completed"
+  }
 >;
 
 interface RuntimeNoticeBroadcasterDeps {
   getStore: () => BridgeStateStore | null;
+  activePack: BridgePlatform;
   safeSendMessage: (chatId: string, text: string) => Promise<boolean>;
 }
 
@@ -25,7 +35,7 @@ export class RuntimeNoticeBroadcaster {
       return;
     }
 
-    const bindings = store.listChatBindings();
+    const bindings = store.listChatBindings(this.deps.activePack);
     for (const binding of bindings) {
       const delivered = await this.deps.safeSendMessage(binding.chatId, message);
       if (!delivered) {
@@ -57,6 +67,7 @@ export function formatGlobalRuntimeNotice(notification: GlobalRuntimeNotice): st
     case "skills_changed":
       return "Codex 技能列表已刷新。";
     case "thread_compacted":
+    case "thread_compaction_completed":
       return "Codex 线程上下文已压缩。";
     default:
       return null;

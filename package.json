@@ -29,6 +29,9 @@
   "bin": {
     "ctb": "./dist/cli.js"
   },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.60.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",

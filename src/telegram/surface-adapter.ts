@@ -4,12 +4,11 @@ import type {
   PlatformSurfaceOperationResult
 } from "../core/interaction-model/surface.js";
 import {
-  createEditedSurfaceOperationResult,
-  createFailedSurfaceOperationResult,
-  createSentSurfaceOperationResult
+  type PlatformSurfaceControlRequirements
 } from "../core/interaction-model/surface.js";
 import type { TelegramInlineKeyboardMarkup } from "./api.js";
-import { isTelegramEditCommitted, type TelegramEditResult } from "../service/runtime-surface-state.js";
+import type { TelegramEditResult } from "../service/runtime-surface-state.js";
+import { dispatchHtmlSurface } from "../service/surface-dispatcher.js";
 
 export const TELEGRAM_SURFACE_CAPABILITY_SNAPSHOT: PlatformCapabilitySnapshot = {
   supportsCallbacks: true,
@@ -26,7 +25,9 @@ export async function executeTelegramHtmlSurfaceOperation(options: {
   replyMarkup?: TelegramInlineKeyboardMarkup | undefined;
   existingMessageId?: number | null | undefined;
   preferEdit?: boolean | undefined;
+  deferredIntent?: PlatformSurfaceIntent | undefined;
   capabilities?: PlatformCapabilitySnapshot | undefined;
+  requirements?: PlatformSurfaceControlRequirements | undefined;
   sendHtmlMessage: (
     chatId: string,
     html: string,
@@ -40,34 +41,19 @@ export async function executeTelegramHtmlSurfaceOperation(options: {
   ) => Promise<TelegramEditResult>;
 }): Promise<PlatformSurfaceOperationResult> {
   const capabilities = options.capabilities ?? TELEGRAM_SURFACE_CAPABILITY_SNAPSHOT;
-  const canAttemptEdit = Boolean(
-    options.preferEdit
-    && options.existingMessageId
-    && options.existingMessageId > 0
-    && options.editHtmlMessage
-    && capabilities.supportsEdits
-  );
-
-  if (canAttemptEdit) {
-    const editResult = await options.editHtmlMessage!(
-      options.chatId,
-      options.existingMessageId!,
-      options.html,
-      options.replyMarkup
-    );
-    if (isTelegramEditCommitted(editResult)) {
-      return createEditedSurfaceOperationResult(options.intent, options.existingMessageId!);
-    }
-  }
-
-  const sent = await options.sendHtmlMessage(options.chatId, options.html, options.replyMarkup);
-  if (sent) {
-    return createSentSurfaceOperationResult(options.intent, sent.message_id);
-  }
-
-  return createFailedSurfaceOperationResult(
-    options.intent,
-    canAttemptEdit ? "edit_failed" : "send_failed",
-    options.existingMessageId ?? null
-  );
+  return await dispatchHtmlSurface({
+    intent: options.intent,
+    chatId: options.chatId,
+    html: options.html,
+    replyMarkup: options.replyMarkup,
+    existingMessageId: options.existingMessageId,
+    preferEdit: options.preferEdit,
+    deferredIntent: options.deferredIntent,
+    capabilities,
+    requirements: options.requirements ?? {
+      requiresCallbacks: Boolean(options.replyMarkup)
+    },
+    sendHtmlMessage: options.sendHtmlMessage,
+    ...(options.editHtmlMessage ? { editHtmlMessage: options.editHtmlMessage } : {})
+  });
 }

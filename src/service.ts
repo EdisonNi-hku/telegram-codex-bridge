@@ -35,6 +35,7 @@ import {
   formatVisibleRuntimeState,
   selectStatusProgressText
 } from "./core/workflow/runtime-workflow.js";
+import { dispatchControlSurfaceFileAction } from "./core/interaction-model/platform-actions.js";
 import {
   createPlatformChatRef,
   isSamePlatformChatRef
@@ -58,10 +59,15 @@ import { TelegramApi, TelegramApiError,
   type TelegramUpdate
 } from "./telegram/api.js";
 import { TelegramPoller } from "./telegram/poller.js";
+import { getActiveBridgePack } from "./packs/registry.js";
+import { applyFeishuSetupObservation } from "./packs/feishu/setup.js";
+import { getTelegramPackConfig } from "./packs/telegram/config.js";
 import { ActivityTracker } from "./activity/tracker.js";
 import type { ActivityStatus, DebugJournalRecord, InspectSnapshot } from "./activity/types.js";
 import { classifyNotification } from "./codex/notification-classifier.js";
+import type { BridgeDynamicToolDeclaration, ServerRequestSupport } from "./codex/server-request-policy.js";
 import type { JsonRpcServerRequest, UserInput } from "./codex/app-server.js";
+import { parseAgentMessagePhase } from "./codex/protocol-truth.js";
 import {
   buildProjectSelectedText,
   buildRuntimeErrorCard,
@@ -91,6 +97,7 @@ import { CodexAppServerClient } from "./codex/app-server.js";
 import { asRecord, getString, getNumber, getArray } from "./util/untyped.js";
 import { normalizeAndTruncate, summarizeTextPreview, HISTORY_TEXT_LIMIT } from "./util/text.js";
 import { summarizeActivityStatus, summarizeActivityStatusList } from "./activity/serialize.js";
+import { nowIso } from "./util/time.js";
 
 interface RecentActivityEntry {
   tracker: ActivityTracker;
@@ -135,7 +142,19 @@ interface BridgeServiceDependencies {
   createPerformanceRecorder?: () => PerformanceRecorder;
   createPerformanceSampler?: (options: PerformanceSamplerOptions) => PerformanceSamplerLike;
   createAppServerHealthGuard?: () => AppServerHealthGuardLike;
+  dynamicToolDeclarations?: BridgeDynamicToolDeclaration[];
+  interpretPackServerRequest?: (request: JsonRpcServerRequest) => ServerRequestSupport;
   sleep?: (delayMs: number) => Promise<void>;
+}
+
+interface FeishuObservationRecorder {
+  recordInteractiveCardDelivered?(payload?: {
+    messageId?: string | null;
+  }): void;
+  recordInteractiveCardFailed?(payload: {
+    code?: number | null;
+    message?: string | null;
+  }): void;
 }
 
 interface ActiveTurnState {
@@ -203,6 +222,8 @@ export class BridgeService {
     private readonly config: BridgeConfig,
     private readonly deps: BridgeServiceDependencies = {}
   ) {
+    const activePack = getActiveBridgePack(this.config);
+    const platformCapabilities = activePack.capabilities;
     this.logger = createLogger("bridge", paths.bridgeLogPath);
     this.bootstrapLogger = createLogger("bootstrap", paths.bootstrapLogPath);
     this.runtimeCardTraceLoggers = {
@@ -222,6 +243,7 @@ export class BridgeService {
     });
     this.runtimeNoticeBroadcaster = new RuntimeNoticeBroadcaster({
       getStore: () => this.store,
+      activePack: this.config.activePack,
       safeSendMessage: async (chatId, text) => this.safeSendMessage(chatId, text)
     });
     this.threadArchiveReconciler = new ThreadArchiveReconciler({
@@ -322,6 +344,7 @@ export class BridgeService {
       safeDeleteMessage: async (chatId, messageId) => this.safeDeleteMessageResult(chatId, messageId),
       safeAnswerCallbackQuery: async (callbackQueryId, text) => this.safeAnswerCallbackQuery(callbackQueryId, text),
       getUiLanguage: () => this.getUiLanguage(),
+      capabilities: platformCapabilities,
       getRuntimeCardContext: (sessionId) => this.getRuntimeCardContext(sessionId),
       buildRuntimeStatusLine: (sessionId, inspect) => this.buildRuntimeStatusLine(sessionId, inspect),
       runtimeTraceSink: {
@@ -379,8 +402,25 @@ export class BridgeService {
       disposeRuntimeCards: (activeTurn) =>
         this.runtimeSurfaceController.disposeRuntimeCards(activeTurn as ActiveTurnState),
       safeSendMessage: async (chatId, text) => this.safeSendMessage(chatId, text),
-      safeSendDocumentResult: async (chatId, filePath, options) =>
-        this.safeSendDocumentResult(chatId, filePath, options),
+      platformActions: {
+        sendControlSurfaceFile: async (request) => await dispatchControlSurfaceFileAction({
+          capabilities: platformCapabilities,
+          request,
+          sendFile: async ({ chatId, filePath, caption, fileName }) => {
+            const sent = await this.safeSendDocumentResult(chatId, filePath, {
+              ...(caption ? { caption } : {}),
+              ...(fileName ? { fileName } : {})
+            });
+            return sent ? { messageId: sent.message_id } : null;
+          }
+        })
+      },
+      dynamicToolDeclarations: this.deps.dynamicToolDeclarations ?? [],
+      interpretPackServerRequest: this.deps.interpretPackServerRequest ?? (() => ({
+        kind: "unsupported",
+        errorCode: -32601,
+        errorMessage: "Unsupported server request: item/tool/call"
+      })),
       safeSendHtmlMessageResult: async (chatId, html, replyMarkup) =>
         this.safeSendHtmlMessageResult(chatId, html, replyMarkup),
       handleGlobalRuntimeNotice: async (notification) => this.runtimeNoticeBroadcaster.broadcast(notification),
@@ -456,6 +496,10 @@ export class BridgeService {
     };
   }
 
+  private get activePackLabel(): string {
+    return this.config.activePack === "feishu" ? "飞书" : "Telegram";
+  }
+
   /** Ensure app-server is available and return it, or throw. */
   private async requireAppServer(): Promise<CodexAppServerClient> {
     await this.ensureAppServerAvailable();
@@ -488,6 +532,46 @@ export class BridgeService {
 
   private get pendingThreadArchiveOps(): ReadonlyMap<string, PendingThreadArchiveOp[]> {
     return this.threadArchiveReconciler.pendingOps;
+  }
+
+  private attachFeishuObservationRecorder(): void {
+    if (this.config.activePack !== "feishu" || !this.api) {
+      return;
+    }
+
+    const recorderTarget = this.api as unknown as {
+      setObservationRecorder?: (recorder: FeishuObservationRecorder) => void;
+    };
+    recorderTarget.setObservationRecorder?.({
+      recordInteractiveCardDelivered: () => {
+        this.recordFeishuSetupObservation({
+          lastInteractiveCardSentAt: nowIso(),
+          lastInteractiveErrorCode: null,
+          lastInteractiveError: null
+        });
+      },
+      recordInteractiveCardFailed: (payload) => {
+        this.recordFeishuSetupObservation({
+          lastInteractiveErrorCode: payload.code === null || payload.code === undefined ? null : `${payload.code}`,
+          lastInteractiveError: payload.message ?? null
+        });
+      }
+    });
+  }
+
+  private recordFeishuSetupObservation(patch: {
+    lastTextIngressAt?: string | null;
+    lastInteractiveCardSentAt?: string | null;
+    lastCardCallbackAt?: string | null;
+    lastInteractiveErrorCode?: string | null;
+    lastInteractiveError?: string | null;
+  }): void {
+    if (this.config.activePack !== "feishu" || !this.store || !this.snapshot) {
+      return;
+    }
+
+    this.snapshot = applyFeishuSetupObservation(this.snapshot, patch, nowIso());
+    this.store.writeReadinessSnapshot(this.snapshot);
   }
 
   async run(): Promise<void> {
@@ -555,7 +639,9 @@ export class BridgeService {
       throw new Error(`readiness ${snapshot.state}; service will not enter run loop`);
     }
 
-    this.api = createTelegramApi(this.config.telegramBotToken, this.config.telegramApiBaseUrl, this.performanceRecorder);
+    const telegramConfig = getTelegramPackConfig(this.config);
+    this.api = createTelegramApi(telegramConfig.botToken, telegramConfig.apiBaseUrl, this.performanceRecorder);
+    this.attachFeishuObservationRecorder();
     this.poller = createPoller(
       this.api,
       this.config,
@@ -643,6 +729,12 @@ export class BridgeService {
       return;
     }
 
+    if (this.config.activePack === "feishu") {
+      this.recordFeishuSetupObservation({
+        lastTextIngressAt: nowIso()
+      });
+    }
+
     const authResult = await this.authorizeMessageSender(message);
     if (!authResult.authorized) {
       return;
@@ -727,6 +819,11 @@ export class BridgeService {
     }
 
     const message = callbackQuery.message;
+    if (this.config.activePack === "feishu") {
+      this.recordFeishuSetupObservation({
+        lastCardCallbackAt: nowIso()
+      });
+    }
     const authResult = await this.authorizeCallbackSender(callbackQuery);
     if (!authResult.authorized) {
       return;
@@ -1252,7 +1349,7 @@ export class BridgeService {
       return;
     }
 
-    this.store.setFinalAnswerPrimaryActionConsumed(view.answerId, true);
+    this.store.setTerminalResultPrimaryActionConsumed(view.answerId, true);
     await this.runtimeSurfaceController.renderPersistedPlanResult(
       callbackQueryId,
       chatId,
@@ -1266,17 +1363,17 @@ export class BridgeService {
     chatId: string,
     messageId: number,
     answerIdOrLegacySessionId: string
-  ): ReturnType<BridgeStateStore["getFinalAnswerView"]> {
+  ): ReturnType<BridgeStateStore["getTerminalResultView"]> {
     if (!this.store) {
       return null;
     }
 
-    const exact = this.store.getFinalAnswerView(answerIdOrLegacySessionId, chatId);
+    const exact = this.store.getTerminalResultView(answerIdOrLegacySessionId, chatId);
     if (exact && (exact.deliveryMessageId === null || exact.deliveryMessageId === messageId)) {
       return exact;
     }
 
-    return this.store.listFinalAnswerViews(chatId).find((candidate) =>
+    return this.store.listTerminalResultViews(chatId).find((candidate) =>
       candidate.sessionId === answerIdOrLegacySessionId
       && candidate.deliveryMessageId === messageId
     ) ?? null;
@@ -1289,12 +1386,13 @@ export class BridgeService {
       return { authorized: false, chatId: "", userId: "" };
     }
 
-    const authorized = this.store.getAuthorizedUser();
+    const authorized = this.store.getAuthorizedUser(this.config.activePack);
     const userId = `${message.from.id}`;
     const chatId = `${message.chat.id}`;
 
     if (!authorized) {
       this.store.upsertPendingAuthorization({
+        platform: this.config.activePack,
         userId,
         chatId,
         username: message.from.username ?? null,
@@ -1302,7 +1400,7 @@ export class BridgeService {
       });
       await this.safeSendMessage(
         chatId,
-        "这台服务器还没有绑定 Telegram 账号，请等待管理员在本机确认。"
+        `这台服务器还没有绑定${this.activePackLabel}账号，请等待管理员在本机确认。`
       );
       return { authorized: false, chatId, userId };
     }
@@ -1322,12 +1420,12 @@ export class BridgeService {
       return { authorized: false, chatId: "", userId: "" };
     }
 
-    const authorized = this.store.getAuthorizedUser();
+    const authorized = this.store.getAuthorizedUser(this.config.activePack);
     const userId = `${callbackQuery.from.id}`;
     const chatId = `${callbackQuery.message.chat.id}`;
 
     if (!authorized || authorized.userId !== userId) {
-      await this.safeAnswerCallbackQuery(callbackQuery.id, "这个 Telegram 账号无权访问此服务器上的 Codex。");
+      await this.safeAnswerCallbackQuery(callbackQuery.id, `这个${this.activePackLabel}账号无权访问此服务器上的 Codex。`);
       await this.rejectUnauthorizedUser(userId, chatId);
       return { authorized: false, chatId, userId };
     }
@@ -1343,11 +1441,11 @@ export class BridgeService {
     const lastReplyAt = this.unauthorizedReplyAt.get(userId) ?? 0;
     if (Date.now() - lastReplyAt > 60_000) {
       this.unauthorizedReplyAt.set(userId, Date.now());
-      await this.safeSendMessage(chatId, "这个 Telegram 账号无权访问此服务器上的 Codex。");
+      await this.safeSendMessage(chatId, `这个${this.activePackLabel}账号无权访问此服务器上的 Codex。`);
     }
 
     await this.logger.warn("unauthorized platform access rejected", {
-      platform: "telegram",
+      platform: this.config.activePack,
       userId,
       chatId
     });
@@ -2066,7 +2164,7 @@ export class BridgeService {
       if (this.snapshot) {
         this.snapshot = {
           ...this.snapshot,
-          state: this.store.getAuthorizedUser() ? "ready" : "awaiting_authorization",
+          state: this.store.getAuthorizedUser(this.config.activePack) ? "ready" : "awaiting_authorization",
           checkedAt: new Date().toISOString(),
           appServerPid: client.pid ? `${client.pid}` : null,
           details: {
@@ -3084,7 +3182,7 @@ export class BridgeService {
   }
 
   private async restoreCurrentSessionCardsAtStartup(): Promise<void> {
-    const bindings = this.store?.listChatBindings() ?? [];
+    const bindings = this.store?.listChatBindings(this.config.activePack) ?? [];
     await Promise.all(
       bindings.map((binding) =>
         this.currentSessionCardController.syncForChat(binding.chatId, "startup_restore"))
@@ -3309,7 +3407,7 @@ function buildInspectPayloadFromThreadHistory(
       }
 
       case "agentMessage": {
-        const phase = getString(itemRecord, "phase");
+        const phase = parseAgentMessagePhase(getString(itemRecord, "phase"));
         const text = getString(itemRecord, "text");
         if (!text) {
           break;
@@ -3492,8 +3590,8 @@ function getKnownUnsupportedServerRequest(request: JsonRpcServerRequest): {
   if (request.method === "item/tool/call") {
     const tool = getString(request.params, "tool") ?? "unknown";
     return {
-      errorMessage: "Dynamic tool calls are not supported by the Telegram bridge",
-      userMessage: `Codex 发起了动态工具调用（${tool}），但 Telegram bridge 当前没有稳定的客户端工具映射，已拒绝这次调用。`,
+      errorMessage: "Dynamic tool calls are not supported by the active bridge pack",
+      userMessage: `Codex 发起了动态工具调用（${tool}），但当前 bridge pack 没有稳定的客户端工具映射，已拒绝这次调用。`,
       logDetail: `tool=${tool}`
     };
   }
@@ -3501,7 +3599,7 @@ function getKnownUnsupportedServerRequest(request: JsonRpcServerRequest): {
   if (request.method === "account/chatgptAuthTokens/refresh") {
     const reason = getString(request.params, "reason") ?? "unknown";
     return {
-      errorMessage: "ChatGPT auth token refresh is not supported by the Telegram bridge",
+      errorMessage: "ChatGPT auth token refresh is not supported by the active bridge pack",
       userMessage: `Codex 请求 ChatGPT 登录令牌刷新（原因：${reason}），但 bridge 不持有可刷新的 ChatGPT access token / account id，已拒绝这次请求。`,
       logDetail: `reason=${reason}`
     };

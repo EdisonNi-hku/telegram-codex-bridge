@@ -21,7 +21,7 @@ import {
 const PENDING_AUTH_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface PendingAuthorizationRecord {
-  platform?: "telegram";
+  platform?: "telegram" | "feishu";
   user_id?: string | null;
   chat_id?: string | null;
   username?: string | null;
@@ -34,7 +34,7 @@ export interface PendingAuthorizationRecord {
 }
 
 export interface AuthorizedUserRecord {
-  platform?: "telegram";
+  platform?: "telegram" | "feishu";
   user_id?: string | null;
   username?: string | null;
   telegram_user_id: string;
@@ -45,7 +45,7 @@ export interface AuthorizedUserRecord {
 }
 
 export interface ChatBindingRecord {
-  platform?: "telegram";
+  platform?: "telegram" | "feishu";
   chat_id?: string | null;
   user_id?: string | null;
   telegram_chat_id: string;

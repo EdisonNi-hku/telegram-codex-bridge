@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { BridgeConfig } from "./config.js";
 import type { Logger } from "./logger.js";
 import type { BridgePaths } from "./paths.js";
+import type { PackHealthReport } from "./packs/contract.js";
 import { probeReadiness } from "./readiness.js";
 import { BridgeStateStore } from "./state/store.js";
 
@@ -17,11 +18,33 @@ const testLogger: Logger = {
 };
 
 const testConfig: BridgeConfig = {
-  telegramBotToken: "test-token",
+  activePack: "telegram",
+  shared: {
+    activePack: "telegram",
+    codexBin: "codex",
+    projectScanRoots: [],
+    voiceInputEnabled: false,
+    voiceOpenaiApiKey: "",
+    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+    voiceFfmpegBin: "ffmpeg",
+    perfMonitorEnabled: false,
+    perfMonitorSampleIntervalMs: 15_000,
+    perfMonitorRetentionDays: 7,
+    appServerGuardEnabled: true,
+    appServerGuardSampleIntervalMs: 30_000,
+    appServerGuardMcpWorkerThreshold: 6,
+    appServerGuardConsecutiveWindows: 3,
+    appServerGuardCooldownMs: 900_000
+  },
+  packs: {
+    telegram: {
+      botToken: "test-token",
+      apiBaseUrl: "https://api.telegram.org",
+      pollTimeoutSeconds: 20,
+      pollIntervalMs: 1500
+    }
+  },
   codexBin: "codex",
-  telegramApiBaseUrl: "https://api.telegram.org",
-  telegramPollTimeoutSeconds: 20,
-  telegramPollIntervalMs: 1500,
   projectScanRoots: [],
   voiceInputEnabled: false,
   voiceOpenaiApiKey: "",
@@ -29,7 +52,12 @@ const testConfig: BridgeConfig = {
   voiceFfmpegBin: "ffmpeg",
   perfMonitorEnabled: false,
   perfMonitorSampleIntervalMs: 15_000,
-  perfMonitorRetentionDays: 7
+  perfMonitorRetentionDays: 7,
+  appServerGuardEnabled: true,
+  appServerGuardSampleIntervalMs: 30_000,
+  appServerGuardMcpWorkerThreshold: 6,
+  appServerGuardConsecutiveWindows: 3,
+  appServerGuardCooldownMs: 900_000
 };
 const REQUIRED_CLIENT_REQUESTS = [
   "thread/list",
@@ -125,6 +153,25 @@ function methodsToSchema(methods: string[]): string {
   return JSON.stringify({
     oneOf: [{ properties: { method: { enum: methods } } }]
   });
+}
+
+function createTelegramPackHealthReport(
+  overrides?: Partial<PackHealthReport>
+): PackHealthReport {
+  return {
+    state: "awaiting_authorization",
+    checks: [
+      { id: "telegram_credentials", ok: true, summary: "telegram credentials configured" },
+      { id: "telegram_token_validation", ok: true, summary: "telegram bot token validated" },
+      { id: "telegram_authorization_binding", ok: false, summary: "telegram authorization is pending" }
+    ],
+    issues: ["telegram authorization is pending"],
+    metadata: {
+      telegramBotUsername: "bridge_bot",
+      telegramBotId: "1"
+    },
+    ...overrides
+  };
 }
 
 async function writeCapabilitySchemas(
@@ -223,11 +270,7 @@ test("probeReadiness warns when no supported service manager is available but do
           }
           throw new Error(`unexpected command: ${args.join(" ")}`);
         },
-        validateTelegramToken: async () => ({
-          ok: true,
-          botId: "1",
-          username: "bridge_bot"
-        }),
+        runPackHealthCheck: async () => createTelegramPackHealthReport(),
         createAppServer: () => ({
           pid: 123,
           initializeAndProbe: async () => {},
@@ -280,11 +323,7 @@ test("probeReadiness fails hard when voice input is enabled without any usable t
           }
           throw new Error(`unexpected command: ${args.join(" ")}`);
         },
-        validateTelegramToken: async () => ({
-          ok: true,
-          botId: "1",
-          username: "bridge_bot"
-        }),
+        runPackHealthCheck: async () => createTelegramPackHealthReport(),
         createAppServer: () => ({
           pid: 123,
           initializeAndProbe: async () => {},
@@ -344,11 +383,7 @@ test("probeReadiness enables experimentalApi even when voice input is disabled",
           }
           throw new Error(`unexpected command: ${args.join(" ")}`);
         },
-        validateTelegramToken: async () => ({
-          ok: true,
-          botId: "1",
-          username: "bridge_bot"
-        }),
+        runPackHealthCheck: async () => createTelegramPackHealthReport(),
         createAppServer: (options: {
           codexBin: string;
           appServerLogPath: string;
@@ -408,11 +443,7 @@ test("probeReadiness stops paginating model pages once realtime voice support is
           }
           throw new Error(`unexpected command: ${args.join(" ")}`);
         },
-        validateTelegramToken: async () => ({
-          ok: true,
-          botId: "1",
-          username: "bridge_bot"
-        }),
+        runPackHealthCheck: async () => createTelegramPackHealthReport(),
         createAppServer: () => ({
           pid: 123,
           initializeAndProbe: async () => {},
@@ -482,11 +513,7 @@ test("probeReadiness fails hard when the current Codex capability surface is bel
           }
           throw new Error(`unexpected command: ${args.join(" ")}`);
         },
-        validateTelegramToken: async () => ({
-          ok: true,
-          botId: "1",
-          username: "bridge_bot"
-        }),
+        runPackHealthCheck: async () => createTelegramPackHealthReport(),
         evaluateCapabilities: async () => ({
           ok: false,
           source: "generated_schema",
@@ -542,11 +569,7 @@ test("probeReadiness fails hard when required subagent naming notifications are 
             }
             throw new Error(`unexpected command: ${args.join(" ")}`);
           },
-          validateTelegramToken: async () => ({
-            ok: true,
-            botId: "1",
-            username: "bridge_bot"
-          }),
+          runPackHealthCheck: async () => createTelegramPackHealthReport(),
           createAppServer: () => ({
             pid: 123,
             initializeAndProbe: async () => {},
@@ -600,11 +623,7 @@ test("probeReadiness accepts schemas that omit item/webSearch/progress", async (
           }
           throw new Error(`unexpected command: ${args.join(" ")}`);
         },
-        validateTelegramToken: async () => ({
-          ok: true,
-          botId: "1",
-          username: "bridge_bot"
-        }),
+        runPackHealthCheck: async () => createTelegramPackHealthReport(),
         createAppServer: () => ({
           pid: 123,
           initializeAndProbe: async () => {},
@@ -655,11 +674,7 @@ test("probeReadiness retries transient schema generation failures instead of cac
         }
         throw new Error(`unexpected command: ${args.join(" ")}`);
       },
-      validateTelegramToken: async () => ({
-        ok: true,
-        botId: "1",
-        username: "bridge_bot"
-      }),
+      runPackHealthCheck: async () => createTelegramPackHealthReport(),
       createAppServer: () => ({
         pid: 123,
         initializeAndProbe: async () => {},
@@ -740,11 +755,7 @@ test("probeReadiness ignores stale capability cache entries from an older bridge
           }
           throw new Error(`unexpected command: ${args.join(" ")}`);
         },
-        validateTelegramToken: async () => ({
-          ok: true,
-          botId: "1",
-          username: "bridge_bot"
-        }),
+        runPackHealthCheck: async () => createTelegramPackHealthReport(),
         createAppServer: () => ({
           pid: 123,
           initializeAndProbe: async () => {},
@@ -795,11 +806,7 @@ test("probeReadiness caches capability mismatches that come from a successful sc
         }
         throw new Error(`unexpected command: ${args.join(" ")}`);
       },
-      validateTelegramToken: async () => ({
-        ok: true,
-        botId: "1",
-        username: "bridge_bot"
-      })
+      runPackHealthCheck: async () => createTelegramPackHealthReport()
     };
 
     const first = await probeReadiness({

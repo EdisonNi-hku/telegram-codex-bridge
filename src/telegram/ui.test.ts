@@ -106,7 +106,12 @@ function createReadinessSnapshot(overrides: Partial<ReadinessSnapshot> = {}): Re
       codexInstalled: true,
       codexAuthenticated: true,
       appServerAvailable: true,
-      telegramTokenValid: true,
+      packState: "ready",
+      setupState: "complete",
+      packMetadata: {
+        telegramBotUsername: "bridge_bot",
+        telegramBotId: "1"
+      },
       authorizedUserBound: true,
       issues: [],
       ...overrides.details
@@ -182,7 +187,7 @@ test("buildStatusText renders bold field labels and escapes values for Telegram 
         codexInstalled: true,
         codexAuthenticated: true,
         appServerAvailable: true,
-        telegramTokenValid: false,
+        packState: "pack_unhealthy",
         authorizedUserBound: true,
         issues: ["token <expired>"]
       }
@@ -200,7 +205,8 @@ test("buildStatusText renders bold field labels and escapes values for Telegram 
     [
       "<b>服务状态</b>",
       "<b>桥接状态：</b> ready",
-      "<b>Telegram 连通：</b> 异常",
+      "<b>平台连通：</b> 异常",
+      "<b>配置完成：</b> 是",
       "<b>Codex 可用：</b> 正常",
       "<b>当前会话：</b> Project &amp; One / Session &lt;Alpha&gt; / 空闲 / gpt-5 + 高 / 上次已完成",
       "<b>最近检查：</b> 2026-03-10T10:00:00.000Z",

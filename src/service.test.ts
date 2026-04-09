@@ -12,6 +12,7 @@ import { ActivityTracker } from "./activity/tracker.js";
 import type { ThreadReadResult } from "./codex/app-server.js";
 import { CodexAppServerClient } from "./codex/app-server.js";
 import { classifyNotification } from "./codex/notification-classifier.js";
+import { TELEGRAM_PACK } from "./packs/telegram/index.js";
 import { BridgeService } from "./service.js";
 import { BridgeStateStore } from "./state/store.js";
 import { buildTurnStatusCard, encodeModelPickCallback, parseCallbackData } from "./telegram/ui.js";
@@ -24,11 +25,33 @@ const testLogger: Logger = {
 };
 
 const testConfig: BridgeConfig = {
-  telegramBotToken: "test-token",
+  activePack: "telegram",
+  shared: {
+    activePack: "telegram",
+    codexBin: "codex",
+    projectScanRoots: [],
+    voiceInputEnabled: false,
+    voiceOpenaiApiKey: "",
+    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+    voiceFfmpegBin: "ffmpeg",
+    perfMonitorEnabled: false,
+    perfMonitorSampleIntervalMs: 15_000,
+    perfMonitorRetentionDays: 7,
+    appServerGuardEnabled: true,
+    appServerGuardSampleIntervalMs: 30_000,
+    appServerGuardMcpWorkerThreshold: 6,
+    appServerGuardConsecutiveWindows: 3,
+    appServerGuardCooldownMs: 900_000
+  },
+  packs: {
+    telegram: {
+      botToken: "test-token",
+      apiBaseUrl: "https://api.telegram.org",
+      pollTimeoutSeconds: 20,
+      pollIntervalMs: 1500
+    }
+  },
   codexBin: "codex",
-  telegramApiBaseUrl: "https://api.telegram.org",
-  telegramPollTimeoutSeconds: 20,
-  telegramPollIntervalMs: 1500,
   projectScanRoots: [],
   voiceInputEnabled: false,
   voiceOpenaiApiKey: "",
@@ -36,7 +59,12 @@ const testConfig: BridgeConfig = {
   voiceFfmpegBin: "ffmpeg",
   perfMonitorEnabled: false,
   perfMonitorSampleIntervalMs: 15_000,
-  perfMonitorRetentionDays: 7
+  perfMonitorRetentionDays: 7,
+  appServerGuardEnabled: true,
+  appServerGuardSampleIntervalMs: 30_000,
+  appServerGuardMcpWorkerThreshold: 6,
+  appServerGuardConsecutiveWindows: 3,
+  appServerGuardCooldownMs: 900_000
 };
 
 function createTestPaths(root: string): BridgePaths {
@@ -90,7 +118,11 @@ async function createServiceContext(
   ]);
 
   const store = await BridgeStateStore.open(paths, testLogger);
-  const service = new BridgeService(paths, config, deps);
+  const service = new BridgeService(paths, config, {
+    dynamicToolDeclarations: TELEGRAM_PACK.platformActions.getDynamicToolDeclarations(),
+    interpretPackServerRequest: TELEGRAM_PACK.platformActions.interpretServerRequest,
+    ...deps
+  });
 
   (service as any).store = store;
   (service as any).logger = testLogger;
@@ -575,7 +607,11 @@ function createReadinessSnapshot(
       codexInstalled: true,
       codexAuthenticated: true,
       appServerAvailable: true,
-      telegramTokenValid: true,
+      packState: "ready",
+      packMetadata: {
+        telegramBotUsername: "bridge_bot",
+        telegramBotId: "1"
+      },
       authorizedUserBound: false,
       issues: [],
       nodeVersion: "v24.13.1",
@@ -4839,7 +4875,8 @@ test("startRealTurn recreates a missing remote thread before starting the turn",
 
     assert.deepEqual(resumeThreadCalls, ["thread-missing"]);
     assert.deepEqual(startThreadCalls, [{
-      cwd: "/tmp/project-one"
+      cwd: "/tmp/project-one",
+      dynamicTools: TELEGRAM_PACK.platformActions.getDynamicToolDeclarations()
     }]);
     assert.deepEqual(startTurnCalls, [{
       threadId: "thread-recreated",
@@ -4865,7 +4902,7 @@ test("status command renders structured fields with Telegram HTML", async () => 
         codexInstalled: true,
         codexAuthenticated: true,
         appServerAvailable: true,
-        telegramTokenValid: true,
+        packState: "ready",
         authorizedUserBound: true,
         issues: []
       },
@@ -4905,7 +4942,7 @@ test("status command appends live runtime details for the active running session
         codexInstalled: true,
         codexAuthenticated: true,
         appServerAvailable: true,
-        telegramTokenValid: true,
+        packState: "ready",
         authorizedUserBound: true,
         issues: []
       },
@@ -5248,7 +5285,7 @@ test("status and inspect replies stay at the bottom without an automatic hub rea
         codexInstalled: true,
         codexAuthenticated: true,
         appServerAvailable: true,
-        telegramTokenValid: true,
+        packState: "ready",
         authorizedUserBound: true,
         issues: []
       },
@@ -7859,7 +7896,8 @@ test("model command opens a paginated picker and supports two-step model plus re
 
     assert.deepEqual(startThreadCalls, [{
       cwd: "/tmp/project-one",
-      model: "o3"
+      model: "o3",
+      dynamicTools: TELEGRAM_PACK.platformActions.getDynamicToolDeclarations()
     }]);
     assert.deepEqual(startTurnCalls, [{
       threadId: "thread-model",
@@ -8296,7 +8334,8 @@ test("review command starts review mode and creates a dedicated review session w
 
     assert.deepEqual(startThreadCalls, [{
       cwd: "/tmp/project-one",
-      model: "gpt-5"
+      model: "gpt-5",
+      dynamicTools: TELEGRAM_PACK.platformActions.getDynamicToolDeclarations()
     }]);
     assert.deepEqual(reviewCalls, [{
       threadId: "thread-review-source",
@@ -8965,7 +9004,7 @@ test("phase6 handles send_telegram_document dynamic tool calls and still rejects
       {
         id: "auth-refresh-1",
         code: -32601,
-        message: "ChatGPT auth token refresh is not supported by the Telegram bridge"
+        message: "ChatGPT auth token refresh is not supported by the active bridge pack"
       }
     ]);
     assert.match(sent.join("\n"), /ChatGPT 登录令牌刷新/u);

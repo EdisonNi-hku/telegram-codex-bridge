@@ -1,4 +1,4 @@
-export type BridgePlatform = "telegram";
+export type BridgePlatform = "telegram" | "feishu";
 
 export interface PlatformUserRef {
   platform: BridgePlatform;

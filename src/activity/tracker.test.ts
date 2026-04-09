@@ -387,14 +387,14 @@ test("tracks token usage, diff, hook summaries, and runtime notices without leak
   );
 
   const status = tracker.getStatus("2026-03-10T10:10:01.000Z");
-  assert.equal(status.latestProgress, "终端输入请求未转发到 Telegram：continue?");
+  assert.equal(status.latestProgress, "终端输入请求未转发到当前控制面：continue?");
 
   const inspect = tracker.getInspectSnapshot("2026-03-10T10:10:01.000Z");
   assert.equal(inspect.tokenUsage?.lastTotalTokens, 24);
   assert.equal(inspect.tokenUsage?.totalTokens, 240);
   assert.equal(inspect.latestDiffSummary, "差异更新：1 个文件 / +1 / -1");
   assert.match(inspect.recentHookSummaries[0] ?? "", /hook sessionStart/u);
-  assert.equal(inspect.terminalInteractionSummary, "终端输入请求未转发到 Telegram：continue?");
+  assert.equal(inspect.terminalInteractionSummary, "终端输入请求未转发到当前控制面：continue?");
   assert.match(inspect.recentNoticeSummaries.join("\n"), /配置警告/u);
   assert.match(inspect.recentNoticeSummaries.join("\n"), /模型已改道/u);
 });
@@ -1043,6 +1043,97 @@ test("plan snapshot reflects the latest plan update instead of append-only histo
     "Wire inspect renderer (inProgress)"
   ]);
   assert.equal(inspect.planSnapshot.includes("Collect protocol evidence (pending)"), false);
+});
+
+test("tracker treats item-level compaction completion as the authoritative compaction truth", () => {
+  const tracker = new ActivityTracker({
+    threadId: "thread-compact",
+    turnId: "turn-compact"
+  });
+
+  tracker.apply(
+    classifyNotification("item/completed", {
+      threadId: "thread-compact",
+      turnId: "turn-compact",
+      item: {
+        id: "item-compact",
+        type: "compaction"
+      }
+    }),
+    "2026-04-08T10:06:02.000Z"
+  );
+
+  const inspect = tracker.getInspectSnapshot("2026-04-08T10:06:03.000Z");
+  assert.equal(inspect.recentNoticeSummaries.includes("上下文已压缩"), true);
+  assert.match(inspect.recentTransitions.at(-1)?.summary ?? "", /compaction/u);
+});
+
+test("tracker clears stale active compaction items when started and completed lifecycle events both arrive", () => {
+  const tracker = new ActivityTracker({
+    threadId: "thread-compact-lifecycle",
+    turnId: "turn-compact-lifecycle"
+  });
+
+  tracker.apply(
+    classifyNotification("item/started", {
+      threadId: "thread-compact-lifecycle",
+      turnId: "turn-compact-lifecycle",
+      item: {
+        id: "item-compact",
+        type: "compaction"
+      }
+    }),
+    "2026-04-08T10:06:00.000Z"
+  );
+  tracker.apply(
+    classifyNotification("item/completed", {
+      threadId: "thread-compact-lifecycle",
+      turnId: "turn-compact-lifecycle",
+      item: {
+        id: "item-compact",
+        type: "compaction"
+      }
+    }),
+    "2026-04-08T10:06:02.000Z"
+  );
+
+  const inspect = tracker.getInspectSnapshot("2026-04-08T10:06:03.000Z");
+  assert.equal(inspect.activeItemType, null);
+  assert.equal(inspect.activeItemId, null);
+  assert.equal(inspect.currentItemDurationSec, null);
+  assert.equal(inspect.recentNoticeSummaries.includes("上下文已压缩"), true);
+});
+
+test("tracker clears stale active compaction items when only the compatibility compaction notification arrives", () => {
+  const tracker = new ActivityTracker({
+    threadId: "thread-compact-compat",
+    turnId: "turn-compact-compat"
+  });
+
+  tracker.apply(
+    classifyNotification("item/started", {
+      threadId: "thread-compact-compat",
+      turnId: "turn-compact-compat",
+      item: {
+        id: "item-compact",
+        type: "compaction"
+      }
+    }),
+    "2026-04-08T10:07:00.000Z"
+  );
+  tracker.apply(
+    classifyNotification("thread/compacted", {
+      threadId: "thread-compact-compat",
+      turnId: "turn-compact-compat"
+    }),
+    "2026-04-08T10:07:02.000Z"
+  );
+
+  const inspect = tracker.getInspectSnapshot("2026-04-08T10:07:03.000Z");
+  assert.equal(inspect.activeItemType, null);
+  assert.equal(inspect.activeItemId, null);
+  assert.equal(inspect.currentItemDurationSec, null);
+  assert.equal(inspect.recentNoticeSummaries.includes("上下文已压缩"), true);
 });
 
 test("plan progress prefers the in-progress step over earlier pending steps", () => {

@@ -5,6 +5,7 @@ REPO_OWNER="InDreamer"
 REPO_NAME="telegram-codex-bridge"
 REF="master"
 REF_TYPE="branch"
+PACK="telegram"
 TELEGRAM_TOKEN=""
 CODEX_BIN=""
 PROJECT_SCAN_ROOTS=""
@@ -17,7 +18,7 @@ WORKDIR=""
 usage() {
   cat <<'EOF'
 Usage:
-  install-bridge-from-github.sh --telegram-token <token> [--codex-bin <path>] [--project-scan-roots <path1:path2:...>] [--voice-input true|false] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>] [--ref <name>] [--ref-type branch|tag]
+  install-bridge-from-github.sh [--pack telegram] --telegram-token <token> [--codex-bin <path>] [--project-scan-roots <path1:path2:...>] [--voice-input true|false] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>] [--ref <name>] [--ref-type branch|tag]
 EOF
 }
 
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --telegram-token)
       TELEGRAM_TOKEN="${2:-}"
+      shift 2
+      ;;
+    --pack)
+      PACK="${2:-}"
       shift 2
       ;;
     --codex-bin)
@@ -77,6 +82,11 @@ if [[ -z "$TELEGRAM_TOKEN" ]]; then
   exit 1
 fi
 
+if [[ "$PACK" != "telegram" ]]; then
+  echo "unsupported --pack: ${PACK}" >&2
+  exit 1
+fi
+
 for cmd in curl tar node npm; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "$cmd is required" >&2
@@ -120,7 +130,7 @@ cd "$SOURCE_DIR"
 npm install
 npm run build
 
-INSTALL_CMD=(node dist/cli.js install --telegram-token "$TELEGRAM_TOKEN")
+INSTALL_CMD=(node dist/cli.js install --pack "$PACK" --telegram-token "$TELEGRAM_TOKEN")
 if [[ -n "$CODEX_BIN" ]]; then
   INSTALL_CMD+=(--codex-bin "$CODEX_BIN")
 fi

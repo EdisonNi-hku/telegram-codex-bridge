@@ -9,7 +9,13 @@ import {
   createPlatformChatRef,
   isSamePlatformChatRef
 } from "../core/domain/binding.js";
+import type { PlatformCapabilitySnapshot } from "../core/interaction-model/surface.js";
 import {
+  createRollbackConfirmView,
+  createRollbackPickerView,
+  createRuntimeInspectControlsView,
+  createRuntimeInspectView,
+  createRuntimePreferencesView,
   formatVisibleRuntimeState,
   selectStatusProgressText,
   createRuntimeStatusCardView,
@@ -65,6 +71,7 @@ import {
   type TelegramDeleteResult,
   type TelegramEditResult
 } from "./runtime-surface-state.js";
+import { dispatchHtmlSurface } from "./surface-dispatcher.js";
 
 const INSPECT_PLAIN_TEXT_FALLBACK_LIMIT = 3500;
 const FAILED_EDIT_RETRY_MS = 5000;
@@ -245,6 +252,7 @@ interface RuntimeSurfaceControllerDeps {
   safeDeleteMessage: (chatId: string, messageId: number) => Promise<TelegramDeleteResult>;
   safeAnswerCallbackQuery: (callbackQueryId: string, text?: string) => Promise<void>;
   getUiLanguage: () => UiLanguage;
+  capabilities: PlatformCapabilitySnapshot;
   getRuntimeCardContext: (sessionId: string) => {
     sessionName: string | null;
     projectName: string | null;
@@ -752,11 +760,11 @@ export class RuntimeSurfaceController {
       fields: [...store.getRuntimeCardPreferences().fields],
       page: 0
     };
-    const rendered = buildRuntimePreferencesMessage({
+    const rendered = buildRuntimePreferencesMessage(createRuntimePreferencesView({
       token,
       fields: draft.fields,
       page: draft.page
-    });
+    }));
     const sent = await this.deps.safeSendHtmlMessageResult(chatId, rendered.text, rendered.replyMarkup);
     if (!sent) {
       return;
@@ -1965,35 +1973,39 @@ export class RuntimeSurfaceController {
     hubState.pendingVisibleState = null;
     hubState.pendingGeneration = null;
 
-    if (hubState.messageId === 0 || hubState.replacementMessageId !== null) {
-      const replacementMessageId = hubState.replacementMessageId;
-      const sent = await this.deps.safeSendHtmlMessageResult(hubState.chatId, text, replyMarkup);
+    const replacementMessageId = hubState.replacementMessageId
+      ?? (hubState.messageId > 0 ? hubState.messageId : null);
+    const delivery = await dispatchHtmlSurface({
+      intent: "runtime_hub",
+      chatId: hubState.chatId,
+      html: text,
+      replyMarkup,
+      existingMessageId: hubState.replacementMessageId === null && hubState.messageId > 0 ? hubState.messageId : null,
+      preferEdit: hubState.replacementMessageId === null && hubState.messageId > 0,
+      capabilities: this.deps.capabilities,
+      requirements: {
+        requiresCallbacks: true
+      },
+      sendHtmlMessage: this.deps.safeSendHtmlMessageResult,
+      editHtmlMessage: this.deps.safeEditHtmlMessageText
+    });
+
+    if (delivery.outcome === "sent" || delivery.outcome === "edited") {
       if (hubState.destroyed) {
-        if (sent) {
-          await this.deleteHubMessage(hubState.chatId, sent.message_id, generation);
+        if (delivery.outcome === "sent" && delivery.deliveryRef.messageId) {
+          await this.deleteHubMessage(hubState.chatId, delivery.deliveryRef.messageId, generation);
         }
         return;
       }
 
       if (generation !== hubState.requestedGeneration) {
-        if (sent) {
-          await this.deleteHubMessage(hubState.chatId, sent.message_id, generation);
+        if (delivery.outcome === "sent" && delivery.deliveryRef.messageId) {
+          await this.deleteHubMessage(hubState.chatId, delivery.deliveryRef.messageId, generation);
         }
         return;
       }
 
-      if (!sent) {
-        hubState.pendingText = text;
-        hubState.pendingReplyMarkup = replyMarkup;
-        hubState.pendingReason = reason;
-        hubState.pendingVisibleState = pendingVisibleState;
-        hubState.pendingGeneration = generation;
-        this.syncSingleSessionHubState(hubState);
-        this.scheduleHubRetry(hubState, FAILED_EDIT_RETRY_MS);
-        return;
-      }
-
-      hubState.messageId = sent.message_id;
+      hubState.messageId = delivery.deliveryRef.messageId ?? hubState.messageId;
       hubState.lastRenderedText = text;
       hubState.lastRenderedReplyMarkupKey = replyMarkupKey;
       hubState.lastRenderedAtMs = Date.now();
@@ -2003,32 +2015,21 @@ export class RuntimeSurfaceController {
       this.commitRuntimeHubVisibleState(hubState, pendingVisibleState);
       this.syncSingleSessionHubState(hubState);
       this.notifyRecoveryHubVisible(hubState);
-      if (replacementMessageId && replacementMessageId !== sent.message_id) {
+      if (
+        replacementMessageId
+        && delivery.outcome === "sent"
+        && replacementMessageId !== delivery.deliveryRef.messageId
+      ) {
         await this.deleteHubMessage(hubState.chatId, replacementMessageId, generation);
       }
       return;
     }
 
-    const previousMessageId = hubState.messageId;
-    const result = await this.deps.safeEditHtmlMessageText(hubState.chatId, hubState.messageId, text, replyMarkup);
     if (hubState.destroyed) {
-      await this.deleteHubMessage(hubState.chatId, previousMessageId, generation);
       return;
     }
 
     if (generation !== hubState.requestedGeneration) {
-      return;
-    }
-
-    if (isTelegramEditCommitted(result)) {
-      hubState.lastRenderedText = text;
-      hubState.lastRenderedReplyMarkupKey = replyMarkupKey;
-      hubState.lastRenderedAtMs = Date.now();
-      hubState.rateLimitUntilAtMs = null;
-      hubState.committedGeneration = generation;
-      this.commitRuntimeHubVisibleState(hubState, pendingVisibleState);
-      this.syncSingleSessionHubState(hubState);
-      this.notifyRecoveryHubVisible(hubState);
       return;
     }
 
@@ -2037,14 +2038,20 @@ export class RuntimeSurfaceController {
     hubState.pendingReason = reason;
     hubState.pendingVisibleState = pendingVisibleState;
     hubState.pendingGeneration = generation;
-    if (result.outcome === "rate_limited") {
-      hubState.rateLimitUntilAtMs = Date.now() + result.retryAfterMs;
+    if (delivery.outcome === "failed" && delivery.reason === "rate_limited" && delivery.retryAfterMs) {
+      hubState.rateLimitUntilAtMs = Date.now() + delivery.retryAfterMs;
       this.syncSingleSessionHubState(hubState);
-      this.scheduleHubRetry(hubState, result.retryAfterMs);
+      this.scheduleHubRetry(hubState, delivery.retryAfterMs);
       return;
     }
 
-    hubState.replacementMessageId = previousMessageId;
+    if (hubState.messageId === 0 || hubState.replacementMessageId !== null) {
+      this.syncSingleSessionHubState(hubState);
+      this.scheduleHubRetry(hubState, FAILED_EDIT_RETRY_MS);
+      return;
+    }
+
+    hubState.replacementMessageId = replacementMessageId;
     this.syncSingleSessionHubState(hubState);
     await this.flushHubRender(hubState);
   }
@@ -2572,6 +2579,86 @@ export class RuntimeSurfaceController {
       surface.pendingReplyMarkup = null;
       surface.pendingReason = null;
 
+      if (surface.parseMode === "HTML") {
+        const delivery = await dispatchHtmlSurface({
+          intent: "runtime_status",
+          chatId: activeTurn.chatId,
+          html: text,
+          replyMarkup,
+          existingMessageId: surface.messageId > 0 ? surface.messageId : null,
+          preferEdit: surface.messageId > 0,
+          sendOnEditFailure: false,
+          capabilities: this.deps.capabilities,
+          requirements: {
+            requiresCallbacks: Boolean(replyMarkup)
+          },
+          sendHtmlMessage: this.deps.safeSendHtmlMessageResult,
+          editHtmlMessage: this.deps.safeEditHtmlMessageText
+        });
+
+        if (delivery.outcome === "sent" || delivery.outcome === "edited") {
+          surface.messageId = delivery.deliveryRef.messageId ?? surface.messageId;
+          surface.lastRenderedText = text;
+          surface.lastRenderedReplyMarkupKey = replyMarkupKey;
+          surface.lastRenderedAtMs = Date.now();
+          surface.rateLimitUntilAtMs = null;
+          await this.logRuntimeCardEvent(activeTurn, surface, delivery.outcome === "sent" ? "render_sent" : "render_edited", {
+            reason,
+            renderedText: text,
+            replyMarkup: replyMarkup ?? null,
+            card: summarizeRuntimeCardSurface(surface)
+          });
+          await this.deps.logger.info(`runtime card ${delivery.outcome}`, {
+            sessionId: activeTurn.sessionId,
+            turnId: activeTurn.turnId,
+            surface: surface.surface,
+            key: surface.key,
+            messageId: surface.messageId,
+            reason,
+            preview: summarizeTextPreview(text)
+          });
+          return;
+        }
+
+        surface.pendingText = text;
+        surface.pendingReplyMarkup = replyMarkup ?? null;
+        surface.pendingReason = reason;
+        if (delivery.outcome === "failed" && delivery.reason === "rate_limited" && delivery.retryAfterMs) {
+          surface.rateLimitUntilAtMs = Date.now() + delivery.retryAfterMs;
+          await this.logRuntimeCardEvent(activeTurn, surface, "edit_requeued", {
+            reason,
+            outcome: delivery.reason,
+            retryMs: delivery.retryAfterMs,
+            renderedText: text,
+            replyMarkup: replyMarkup ?? null,
+            card: summarizeRuntimeCardSurface(surface)
+          });
+          this.scheduleRuntimeCardRetry(activeTurn, surface, delivery.retryAfterMs, reason ?? "edit_retry");
+          return;
+        }
+
+        if (surface.messageId === 0) {
+          await this.logRuntimeCardEvent(activeTurn, surface, "send_failed_requeued", {
+            reason,
+            renderedText: text,
+            replyMarkup: replyMarkup ?? null,
+            card: summarizeRuntimeCardSurface(surface)
+          });
+          return;
+        }
+
+        await this.logRuntimeCardEvent(activeTurn, surface, "edit_requeued", {
+          reason,
+          outcome: delivery.outcome === "failed" ? delivery.reason : "deferred",
+          retryMs: FAILED_EDIT_RETRY_MS,
+          renderedText: text,
+          replyMarkup: replyMarkup ?? null,
+          card: summarizeRuntimeCardSurface(surface)
+        });
+        this.scheduleRuntimeCardRetry(activeTurn, surface, FAILED_EDIT_RETRY_MS, reason ?? "edit_retry");
+        return;
+      }
+
       if (surface.messageId === 0) {
         const sent = surface.parseMode === "HTML"
           ? await this.deps.safeSendHtmlMessageResult(activeTurn.chatId, text, replyMarkup)
@@ -2958,7 +3045,7 @@ export class RuntimeSurfaceController {
       return;
     }
 
-    const view = store.getFinalAnswerView(answerId, chatId);
+    const view = store.getTerminalResultView(answerId, chatId);
     if (!view) {
       await this.deps.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
       return;
@@ -3025,7 +3112,7 @@ export class RuntimeSurfaceController {
       return;
     }
 
-    const view = store.getFinalAnswerView(answerId, chatId);
+    const view = store.getTerminalResultView(answerId, chatId);
     if (!view) {
       await this.deps.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
       return;
@@ -3085,7 +3172,7 @@ export class RuntimeSurfaceController {
       return;
     }
 
-    const view = store.getFinalAnswerView(answerId, chatId);
+    const view = store.getTerminalResultView(answerId, chatId);
     if (!view) {
       await this.deps.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
       return;
@@ -3154,10 +3241,17 @@ export class RuntimeSurfaceController {
 
     const inspectHtml = this.buildInspectHtml(activeSession, payload);
     const rendered = buildInspectViewMessage({
-      sessionId: activeSession.sessionId,
-      html: inspectHtml,
-      page: 0,
-      collapsed: false
+      ...createRuntimeInspectView({
+        sessionId: activeSession.sessionId,
+        sessionName: activeSession.displayName,
+        projectName: activeSession.projectName,
+        html: inspectHtml
+      }),
+      ...createRuntimeInspectControlsView({
+        sessionId: activeSession.sessionId,
+        page: 0,
+        collapsed: false
+      })
     });
 
     if (!await this.deps.safeSendHtmlMessage(chatId, rendered.text, rendered.replyMarkup)) {
@@ -3189,10 +3283,17 @@ export class RuntimeSurfaceController {
 
     const inspectHtml = this.buildInspectHtml(session, payload);
     const rendered = buildInspectViewMessage({
-      sessionId,
-      html: inspectHtml,
-      page: options.page,
-      collapsed: options.collapsed
+      ...createRuntimeInspectView({
+        sessionId,
+        sessionName: session.displayName,
+        projectName: session.projectName,
+        html: inspectHtml
+      }),
+      ...createRuntimeInspectControlsView({
+        sessionId,
+        page: options.page,
+        collapsed: options.collapsed
+      })
     });
 
     const editResult = await this.deps.safeEditHtmlMessageText(chatId, messageId, rendered.text, rendered.replyMarkup);
@@ -3282,11 +3383,11 @@ export class RuntimeSurfaceController {
   }
 
   private async renderRuntimePreferencesDraft(token: string, draft: RuntimePreferencesDraftState): Promise<void> {
-    const rendered = buildRuntimePreferencesMessage({
+    const rendered = buildRuntimePreferencesMessage(createRuntimePreferencesView({
       token,
       fields: draft.fields,
       page: draft.page
-    });
+    }));
     await this.deps.safeEditHtmlMessageText(draft.chatId, draft.messageId, rendered.text, rendered.replyMarkup);
   }
 
@@ -3325,7 +3426,7 @@ export class RuntimeSurfaceController {
       return;
     }
 
-    const latestView = store.listFinalAnswerViews(chatId).find((candidate) => candidate.sessionId === sessionId) ?? null;
+    const latestView = store.listTerminalResultViews(chatId).find((candidate) => candidate.sessionId === sessionId) ?? null;
     const previousMessageId = this.recentOutputMessageIds.get(chatId) ?? null;
     const entryView = createRecentOutputEntryView({
       sessionName: session.displayName,
@@ -3359,7 +3460,7 @@ export class RuntimeSurfaceController {
     }
 
     if (result.outcome === "rate_limited") {
-      await this.deps.safeAnswerCallbackQuery(callbackQueryId, "Telegram 正在限流，请稍后再试。");
+      await this.deps.safeAnswerCallbackQuery(callbackQueryId, "当前平台正在限流，请稍后再试。");
       return;
     }
 
@@ -3378,8 +3479,8 @@ export class RuntimeSurfaceController {
     }
   ): Promise<void> {
     if (isTelegramEditCommitted(result)) {
-      this.deps.getStore()?.setFinalAnswerMessageId(answerId, messageId);
-      this.deps.getStore()?.setFinalAnswerDeliveryState(answerId, "visible");
+      this.deps.getStore()?.setTerminalResultMessageId(answerId, messageId);
+      this.deps.getStore()?.setTerminalResultDeliveryState(answerId, "visible");
       if (options?.syncActiveSession) {
         await this.syncFinalAnswerActiveSessionOnSuccess(options);
       }
@@ -3388,7 +3489,7 @@ export class RuntimeSurfaceController {
     }
 
     if (result.outcome === "rate_limited") {
-      await this.deps.safeAnswerCallbackQuery(callbackQueryId, "Telegram 正在限流，请稍后再试。");
+      await this.deps.safeAnswerCallbackQuery(callbackQueryId, "当前平台正在限流，请稍后再试。");
       return;
     }
 

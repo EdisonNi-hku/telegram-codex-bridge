@@ -9,9 +9,11 @@ import { loadConfig } from "./config.js";
 import {
   buildLaunchAgentPlist,
   buildTaskSchedulerRegistrationScript,
+  clearAuthorization,
   getStatus,
   installBridge,
   installCodexSkill,
+  listPendingAuthorizations,
   prepareRelease,
   runDoctor,
   uninstallBridge,
@@ -82,6 +84,7 @@ async function createReleaseFixture(paths: BridgePaths): Promise<void> {
   await mkdir(paths.repoRoot, { recursive: true });
   await mkdir(paths.installRoot, { recursive: true });
   await writeFile(paths.repoRoot + "/package.json", '{ "name": "telegram-codex-bridge" }\n', "utf8");
+  await writeFile(paths.repoRoot + "/package-lock.json", '{ "name": "telegram-codex-bridge", "lockfileVersion": 3 }\n', "utf8");
 }
 
 async function createGithubArchiveUpdateFixture(paths: BridgePaths): Promise<void> {
@@ -113,15 +116,20 @@ async function createGithubArchiveUpdateFixture(paths: BridgePaths): Promise<voi
   }, null, 2));
 }
 
-async function createSkillFixture(root: string, description = "test skill"): Promise<void> {
-  const skillDir = join(root, "skills", "telegram-codex-linker");
+async function createSkillFixture(
+  root: string,
+  skillName = "telegram-codex-linker",
+  description = "test skill"
+): Promise<void> {
+  const displayName = skillName === "feishu-codex-linker" ? "Feishu Codex Linker" : "Telegram Codex Linker";
+  const skillDir = join(root, "skills", skillName);
   await mkdir(join(skillDir, "agents"), { recursive: true });
   await mkdir(join(skillDir, "references"), { recursive: true });
   await mkdir(join(skillDir, "scripts"), { recursive: true });
-  await writeFile(join(skillDir, "SKILL.md"), `---\nname: telegram-codex-linker\ndescription: ${description}\n---\n`, "utf8");
+  await writeFile(join(skillDir, "SKILL.md"), `---\nname: ${skillName}\ndescription: ${description}\n---\n`, "utf8");
   await writeFile(
     join(skillDir, "agents", "openai.yaml"),
-    'interface:\n  display_name: "Telegram Codex Linker"\n',
+    `interface:\n  display_name: "${displayName}"\n`,
     "utf8"
   );
   await writeFile(join(skillDir, "references", "install-strategy.md"), "# test strategy\n", "utf8");
@@ -189,7 +197,12 @@ function createReadinessSnapshot(
       codexInstalled: true,
       codexAuthenticated: true,
       appServerAvailable: true,
-      telegramTokenValid: true,
+      packState: "ready",
+      setupState: "complete",
+      packMetadata: {
+        telegramBotUsername: "bridge_bot",
+        telegramBotId: "1"
+      },
       authorizedUserBound: true,
       issues: [],
       nodeVersion: "v24.13.1",
@@ -270,12 +283,21 @@ test("prepareRelease builds before copying dist into the install root", async ()
         command: "npm",
         args: ["run", "build"],
         cwd: paths.repoRoot
+      },
+      {
+        command: "npm",
+        args: ["install", "--omit=dev"],
+        cwd: paths.installRoot
       }
     ]);
     assert.equal(await readFile(join(paths.installRoot, "dist", "cli.js"), "utf8"), "console.log('ok');\n");
     assert.equal(
       await readFile(join(paths.installRoot, "package.json"), "utf8"),
       '{ "name": "telegram-codex-bridge" }\n'
+    );
+    assert.equal(
+      await readFile(join(paths.installRoot, "package-lock.json"), "utf8"),
+      '{ "name": "telegram-codex-bridge", "lockfileVersion": 3 }\n'
     );
     assert.equal(
       await readFile(join(paths.installRoot, "skills", "telegram-codex-linker", "SKILL.md"), "utf8"),
@@ -391,8 +413,8 @@ test("installCodexSkill prefers the current checkout bundle over an older instal
 
   try {
     await createReleaseFixture(paths);
-    await createSkillFixture(paths.repoRoot, "repo skill");
-    await createSkillFixture(paths.installRoot, "installed skill");
+    await createSkillFixture(paths.repoRoot, "telegram-codex-linker", "repo skill");
+    await createSkillFixture(paths.installRoot, "telegram-codex-linker", "installed skill");
 
     await withEnvironment(
       {
@@ -405,6 +427,38 @@ test("installCodexSkill prefers the current checkout bundle over an older instal
           await readFile(join(root, "codex-home", "skills", "telegram-codex-linker", "SKILL.md"), "utf8"),
           "---\nname: telegram-codex-linker\ndescription: repo skill\n---\n"
         );
+      }
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("installCodexSkill honors an explicit pack request over the persisted active pack", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+
+  try {
+    await createReleaseFixture(paths);
+    await createSkillFixture(paths.repoRoot, "telegram-codex-linker", "telegram skill");
+    await createSkillFixture(paths.repoRoot, "feishu-codex-linker", "feishu skill");
+    await mkdir(paths.configRoot, { recursive: true });
+    await writeFile(paths.envPath, "BRIDGE_PACK=telegram\n", "utf8");
+
+    await withEnvironment(
+      {
+        CODEX_HOME: join(root, "codex-home")
+      },
+      async () => {
+        const result = await installCodexSkill(paths, "feishu");
+
+        assert.match(result, /active_pack=feishu/u);
+        assert.match(result, /codex skill feishu-codex-linker installed/u);
+        assert.equal(
+          await readFile(join(root, "codex-home", "skills", "feishu-codex-linker", "SKILL.md"), "utf8"),
+          "---\nname: feishu-codex-linker\ndescription: feishu skill\n---\n"
+        );
+        assert.equal(await pathExists(join(root, "codex-home", "skills", "telegram-codex-linker")), false);
       }
     );
   } finally {
@@ -544,7 +598,7 @@ test("installBridge validates and persists non-overlapping project scan roots", 
       },
       async () => {
         await installBridge(paths, testLogger, {
-          telegramBotToken: "test-token",
+          packOptions: { "bot-token": "test-token" },
           projectScanRoots: [firstRoot, nestedRoot, secondRoot]
         }, {
           detectServiceManager: async () => "none",
@@ -552,16 +606,7 @@ test("installBridge validates and persists non-overlapping project scan roots", 
             snapshot: createReadinessSnapshot(),
             appServer: null
           }),
-          createTelegramApi: () => ({
-            getMe: async () => ({
-              id: 1,
-              is_bot: true,
-              first_name: "Bridge",
-              username: "bridge_bot"
-            }),
-            setMyCommands: async () => {}
-          }),
-          syncTelegramCommands: async () => {}
+          syncPackControlSurface: async () => {}
         } as any);
       }
     );
@@ -614,23 +659,14 @@ exit 0
       },
       async () => {
         await installBridge(paths, testLogger, {
-          telegramBotToken: "test-token"
+          packOptions: { "bot-token": "test-token" }
         }, {
           detectServiceManager: async () => "systemd",
           probeReadiness: async () => ({
             snapshot: createReadinessSnapshot(),
             appServer: null
           }),
-          createTelegramApi: () => ({
-            getMe: async () => ({
-              id: 1,
-              is_bot: true,
-              first_name: "Bridge",
-              username: "bridge_bot"
-            }),
-            setMyCommands: async () => {}
-          }),
-          syncTelegramCommands: async () => {}
+          syncPackControlSurface: async () => {}
         } as any);
       }
     );
@@ -681,23 +717,14 @@ exit 0
       },
       async () => {
         await installBridge(paths, testLogger, {
-          telegramBotToken: "test-token"
+          packOptions: { "bot-token": "test-token" }
         }, {
           detectServiceManager: async () => "systemd",
           probeReadiness: async () => ({
             snapshot: createReadinessSnapshot(),
             appServer: null
           }),
-          createTelegramApi: () => ({
-            getMe: async () => ({
-              id: 1,
-              is_bot: true,
-              first_name: "Bridge",
-              username: "bridge_bot"
-            }),
-            setMyCommands: async () => {}
-          }),
-          syncTelegramCommands: async () => {}
+          syncPackControlSurface: async () => {}
         } as any);
       }
     );
@@ -705,6 +732,78 @@ exit 0
     const unit = await readFile(paths.servicePath, "utf8");
     assert.match(unit, /ExecStart=.*dist\/cli\.js service run/u);
     assert.match(unit, /ExecStopPost=.*dist\/cli\.js audit capture-systemd-stop/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("installBridge starts the service before failing an incomplete Feishu setup", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+  const binDir = join(root, "bin");
+  const systemctlLogPath = join(root, "systemctl.log");
+
+  try {
+    await Promise.all([
+      createReleaseFixture(paths),
+      createSkillFixture(paths.repoRoot),
+      mkdir(join(paths.repoRoot, "dist"), { recursive: true }),
+      mkdir(binDir, { recursive: true })
+    ]);
+    await writeFile(join(paths.repoRoot, "dist", "cli.js"), "console.log('ok');\n", "utf8");
+    await writeExecutableFixture(binDir, "npm", {
+      posix: "#!/usr/bin/env bash\nset -euo pipefail\nexit 0\n",
+      win32: "@echo off\r\nexit /b 0\r\n"
+    });
+    await writeExecutableFixture(binDir, "systemctl", {
+      posix: `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> ${JSON.stringify(systemctlLogPath)}
+if [ "$1" = "--user" ] && [ "$2" = "is-active" ]; then
+  echo inactive
+  exit 3
+fi
+exit 0
+`,
+      win32: `@echo off\r\necho %*>> ${JSON.stringify(systemctlLogPath)}\r\nif "%1"=="--user" if "%2"=="is-active" (\r\n  echo inactive\r\n  exit /b 3\r\n)\r\nexit /b 0\r\n`
+    });
+
+    await withEnvironment(
+      {
+        PATH: extendPath(binDir)
+      },
+      async () => {
+        await assert.rejects(
+          installBridge(paths, testLogger, {
+            activePack: "feishu",
+            packOptions: {
+              "app-id": "cli_test",
+              "app-secret": "secret"
+            }
+          }, {
+            detectServiceManager: async () => "systemd",
+            probeReadiness: async () => ({
+              snapshot: createReadinessSnapshot({
+                state: "ready",
+                details: {
+                  activePack: "feishu",
+                  packState: "ready",
+                  setupState: "incomplete",
+                  authorizedUserBound: true,
+                  issues: ["feishu card callback has not been observed for this setup cycle"]
+                }
+              }),
+              appServer: null
+            }),
+            syncPackControlSurface: async () => {}
+          } as any),
+          /setup_state=incomplete/u
+        );
+      }
+    );
+
+    const systemctlLog = await readFile(systemctlLogPath, "utf8");
+    assert.match(systemctlLog, /--user enable --now codex-telegram-bridge\.service/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -739,23 +838,14 @@ test("installBridge writes GitHub archive metadata into the install manifest", a
       },
       async () => {
         await installBridge(paths, testLogger, {
-          telegramBotToken: "test-token"
+          packOptions: { "bot-token": "test-token" }
         }, {
           detectServiceManager: async () => "none",
           probeReadiness: async () => ({
             snapshot: createReadinessSnapshot(),
             appServer: null
           }),
-          createTelegramApi: () => ({
-            getMe: async () => ({
-              id: 1,
-              is_bot: true,
-              first_name: "Bridge",
-              username: "bridge_bot"
-            }),
-            setMyCommands: async () => {}
-          }),
-          syncTelegramCommands: async () => {}
+          syncPackControlSurface: async () => {}
         } as any);
       }
     );
@@ -882,9 +972,14 @@ test("uninstallBridge preserves shared Windows state when purgeState is false", 
     await Promise.all([
       writeFile(join(paths.installRoot, "dist", "cli.js"), "console.log('ok');\n", "utf8"),
       writeFile(join(paths.installRoot, "skills", "skill.txt"), "skill\n", "utf8"),
+      writeFile(join(paths.installRoot, "node_modules", "keep.txt"), "keep\n", "utf8").catch(async () => {
+        await mkdir(join(paths.installRoot, "node_modules"), { recursive: true });
+        await writeFile(join(paths.installRoot, "node_modules", "keep.txt"), "keep\n", "utf8");
+      }),
       writeFile(paths.binPath, "@echo off\r\n", "utf8"),
       writeFile(paths.powershellWrapperPath!, "Write-Output 'ok'\r\n", "utf8"),
       writeFile(join(paths.installRoot, "package.json"), "{ }\n", "utf8"),
+      writeFile(join(paths.installRoot, "package-lock.json"), "{ }\n", "utf8"),
       writeFile(paths.manifestPath, "{ }\n", "utf8"),
       writeFile(paths.dbPath, "sqlite\n", "utf8"),
       writeFile(paths.bridgeLogPath, "keep\n", "utf8"),
@@ -900,9 +995,11 @@ test("uninstallBridge preserves shared Windows state when purgeState is false", 
     assert.equal(await pathExists(paths.offsetPath), true);
     assert.equal(await pathExists(join(paths.cacheDir, "persist.txt")), true);
     assert.equal(await pathExists(join(paths.installRoot, "dist")), false);
+    assert.equal(await pathExists(join(paths.installRoot, "node_modules")), false);
     assert.equal(await pathExists(join(paths.installRoot, "skills")), false);
     assert.equal(await pathExists(join(paths.installRoot, "bin")), false);
     assert.equal(await pathExists(join(paths.installRoot, "package.json")), false);
+    assert.equal(await pathExists(join(paths.installRoot, "package-lock.json")), false);
     assert.equal(await pathExists(paths.manifestPath), false);
     assert.equal(await pathExists(paths.configRoot), false);
   } finally {
@@ -1267,6 +1364,7 @@ test("getStatus renders the expanded readiness summary fields", async () => {
       })
     } as any);
 
+    assert.match(output, /active_pack=telegram/u);
     assert.match(output, /node_version=v24\.13\.1/u);
     assert.match(output, /node_version_supported=true/u);
     assert.match(output, /codex_version=codex-cli 0\.114\.0/u);
@@ -1278,6 +1376,7 @@ test("getStatus renders the expanded readiness summary fields", async () => {
     assert.match(output, /voice_realtime_supported=false/u);
     assert.match(output, /capability_check_passed=true/u);
     assert.match(output, /capability_check_source=cache/u);
+    assert.match(output, /pack_check_failures=0/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1300,9 +1399,9 @@ test("runDoctor prints the expanded readiness matrix without syncing Telegram wh
     const output = await runDoctor(paths, testLogger, {
       probeReadiness: async () => ({
         snapshot: createReadinessSnapshot({
-          state: "telegram_token_invalid",
+          state: "pack_unhealthy",
           details: {
-            telegramTokenValid: false,
+            packState: "pack_unhealthy",
             issues: ["telegram rejected the configured token"]
           }
         }),
@@ -1310,11 +1409,226 @@ test("runDoctor prints the expanded readiness matrix without syncing Telegram wh
       })
     } as any);
 
-    assert.match(output, /readiness=telegram_token_invalid/u);
+    assert.match(output, /active_pack=telegram/u);
+    assert.match(output, /readiness=pack_unhealthy/u);
     assert.match(output, /node_version=v24\.13\.1/u);
     assert.match(output, /capability_check_passed=true/u);
     assert.match(output, /issues=telegram rejected the configured token/u);
     assert.match(output, /pending_runtime_notices=0/u);
+    assert.match(output, /pack_check_failures=0/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("authorization flows surface the active pack in operator output", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+
+  try {
+    await Promise.all([
+      mkdir(paths.stateRoot, { recursive: true }),
+      mkdir(paths.logsDir, { recursive: true }),
+      mkdir(paths.configRoot, { recursive: true })
+    ]);
+    await writeFile(paths.envPath, "TELEGRAM_BOT_TOKEN=test-token\n", "utf8");
+
+    const store = await BridgeStateStore.open(paths, testLogger);
+    try {
+      store.upsertPendingAuthorization({
+        userId: "user-1",
+        chatId: "chat-1",
+        username: "tester",
+        displayName: "Tester"
+      });
+    } finally {
+      store.close();
+    }
+
+    const pending = await listPendingAuthorizations(paths, testLogger);
+    assert.match(pending, /active_pack=telegram/u);
+
+    const cleared = await clearAuthorization(paths, testLogger);
+    assert.match(cleared, /active_pack=telegram/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("authorization confirmation retries transient sqlite busy failures", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+  const originalOpen = BridgeStateStore.open;
+  let attempts = 0;
+
+  try {
+    await Promise.all([
+      mkdir(paths.stateRoot, { recursive: true }),
+      mkdir(paths.logsDir, { recursive: true }),
+      mkdir(paths.configRoot, { recursive: true })
+    ]);
+    await writeFile(
+      paths.envPath,
+      ["BRIDGE_PACK=feishu", "FEISHU_APP_ID=cli_test", "FEISHU_APP_SECRET=secret"].join("\n") + "\n",
+      "utf8"
+    );
+
+    const candidate = {
+      platform: "feishu" as const,
+      userId: "feishu-user",
+      chatId: "feishu-chat",
+      telegramUserId: "feishu-user",
+      telegramChatId: "feishu-chat",
+      username: "feishu",
+      telegramUsername: "feishu",
+      displayName: "Feishu User",
+      firstSeenAt: "2026-04-09T00:00:00.000Z",
+      lastSeenAt: "2026-04-09T00:00:00.000Z",
+      expired: false
+    };
+
+    (BridgeStateStore as any).open = async () => ({
+      listPendingAuthorizations: () => [candidate],
+      confirmPendingAuthorization: () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("database is locked");
+        }
+      },
+      close: () => {},
+      getReadinessSnapshot: () => null
+    });
+
+    const output = await listPendingAuthorizations(paths, testLogger, {
+      latest: true
+    });
+
+    assert.match(output, /authorized user feishu-user bound to chat feishu-chat/u);
+    assert.equal(attempts, 2);
+  } finally {
+    (BridgeStateStore as any).open = originalOpen;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("clearAuthorization fails closed when the active pack cannot be determined", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+
+  try {
+    await Promise.all([
+      mkdir(paths.stateRoot, { recursive: true }),
+      mkdir(paths.logsDir, { recursive: true }),
+      mkdir(paths.configRoot, { recursive: true })
+    ]);
+
+    await assert.rejects(
+      clearAuthorization(paths, testLogger),
+      /active pack is unknown/u
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("clearAuthorization falls back to the persisted active pack when config cannot be loaded", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+
+  try {
+    await Promise.all([
+      mkdir(paths.stateRoot, { recursive: true }),
+      mkdir(paths.logsDir, { recursive: true }),
+      mkdir(paths.configRoot, { recursive: true })
+    ]);
+
+    const store = await BridgeStateStore.open(paths, testLogger);
+    try {
+      store.upsertPendingAuthorization({
+        platform: "telegram",
+        userId: "telegram-user",
+        chatId: "telegram-chat",
+        username: "tg",
+        displayName: "Telegram"
+      });
+      store.upsertPendingAuthorization({
+        platform: "feishu",
+        userId: "feishu-user",
+        chatId: "feishu-chat",
+        username: "fs",
+        displayName: "Feishu"
+      });
+      const telegramCandidate = store.listPendingAuthorizations({ platform: "telegram" })[0];
+      const feishuCandidate = store.listPendingAuthorizations({ platform: "feishu" })[0];
+      assert.ok(telegramCandidate);
+      assert.ok(feishuCandidate);
+      store.confirmPendingAuthorization(telegramCandidate);
+      store.confirmPendingAuthorization(feishuCandidate);
+      store.writeReadinessSnapshot({
+        state: "ready",
+        checkedAt: "2026-04-09T00:00:00.000Z",
+        details: {
+          activePack: "feishu",
+          codexInstalled: true,
+          codexAuthenticated: true,
+          appServerAvailable: true,
+          packState: "ready",
+          authorizedUserBound: true,
+          issues: [],
+          sharedIssues: [],
+          packIssues: [],
+          packChecks: [{
+            id: "feishu_authorization_binding",
+            ok: true,
+            summary: "feishu authorization is bound"
+          }]
+        }
+      });
+    } finally {
+      store.close();
+    }
+
+    await rm(paths.envPath, { force: true, recursive: true }).catch(() => {});
+    await mkdir(paths.envPath, { recursive: true });
+
+    const output = await clearAuthorization(paths, testLogger);
+    assert.match(output, /active_pack=feishu/u);
+
+    const reopened = await BridgeStateStore.open(paths, testLogger);
+    try {
+      assert.equal(reopened.getAuthorizedUser("feishu"), null);
+      assert.equal(reopened.getAuthorizedUser("telegram")?.userId, "telegram-user");
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("clearAuthorization refuses manifest-only active pack fallbacks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-install-test-"));
+  const paths = createTestPaths(root);
+
+  try {
+    await Promise.all([
+      mkdir(paths.installRoot, { recursive: true }),
+      mkdir(paths.stateRoot, { recursive: true }),
+      mkdir(paths.logsDir, { recursive: true }),
+      mkdir(paths.configRoot, { recursive: true })
+    ]);
+
+    await writeFile(paths.manifestPath, JSON.stringify({
+      version: "0.1.0",
+      sourceRoot: null,
+      installedAt: "2026-04-09T00:00:00.000Z",
+      activePack: "feishu"
+    }), "utf8");
+
+    await assert.rejects(
+      clearAuthorization(paths, testLogger),
+      /active pack is unknown/u
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1346,16 +1660,7 @@ test("runDoctor includes the latest systemd service audit snapshot when present"
         snapshot: createReadinessSnapshot(),
         appServer: null
       }),
-      createTelegramApi: () => ({
-        getMe: async () => ({
-          id: 1,
-          is_bot: true,
-          first_name: "Bridge",
-          username: "bridge_bot"
-        }),
-        setMyCommands: async () => {}
-      }),
-      syncTelegramCommands: async () => {}
+      syncPackControlSurface: async () => {}
     } as any);
 
     assert.match(output, /service_audit_present=true/u);
@@ -1392,16 +1697,7 @@ test("runDoctor prints archive drift diagnostics when readiness is otherwise hea
           stop: async () => {}
         } as any
       }),
-      createTelegramApi: () => ({
-        getMe: async () => ({
-          id: 1,
-          is_bot: true,
-          first_name: "Bridge",
-          username: "bridge_bot"
-        }),
-        setMyCommands: async () => {}
-      }),
-      syncTelegramCommands: async () => {},
+      syncPackControlSurface: async () => {},
       scanArchiveDrift: async () => ({
         issues: [{
           kind: "remote_archived_local_visible",

@@ -6,6 +6,19 @@ import { getDebugRuntimeDir, type BridgePaths } from "../paths.js";
 import type { JsonRpcRequestId, JsonRpcServerRequest, UserInput, CodexAppServerClient } from "../codex/app-server.js";
 import { classifyNotification } from "../codex/notification-classifier.js";
 import {
+  isCommentaryAgentMessagePhase,
+  serializeServerRequestId
+} from "../codex/protocol-truth.js";
+import {
+  type BridgeDynamicToolDeclaration,
+  type ServerRequestSupport,
+  type PlatformActionRequestSupport
+} from "../codex/server-request-policy.js";
+import {
+  type ControlSurfaceFileRequest,
+  type ControlSurfaceFileResult
+} from "../core/interaction-model/platform-actions.js";
+import {
   createDeferredTerminalNoticeView,
   createTerminalResultDeliveryView
 } from "../core/workflow/terminal-workflow.js";
@@ -36,8 +49,7 @@ import {
   type StatusCardState
 } from "./runtime-surface-state.js";
 import { extractTurnArtifactsFromHistory } from "./turn-artifacts.js";
-import type { TelegramMessage } from "../telegram/api.js";
-import { asRecord, getRequiredString, getString } from "../util/untyped.js";
+import { asRecord, getString } from "../util/untyped.js";
 import { normalizeAndTruncate, summarizeTextPreview, hasMeaningfulText } from "../util/text.js";
 import { summarizeActivityStatus, summarizeActivityStatusList } from "../activity/serialize.js";
 import { nowIso } from "../util/time.js";
@@ -109,7 +121,15 @@ type ThreadArchiveNotification = Extract<
 
 type GlobalRuntimeNotice = Extract<
   ReturnType<typeof classifyNotification>,
-  { kind: "config_warning" | "deprecation_notice" | "model_rerouted" | "skills_changed" | "thread_compacted" }
+  {
+    kind:
+      | "config_warning"
+      | "deprecation_notice"
+      | "model_rerouted"
+      | "skills_changed"
+      | "thread_compacted"
+      | "thread_compaction_completed"
+  }
 >;
 
 interface TurnCoordinatorDeps {
@@ -167,15 +187,11 @@ interface TurnCoordinatorDeps {
   finalizeTerminalRuntimeHandoff: (chatId: string, sessionId: string) => Promise<void>;
   disposeRuntimeCards: (activeTurn: ActiveTurnState) => void;
   safeSendMessage: (chatId: string, text: string) => Promise<boolean>;
-  safeSendDocumentResult: (
-    chatId: string,
-    filePath: string,
-    options?: {
-      caption?: string;
-      parseMode?: "HTML";
-      fileName?: string;
-    }
-  ) => Promise<TelegramMessage | null>;
+  platformActions: {
+    sendControlSurfaceFile: (request: ControlSurfaceFileRequest) => Promise<ControlSurfaceFileResult>;
+  };
+  dynamicToolDeclarations: BridgeDynamicToolDeclaration[];
+  interpretPackServerRequest: (request: JsonRpcServerRequest) => ServerRequestSupport;
   safeSendHtmlMessageResult: (
     chatId: string,
     html: string,
@@ -516,7 +532,8 @@ export class TurnCoordinator {
     if (!session.threadId) {
       const started = await appServer.startThread({
         cwd: session.projectPath,
-        ...(session.selectedModel ? { model: session.selectedModel } : {})
+        ...(session.selectedModel ? { model: session.selectedModel } : {}),
+        dynamicTools: this.deps.dynamicToolDeclarations
       });
       store.updateSessionThreadId(session.sessionId, started.thread.id);
       store.syncSessionTitleFromThread(started.thread.id, {
@@ -552,7 +569,8 @@ export class TurnCoordinator {
       });
       const started = await appServer.startThread({
         cwd: session.projectPath,
-        ...(session.selectedModel ? { model: session.selectedModel } : {})
+        ...(session.selectedModel ? { model: session.selectedModel } : {}),
+        dynamicTools: this.deps.dynamicToolDeclarations
       });
       store.updateSessionThreadId(session.sessionId, started.thread.id);
       store.syncSessionTitleFromThread(started.thread.id, {
@@ -574,50 +592,43 @@ export class TurnCoordinator {
       return;
     }
 
-    if (await this.handleSendTelegramDocumentToolCall(request, appServer)) {
+    const support = this.deps.interpretPackServerRequest(request);
+    if (support.kind === "platform_action") {
+      await this.handlePlatformActionRequest(request, support, appServer);
       return;
     }
 
-    const knownUnsupported = getKnownUnsupportedServerRequest(request);
-    if (knownUnsupported) {
+    if (support.kind === "unsupported") {
       const activeTurn = this.findActiveTurnForRequestParams(request.params);
-      await this.deps.logger.warn("known unsupported app-server server request", {
+      await this.deps.logger.warn("unsupported app-server server request", {
         method: request.method,
         id: request.id,
-        detail: knownUnsupported.logDetail
+        detail: support.logDetail ?? null
       });
       if (activeTurn) {
         await this.appendDebugJournal(activeTurn, "bridge/serverRequest/rejected", {
-          requestId: serializeJsonRpcRequestId(request.id),
+          requestId: serializeServerRequestId(request.id),
           requestMethod: request.method,
           params: request.params,
-          reason: knownUnsupported.errorMessage
+          reason: support.errorMessage
         });
-        const delivered = await this.deps.safeSendMessage(activeTurn.chatId, knownUnsupported.userMessage);
+        const delivered = support.userMessage
+          ? await this.deps.safeSendMessage(activeTurn.chatId, support.userMessage)
+          : false;
         if (delivered) {
           await this.deps.runRuntimeCardOperation(activeTurn, async () => {
             await this.deps.reanchorStatusCardToLatestMessage(activeTurn, "known_unsupported_server_request");
           });
         }
       }
-      await appServer.respondToServerRequestError(request.id, -32601, knownUnsupported.errorMessage);
-      return;
-    }
-
-    const normalized = normalizeServerRequest(request.method, request.params);
-    if (!normalized) {
-      await this.deps.logger.warn("unsupported app-server server request", {
-        method: request.method,
-        id: request.id
-      });
-      await appServer.respondToServerRequestError(request.id, -32601, `Unsupported server request: ${request.method}`);
+      await appServer.respondToServerRequestError(request.id, support.errorCode, support.errorMessage);
       return;
     }
 
     await this.deps.interactionBroker.handleNormalizedServerRequest(
       request,
-      normalized,
-      this.findActiveTurnForInteraction(normalized.threadId, normalized.turnId ?? null)
+      support.normalized,
+      this.findActiveTurnForInteraction(support.normalized.threadId, support.normalized.turnId ?? null)
     );
   }
 
@@ -788,6 +799,19 @@ export class TurnCoordinator {
             }
           );
           proposedPlan = turnArtifacts.proposedPlan;
+          if (
+            turnArtifacts.compactionDetected
+            && !activeTurn.tracker.getInspectSnapshot().recentNoticeSummaries.includes("上下文已压缩")
+          ) {
+            await this.deps.handleGlobalRuntimeNotice({
+              kind: "thread_compaction_completed",
+              method: "history/threadCompaction/completed",
+              threadId: activeTurn.threadId,
+              turnId: turnArtifacts.resolvedTurnId ?? activeTurn.turnId,
+              itemId: null,
+              itemType: "compaction"
+            });
+          }
           if (activeTurn.startedInReviewMode) {
             finalMessage = turnArtifacts.finalMessage ?? observedReviewMessage ?? finalMessage;
           } else if (!finalMessage) {
@@ -1024,7 +1048,7 @@ export class TurnCoordinator {
       };
     }
 
-    const saved = store.saveFinalAnswerView({
+    const saved = store.saveTerminalResultView({
       chatId: activeTurn.chatId,
       sessionId: activeTurn.sessionId,
       threadId: activeTurn.threadId,
@@ -1042,11 +1066,17 @@ export class TurnCoordinator {
       chatId: activeTurn.chatId,
       html: directDelivery.html,
       replyMarkup: directMarkup,
+      deferredIntent: "terminal_result_deferred_notice",
+      requirements: {
+        requiresCallbacks: Boolean(directMarkup),
+        requiresLongFormPagination: directDelivery.controls.totalPages > 1,
+        requiresRichTextPreview: true
+      },
       sendHtmlMessage: this.deps.safeSendHtmlMessageResult
     });
     if (sent.outcome === "sent") {
-      store.setFinalAnswerMessageId(saved.answerId, sent.deliveryRef.messageId);
-      store.setFinalAnswerDeliveryState(saved.answerId, "visible");
+      store.setTerminalResultMessageId(saved.answerId, sent.deliveryRef.messageId);
+      store.setTerminalResultDeliveryState(saved.answerId, "visible");
       return {
         answerId: saved.answerId,
         kind: "final_answer",
@@ -1080,7 +1110,7 @@ export class TurnCoordinator {
       };
     }
 
-    const saved = store.saveFinalAnswerView({
+    const saved = store.saveTerminalResultView({
       chatId: activeTurn.chatId,
       sessionId: activeTurn.sessionId,
       threadId: activeTurn.threadId,
@@ -1097,11 +1127,17 @@ export class TurnCoordinator {
       chatId: activeTurn.chatId,
       html: directDelivery.html,
       replyMarkup: this.buildTerminalResultReplyMarkup(saved, directDelivery.controls),
+      deferredIntent: "terminal_result_deferred_notice",
+      requirements: {
+        requiresCallbacks: true,
+        requiresLongFormPagination: directDelivery.controls.totalPages > 1,
+        requiresRichTextPreview: true
+      },
       sendHtmlMessage: this.deps.safeSendHtmlMessageResult
     });
     if (sent.outcome === "sent") {
-      store.setFinalAnswerMessageId(saved.answerId, sent.deliveryRef.messageId);
-      store.setFinalAnswerDeliveryState(saved.answerId, "visible");
+      store.setTerminalResultMessageId(saved.answerId, sent.deliveryRef.messageId);
+      store.setTerminalResultDeliveryState(saved.answerId, "visible");
       return {
         answerId: saved.answerId,
         kind: "plan_result",
@@ -1123,7 +1159,7 @@ export class TurnCoordinator {
   }
 
   private buildTerminalResultReplyMarkup(
-    saved: ReturnType<BridgeStateStore["saveFinalAnswerView"]>,
+    saved: ReturnType<BridgeStateStore["saveTerminalResultView"]>,
     controls: {
       answerId: string;
       totalPages: number;
@@ -1152,7 +1188,7 @@ export class TurnCoordinator {
 
   private async sendDeferredTerminalNotice(
     activeTurn: ActiveTurnState,
-    saved: ReturnType<BridgeStateStore["saveFinalAnswerView"]>
+    saved: ReturnType<BridgeStateStore["saveTerminalResultView"]>
   ): Promise<PlatformSurfaceOperationResult> {
     const store = this.deps.getStore();
     if (!store) {
@@ -1178,6 +1214,10 @@ export class TurnCoordinator {
       replyMarkup: saved.kind === "plan_result"
         ? buildPlanResultReplyMarkup(renderedNotice.controls)
         : buildFinalAnswerReplyMarkup(renderedNotice.controls),
+      requirements: {
+        requiresCallbacks: true,
+        requiresRichTextPreview: true
+      },
       sendHtmlMessage: this.deps.safeSendHtmlMessageResult
     });
     if (sent.outcome !== "sent") {
@@ -1185,7 +1225,7 @@ export class TurnCoordinator {
     }
 
     store.clearRuntimeNotice(notice.key);
-    store.setFinalAnswerDeliveryState(saved.answerId, "deferred_notice_visible");
+    store.setTerminalResultDeliveryState(saved.answerId, "deferred_notice_visible");
     return createDeferredSurfaceOperationResult(
       "terminal_result",
       "terminal_result_deferred_notice",
@@ -1411,7 +1451,7 @@ export class TurnCoordinator {
     if (classified.itemType === "agentMessage") {
       if (classified.itemPhase === "final_answer" && hasMeaningfulText(classified.itemText)) {
         observed.finalAnswer = classified.itemText;
-      } else if (classified.itemPhase !== "commentary" && hasMeaningfulText(classified.itemText)) {
+      } else if (!isCommentaryAgentMessagePhase(classified.itemPhase) && hasMeaningfulText(classified.itemText)) {
         observed.trailingMessage = classified.itemText;
       }
       return;
@@ -1545,70 +1585,70 @@ export class TurnCoordinator {
     }
   }
 
-  private async handleSendTelegramDocumentToolCall(
+  private async handlePlatformActionRequest(
     request: JsonRpcServerRequest,
+    support: PlatformActionRequestSupport,
     appServer: CodexAppServerClient
   ): Promise<boolean> {
-    if (request.method !== "item/tool/call") {
-      return false;
-    }
-
-    const requestParams = asRecord(request.params);
-    if (getString(requestParams, "tool") !== "send_telegram_document") {
+    if (support.action !== "send_control_surface_file") {
       return false;
     }
 
     const activeTurn = this.findActiveTurnForRequestParams(request.params);
-    const argumentsRecord = asRecord(requestParams?.arguments);
-    const path = getRequiredString(argumentsRecord, "path");
-    const caption = getString(argumentsRecord, "caption") ?? undefined;
-    const fileName = getString(argumentsRecord, "filename") ?? undefined;
+    const path = support.path;
+    const caption = support.caption ?? undefined;
+    const fileName = support.fileName ?? undefined;
     if (!activeTurn) {
       await appServer.respondToServerRequest(request.id, {
         success: false,
         contentItems: [{
           type: "text",
-          text: "No active Telegram turn is available for send_telegram_document."
+          text: `No active bridge turn is available for ${support.toolName}.`
         }]
       });
       return true;
     }
 
     if (!path) {
-      await this.appendDebugJournal(activeTurn, "bridge/serverRequest/toolCall/send_telegram_document", {
-        requestId: serializeJsonRpcRequestId(request.id),
-        tool: "send_telegram_document",
+      await this.appendDebugJournal(activeTurn, "bridge/serverRequest/platformAction/send_control_surface_file", {
+        requestId: serializeServerRequestId(request.id),
+        tool: support.toolName,
         reason: "missing_path"
       });
       await appServer.respondToServerRequest(request.id, {
         success: false,
         contentItems: [{
           type: "text",
-          text: "send_telegram_document requires a non-empty `path` argument."
+          text: `${support.toolName} requires a non-empty \`path\` argument.`
         }]
       });
       return true;
     }
 
-    const sent = await this.deps.safeSendDocumentResult(activeTurn.chatId, path, {
+    const sent = await this.deps.platformActions.sendControlSurfaceFile({
+      chatId: activeTurn.chatId,
+      filePath: path,
       ...(caption ? { caption } : {}),
       ...(fileName ? { fileName } : {})
     });
-    await this.appendDebugJournal(activeTurn, "bridge/serverRequest/toolCall/send_telegram_document", {
-      requestId: serializeJsonRpcRequestId(request.id),
-      tool: "send_telegram_document",
+    await this.appendDebugJournal(activeTurn, "bridge/serverRequest/platformAction/send_control_surface_file", {
+      requestId: serializeServerRequestId(request.id),
+      tool: support.toolName,
       path,
       caption,
       fileName,
-      delivered: sent !== null
+      delivered: sent.outcome === "sent",
+      result: sent
     });
     await appServer.respondToServerRequest(request.id, {
-      success: sent !== null,
+      success: sent.outcome === "sent",
       contentItems: [{
         type: "text",
-        text: sent
-          ? `Document sent to Telegram chat (${activeTurn.chatId}).`
-          : "Failed to send document to Telegram chat. Please verify the file path and retry (if this is an older session, try creating a new session first)."
+        text: sent.outcome === "sent"
+          ? `File sent to the active control surface (${activeTurn.chatId}).`
+          : sent.reason === "capability_blocked"
+            ? "The current platform pack does not allow control-surface file delivery."
+            : "Failed to send the file to the active control surface. Please verify the file path and retry."
       }]
     });
     return true;
@@ -1630,38 +1670,6 @@ function isGlobalRuntimeNotice(
     || notification.kind === "deprecation_notice"
     || notification.kind === "model_rerouted"
     || notification.kind === "skills_changed"
-    || notification.kind === "thread_compacted";
-}
-
-function getKnownUnsupportedServerRequest(request: JsonRpcServerRequest): {
-  errorMessage: string;
-  userMessage: string;
-  logDetail: string;
-} | null {
-  if (request.method === "item/tool/call") {
-    const tool = getString(asRecord(request.params), "tool") ?? "unknown";
-    if (tool === "send_telegram_document") {
-      return null;
-    }
-    return {
-      errorMessage: `Dynamic tool call is not supported by the Telegram bridge: ${tool}`,
-      userMessage: `Codex 发起了动态工具调用（${tool}），但 Telegram bridge 当前只支持 send_telegram_document，已拒绝这次调用。`,
-      logDetail: `tool=${tool}`
-    };
-  }
-
-  if (request.method === "account/chatgptAuthTokens/refresh") {
-    const reason = getString(asRecord(request.params), "reason") ?? "unknown";
-    return {
-      errorMessage: "ChatGPT auth token refresh is not supported by the Telegram bridge",
-      userMessage: `Codex 请求 ChatGPT 登录令牌刷新（原因：${reason}），但 bridge 不持有可刷新的 ChatGPT access token / account id，已拒绝这次请求。`,
-      logDetail: `reason=${reason}`
-    };
-  }
-
-  return null;
-}
-
-function serializeJsonRpcRequestId(id: JsonRpcRequestId): string {
-  return typeof id === "number" ? `${id}` : `s:${id}`;
+    || notification.kind === "thread_compacted"
+    || notification.kind === "thread_compaction_completed";
 }

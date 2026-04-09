@@ -4,6 +4,7 @@ import { dirname, basename, join } from "node:path";
 import type { BridgePaths } from "../paths.js";
 import type { BridgeConfig } from "../config.js";
 import type { Logger } from "../logger.js";
+import { getTelegramPackConfig } from "../packs/telegram/config.js";
 import { TelegramApi, type TelegramUpdate } from "./api.js";
 
 function isValidOffset(value: unknown): value is number {
@@ -84,11 +85,12 @@ export class TelegramPoller {
 
   async run(): Promise<void> {
     this.running = true;
+    const telegramConfig = getTelegramPackConfig(this.config);
     let offset = await readOffset(this.paths, this.logger);
 
     while (this.running) {
       try {
-        const updates = await this.api.getUpdates(offset, this.config.telegramPollTimeoutSeconds);
+        const updates = await this.api.getUpdates(offset, telegramConfig.pollTimeoutSeconds);
 
         for (const update of updates) {
           await this.onUpdate(update);
@@ -97,11 +99,11 @@ export class TelegramPoller {
         }
 
         if (updates.length === 0) {
-          await sleep(this.config.telegramPollIntervalMs);
+          await sleep(telegramConfig.pollIntervalMs);
         }
       } catch (error) {
         await this.logger.warn("telegram polling failed", { error: `${error}` });
-        await sleep(this.config.telegramPollIntervalMs);
+        await sleep(telegramConfig.pollIntervalMs);
       }
     }
   }

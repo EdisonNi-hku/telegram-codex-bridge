@@ -44,7 +44,7 @@ export type InteractionResolutionSource =
   | "server_response_success"
   | "server_response_error"
   | "app_server_exit"
-  | "telegram_delivery_failed"
+  | "interaction_delivery_failed"
   | "turn_expired"
   | "bridge_restart_recovery";
 
@@ -490,7 +490,7 @@ export class InteractionBroker {
     }
 
     if (result.outcome === "rate_limited") {
-      await this.deps.safeAnswerCallbackQuery(callbackQueryId, "Telegram 正在限流，请稍后再试。");
+      await this.deps.safeAnswerCallbackQuery(callbackQueryId, "当前平台正在限流，请稍后再试。");
       return;
     }
 
@@ -543,7 +543,7 @@ export class InteractionBroker {
       sessionId: activeTurn.sessionId,
       threadId: normalized.threadId,
       turnId: effectiveTurnId,
-      requestId: serializeJsonRpcRequestId(request.id),
+      requestId: request.id,
       requestMethod: request.method,
       interactionKind: normalized.kind,
       promptJson: JSON.stringify({
@@ -555,13 +555,13 @@ export class InteractionBroker {
 
     const sent = await this.sendPendingInteractionCard(activeTurn.chatId, pending, normalized);
     if (sent.outcome !== "sent") {
-      store.markPendingInteractionFailed(pending.interactionId, "telegram_delivery_failed");
+      store.markPendingInteractionFailed(pending.interactionId, "interaction_delivery_failed");
       await this.deps.appendInteractionResolvedJournal(pending, {
         finalState: "failed",
-        errorReason: "telegram_delivery_failed",
-        resolutionSource: "telegram_delivery_failed"
+        errorReason: "interaction_delivery_failed",
+        resolutionSource: "interaction_delivery_failed"
       });
-      await appServer.respondToServerRequestError(request.id, -32603, "Failed to deliver Telegram interaction card");
+      await appServer.respondToServerRequestError(request.id, -32603, "Failed to deliver the interaction surface");
       return;
     }
 
@@ -578,8 +578,7 @@ export class InteractionBroker {
       return;
     }
 
-    const serializedRequestId = serializeJsonRpcRequestId(requestId);
-    const pendingRows = store.listPendingInteractionsByRequest(threadId, serializedRequestId);
+    const pendingRows = store.listPendingInteractionsByRequest(threadId, requestId);
     for (const row of pendingRows) {
       const interaction = parseStoredInteraction(row.promptJson);
       const responseJson = row.responseJson ?? JSON.stringify({ resolvedBy: "serverRequest/resolved" });
@@ -742,7 +741,19 @@ export class InteractionBroker {
     }
 
     const rendered = buildPendingInteractionSurface(row, interaction);
-    await this.deps.safeEditHtmlMessageText(chatId, row.messageId, rendered.text, rendered.replyMarkup);
+    const result = await executeTelegramHtmlSurfaceOperation({
+      intent: "pending_interaction",
+      chatId,
+      html: rendered.text,
+      replyMarkup: rendered.replyMarkup,
+      existingMessageId: row.messageId,
+      preferEdit: true,
+      sendHtmlMessage: this.deps.safeSendHtmlMessageResult,
+      editHtmlMessage: this.deps.safeEditHtmlMessageText
+    });
+    if (result.outcome === "sent" && result.deliveryRef.messageId !== null) {
+      this.deps.getStore()?.setPendingInteractionMessageId(row.interactionId, result.deliveryRef.messageId);
+    }
   }
 
   private async sendPendingInteractionCard(
@@ -809,7 +820,7 @@ export class InteractionBroker {
     const terminalState = options?.state ?? "answered";
     const payloadJson = JSON.stringify(payload);
     try {
-      await appServer.respondToServerRequest(deserializeJsonRpcRequestId(row.requestId), payload);
+      await appServer.respondToServerRequest(row.requestId, payload);
       if (terminalState === "canceled") {
         store.markPendingInteractionCanceled(row.interactionId, payloadJson, options?.errorReason ?? null);
       } else {
@@ -869,7 +880,7 @@ export class InteractionBroker {
     const terminalState = options?.state ?? "failed";
     try {
       await appServer.respondToServerRequestError(
-        deserializeJsonRpcRequestId(row.requestId),
+        row.requestId,
         4001,
         reason
       );
@@ -1231,33 +1242,4 @@ function resolveInteractionQuestionId(
   }
 
   return interaction.questions[parsed.questionIndex]?.id ?? null;
-}
-
-function parseJsonRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value === "string") {
-    try {
-      return parseJsonRecord(JSON.parse(value));
-    } catch {
-      return null;
-    }
-  }
-
-  return asRecord(value);
-}
-
-function serializeJsonRpcRequestId(id: JsonRpcRequestId): string {
-  return JSON.stringify(id);
-}
-
-function deserializeJsonRpcRequestId(text: string): JsonRpcRequestId {
-  try {
-    const parsed = JSON.parse(text) as JsonRpcRequestId;
-    if (typeof parsed === "number" || typeof parsed === "string") {
-      return parsed;
-    }
-  } catch {
-    // fall through
-  }
-
-  return text;
 }

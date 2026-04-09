@@ -391,7 +391,7 @@ test("answered and canceled interaction cards include the /hub hint", async () =
     }, activeTurn as never);
 
     const cancelPending = store.listPendingInteractionsByChat("chat-1", ["pending"])
-      .find((row) => row.requestId === JSON.stringify("req-canceled"));
+      .find((row) => row.requestId === "req-canceled");
     assert.ok(cancelPending?.messageId !== null);
     if (!cancelPending?.messageId) {
       throw new Error("expected cancel interaction message id");
@@ -405,6 +405,61 @@ test("answered and canceled interaction cards include the /hub hint", async () =
     );
 
     assert.match(editedHtml.at(-1)?.html ?? "", /如需查看或刷新 Hub，可发送 \/hub。/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("handleServerRequestResolvedNotification matches both canonical and legacy stored request ids", async () => {
+  const { broker, store, cleanup } = await createBrokerContext();
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+
+    const promptJson = JSON.stringify({
+      kind: "approval",
+      title: "Codex 需要命令批准",
+      subtitle: "命令审批",
+      body: "pnpm test",
+      detail: null,
+      decisionOptions: [],
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "item-1",
+      rawParams: {},
+      method: "item/commandExecution/requestApproval"
+    });
+
+    const legacy = store.createPendingInteraction({
+      chatId: "chat-1",
+      sessionId: session.sessionId,
+      threadId: "thread-1",
+      turnId: "turn-1",
+      requestId: "req-legacy",
+      requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval",
+      promptJson
+    });
+    const canonical = store.createPendingInteraction({
+      chatId: "chat-1",
+      sessionId: session.sessionId,
+      threadId: "thread-1",
+      turnId: "turn-1",
+      requestId: "req-legacy",
+      requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval",
+      promptJson
+    });
+
+    await broker.handleServerRequestResolvedNotification("thread-1", "req-legacy");
+
+    assert.equal(store.getPendingInteraction(legacy.interactionId)?.state, "answered");
+    assert.equal(store.getPendingInteraction(canonical.interactionId)?.state, "answered");
   } finally {
     await cleanup();
   }
@@ -462,8 +517,8 @@ test("failed and expired interaction cards do not include the /hub hint", async 
 
     await broker.resolveActionablePendingInteractionsForSession("chat-1", session.sessionId, {
       state: "failed",
-      reason: "telegram_delivery_failed",
-      resolutionSource: "telegram_delivery_failed"
+      reason: "interaction_delivery_failed",
+      resolutionSource: "interaction_delivery_failed"
     });
     assert.doesNotMatch(editedHtml.at(-1)?.html ?? "", /如需查看或刷新 Hub，可发送 \/hub。/u);
 

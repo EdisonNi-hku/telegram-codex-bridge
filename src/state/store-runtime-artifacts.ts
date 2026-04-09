@@ -1,16 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-import { resolvePlatformChatRef } from "../core/domain/binding.js";
 import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
-import { DEFAULT_RUNTIME_STATUS_FIELDS } from "../types.js";
+import { DEFAULT_RUNTIME_STATUS_FIELDS, normalizeReadinessSnapshot } from "../types.js";
 import type {
   CurrentSessionCardRow,
-  FinalAnswerViewRow,
   ReadinessSnapshot,
   RuntimeCardPreferencesRow,
   RuntimeNotice,
   RuntimeStatusField,
+  TerminalResultViewRow,
   TurnInputSourceKind,
   TurnInputSourceRow,
   UiLanguage
@@ -26,7 +25,6 @@ import { buildInClausePlaceholders } from "./store-shared.js";
 interface RuntimeNoticeRecord {
   key: string;
   chat_id: string;
-  telegram_chat_id: string | null;
   type: "bridge_restart_recovery" | "app_server_notice" | "terminal_delivery_deferred";
   message: string;
   parse_mode: "HTML" | null;
@@ -36,17 +34,15 @@ interface RuntimeNoticeRecord {
   created_at: string;
 }
 
-interface FinalAnswerViewRecord {
+interface TerminalResultViewRecord {
   answer_id: string;
   chat_id: string;
-  telegram_chat_id: string | null;
   delivery_message_id: number | null;
-  telegram_message_id: number | null;
   session_id: string;
   thread_id: string;
   turn_id: string;
-  kind: FinalAnswerViewRow["kind"];
-  delivery_state: FinalAnswerViewRow["deliveryState"];
+  kind: TerminalResultViewRow["kind"];
+  delivery_state: TerminalResultViewRow["deliveryState"];
   preview_html: string;
   pages_json: string;
   primary_action_consumed: number;
@@ -55,9 +51,7 @@ interface FinalAnswerViewRecord {
 
 interface CurrentSessionCardRecord {
   chat_id: string;
-  telegram_chat_id: string | null;
   message_id: number | null;
-  telegram_message_id: number | null;
   session_id: string;
   updated_at: string;
 }
@@ -90,14 +84,9 @@ interface ReadinessRecord {
 }
 
 function mapRuntimeNotice(record: RuntimeNoticeRecord): RuntimeNotice {
-  const chatRef = resolvePlatformChatRef({
-    chatId: record.chat_id,
-    telegramChatId: record.telegram_chat_id
-  });
   return {
     key: record.key,
-    chatId: chatRef.chatId,
-    telegramChatId: record.telegram_chat_id ?? chatRef.chatId,
+    chatId: record.chat_id,
     type: record.type,
     message: record.message,
     parseMode: record.parse_mode,
@@ -110,18 +99,11 @@ function mapRuntimeNotice(record: RuntimeNoticeRecord): RuntimeNotice {
   };
 }
 
-function mapFinalAnswerView(record: FinalAnswerViewRecord): FinalAnswerViewRow {
-  const chatRef = resolvePlatformChatRef({
-    chatId: record.chat_id,
-    telegramChatId: record.telegram_chat_id
-  });
-  const deliveryMessageId = record.delivery_message_id ?? record.telegram_message_id;
+function mapTerminalResultView(record: TerminalResultViewRecord): TerminalResultViewRow {
   return {
     answerId: record.answer_id,
-    chatId: chatRef.chatId,
-    telegramChatId: record.telegram_chat_id ?? chatRef.chatId,
-    deliveryMessageId,
-    telegramMessageId: record.telegram_message_id ?? deliveryMessageId,
+    chatId: record.chat_id,
+    deliveryMessageId: record.delivery_message_id,
     sessionId: record.session_id,
     threadId: record.thread_id,
     turnId: record.turn_id,
@@ -139,23 +121,16 @@ function mapFinalAnswerView(record: FinalAnswerViewRecord): FinalAnswerViewRow {
 }
 
 function mapCurrentSessionCard(record: CurrentSessionCardRecord): CurrentSessionCardRow {
-  const chatRef = resolvePlatformChatRef({
-    chatId: record.chat_id,
-    telegramChatId: record.telegram_chat_id
-  });
-  const messageId = record.message_id ?? record.telegram_message_id;
   return {
-    chatId: chatRef.chatId,
-    telegramChatId: record.telegram_chat_id ?? chatRef.chatId,
-    messageId,
-    telegramMessageId: record.telegram_message_id ?? messageId,
+    chatId: record.chat_id,
+    messageId: record.message_id,
     sessionId: record.session_id,
     updatedAt: record.updated_at
   };
 }
 
 function resolveChatId(options: { chatId: string }): string {
-  return resolvePlatformChatRef(options).chatId;
+  return options.chatId;
 }
 
 function resolveMessageId(messageId?: number | null | undefined): number | null {
@@ -218,6 +193,27 @@ export interface StoreRuntimeArtifacts {
   deleteCurrentSessionCard(chatId: string): void;
   rebindCurrentSessionCardsChatIds(chatId: string, previousChatIds: string[]): void;
   clearAllCurrentSessionCards(): void;
+  rebindTerminalResultViewsChatIds(chatId: string, previousChatIds: string[]): void;
+  saveTerminalResultView(options: {
+    answerId?: string;
+    chatId: string;
+    deliveryMessageId?: number | null;
+    sessionId: string;
+    threadId: string;
+    turnId: string;
+    kind?: TerminalResultViewRow["kind"];
+    deliveryState?: TerminalResultViewRow["deliveryState"];
+    previewHtml: string;
+    pages: string[];
+    primaryActionConsumed?: boolean;
+  }): TerminalResultViewRow;
+  getTerminalResultView(answerId: string, chatId: string): TerminalResultViewRow | null;
+  listTerminalResultViews(chatId: string): TerminalResultViewRow[];
+  rebindFinalAnswerViewsChatIds(chatId: string, previousChatIds: string[]): void;
+  setTerminalResultMessageId(answerId: string, messageId: number): void;
+  setTerminalResultDeliveryState(answerId: string, deliveryState: TerminalResultViewRow["deliveryState"]): void;
+  setTerminalResultPrimaryActionConsumed(answerId: string, consumed: boolean): void;
+  deleteTerminalResultView(answerId: string): void;
   saveFinalAnswerView(options: {
     answerId?: string;
     chatId: string;
@@ -225,17 +221,16 @@ export interface StoreRuntimeArtifacts {
     sessionId: string;
     threadId: string;
     turnId: string;
-    kind?: FinalAnswerViewRow["kind"];
-    deliveryState?: FinalAnswerViewRow["deliveryState"];
+    kind?: TerminalResultViewRow["kind"];
+    deliveryState?: TerminalResultViewRow["deliveryState"];
     previewHtml: string;
     pages: string[];
     primaryActionConsumed?: boolean;
-  }): FinalAnswerViewRow;
-  getFinalAnswerView(answerId: string, chatId: string): FinalAnswerViewRow | null;
-  listFinalAnswerViews(chatId: string): FinalAnswerViewRow[];
-  rebindFinalAnswerViewsChatIds(chatId: string, previousChatIds: string[]): void;
+  }): TerminalResultViewRow;
+  getFinalAnswerView(answerId: string, chatId: string): TerminalResultViewRow | null;
+  listFinalAnswerViews(chatId: string): TerminalResultViewRow[];
   setFinalAnswerMessageId(answerId: string, messageId: number): void;
-  setFinalAnswerDeliveryState(answerId: string, deliveryState: FinalAnswerViewRow["deliveryState"]): void;
+  setFinalAnswerDeliveryState(answerId: string, deliveryState: TerminalResultViewRow["deliveryState"]): void;
   setFinalAnswerPrimaryActionConsumed(answerId: string, consumed: boolean): void;
   deleteFinalAnswerView(answerId: string): void;
   clearAllFinalAnswerViews(): void;
@@ -265,7 +260,7 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
     return row ? mapCurrentSessionCard(row) : null;
   };
 
-  const getFinalAnswerView = (answerId: string, chatId: string): FinalAnswerViewRow | null => {
+  const getTerminalResultView = (answerId: string, chatId: string): TerminalResultViewRow | null => {
     const row = db
       .prepare(
         `
@@ -274,9 +269,9 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
           WHERE answer_id = ? AND chat_id = ?
         `
       )
-      .get(answerId, chatId) as FinalAnswerViewRecord | undefined;
+      .get(answerId, chatId) as TerminalResultViewRecord | undefined;
 
-    return row ? mapFinalAnswerView(row) : null;
+    return row ? mapTerminalResultView(row) : null;
   };
 
   return {
@@ -313,7 +308,6 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
           INSERT OR REPLACE INTO runtime_notice (
             key,
             chat_id,
-            telegram_chat_id,
             type,
             message,
             parse_mode,
@@ -322,14 +316,13 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
             turn_id,
             created_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       );
 
       for (const notice of notices) {
         statement.run(
           notice.key,
-          notice.chatId,
           notice.chatId,
           notice.type,
           notice.message,
@@ -347,7 +340,6 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
       const notice: RuntimeNotice = {
         key: options.key ?? `notice:${randomUUID()}`,
         chatId,
-        telegramChatId: chatId,
         type: options.type,
         message: options.message,
         parseMode: options.parseMode ?? null,
@@ -363,7 +355,6 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
             INSERT OR REPLACE INTO runtime_notice (
               key,
               chat_id,
-              telegram_chat_id,
               type,
               message,
               parse_mode,
@@ -372,13 +363,12 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
               turn_id,
               created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .run(
           notice.key,
           notice.chatId,
-          notice.telegramChatId,
           notice.type,
           notice.message,
           notice.parseMode ?? null,
@@ -409,11 +399,11 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .prepare(
           `
             UPDATE runtime_notice
-            SET chat_id = ?, telegram_chat_id = ?
-            WHERE chat_id IN (${placeholders}) OR telegram_chat_id IN (${placeholders})
+            SET chat_id = ?
+            WHERE chat_id IN (${placeholders})
           `
         )
-        .run(chatId, chatId, ...previousChatIds, ...previousChatIds);
+        .run(chatId, ...previousChatIds);
     },
 
     getRuntimeCardPreferences() {
@@ -507,19 +497,15 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
           `
             INSERT OR REPLACE INTO current_session_card (
               chat_id,
-              telegram_chat_id,
               message_id,
-              telegram_message_id,
               session_id,
               updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?)
           `
         )
         .run(
           chatId,
-          chatId,
-          messageId,
           messageId,
           options.sessionId,
           updatedAt
@@ -547,18 +533,18 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .prepare(
           `
             UPDATE current_session_card
-            SET chat_id = ?, telegram_chat_id = ?
-            WHERE chat_id IN (${placeholders}) OR telegram_chat_id IN (${placeholders})
+            SET chat_id = ?
+            WHERE chat_id IN (${placeholders})
           `
         )
-        .run(chatId, chatId, ...previousChatIds, ...previousChatIds);
+        .run(chatId, ...previousChatIds);
     },
 
     clearAllCurrentSessionCards() {
       db.prepare("DELETE FROM current_session_card").run();
     },
 
-    saveFinalAnswerView(options) {
+    saveTerminalResultView(options) {
       const answerId = options.answerId ?? randomUUID();
       const chatId = resolveChatId(options);
       const deliveryMessageId = resolveMessageId(options.deliveryMessageId);
@@ -573,9 +559,7 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
               INSERT OR REPLACE INTO final_answer_view (
                 answer_id,
                 chat_id,
-                telegram_chat_id,
                 delivery_message_id,
-                telegram_message_id,
                 session_id,
                 thread_id,
                 turn_id,
@@ -586,14 +570,12 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
                 primary_action_consumed,
                 created_at
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
           )
           .run(
             answerId,
             chatId,
-            chatId,
-            deliveryMessageId,
             deliveryMessageId,
             options.sessionId,
             options.threadId,
@@ -627,17 +609,17 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         throw error;
       }
 
-      const saved = getFinalAnswerView(answerId, chatId);
+      const saved = getTerminalResultView(answerId, chatId);
       if (!saved) {
-        throw new Error(`persisted final answer view missing after save: ${answerId}`);
+        throw new Error(`persisted terminal result view missing after save: ${answerId}`);
       }
 
       return saved;
     },
 
-    getFinalAnswerView,
+    getTerminalResultView,
 
-    listFinalAnswerViews(chatId) {
+    listTerminalResultViews(chatId) {
       const rows = db
         .prepare(
           `
@@ -647,12 +629,12 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
             ORDER BY created_at DESC, rowid DESC
           `
         )
-        .all(chatId) as unknown as FinalAnswerViewRecord[];
+        .all(chatId) as unknown as TerminalResultViewRecord[];
 
-      return rows.map(mapFinalAnswerView);
+      return rows.map(mapTerminalResultView);
     },
 
-    rebindFinalAnswerViewsChatIds(chatId, previousChatIds) {
+    rebindTerminalResultViewsChatIds(chatId, previousChatIds) {
       if (previousChatIds.length === 0) {
         return;
       }
@@ -662,26 +644,30 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .prepare(
           `
             UPDATE final_answer_view
-            SET chat_id = ?, telegram_chat_id = ?
-            WHERE chat_id IN (${placeholders}) OR telegram_chat_id IN (${placeholders})
+            SET chat_id = ?
+            WHERE chat_id IN (${placeholders})
           `
         )
-        .run(chatId, chatId, ...previousChatIds, ...previousChatIds);
+        .run(chatId, ...previousChatIds);
     },
 
-    setFinalAnswerMessageId(answerId, messageId) {
+    rebindFinalAnswerViewsChatIds(chatId, previousChatIds) {
+      this.rebindTerminalResultViewsChatIds(chatId, previousChatIds);
+    },
+
+    setTerminalResultMessageId(answerId, messageId) {
       db
         .prepare(
           `
             UPDATE final_answer_view
-            SET delivery_message_id = ?, telegram_message_id = ?
+            SET delivery_message_id = ?
             WHERE answer_id = ?
           `
         )
-        .run(messageId, messageId, answerId);
+        .run(messageId, answerId);
     },
 
-    setFinalAnswerDeliveryState(answerId, deliveryState) {
+    setTerminalResultDeliveryState(answerId, deliveryState) {
       db
         .prepare(
           `
@@ -693,7 +679,7 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .run(deliveryState, answerId);
     },
 
-    setFinalAnswerPrimaryActionConsumed(answerId, consumed) {
+    setTerminalResultPrimaryActionConsumed(answerId, consumed) {
       db
         .prepare(
           `
@@ -705,8 +691,36 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .run(consumed ? 1 : 0, answerId);
     },
 
-    deleteFinalAnswerView(answerId) {
+    deleteTerminalResultView(answerId) {
       db.prepare("DELETE FROM final_answer_view WHERE answer_id = ?").run(answerId);
+    },
+
+    saveFinalAnswerView(options) {
+      return this.saveTerminalResultView(options);
+    },
+
+    getFinalAnswerView(answerId, chatId) {
+      return this.getTerminalResultView(answerId, chatId);
+    },
+
+    listFinalAnswerViews(chatId) {
+      return this.listTerminalResultViews(chatId);
+    },
+
+    setFinalAnswerMessageId(answerId, messageId) {
+      this.setTerminalResultMessageId(answerId, messageId);
+    },
+
+    setFinalAnswerDeliveryState(answerId, deliveryState) {
+      this.setTerminalResultDeliveryState(answerId, deliveryState);
+    },
+
+    setFinalAnswerPrimaryActionConsumed(answerId, consumed) {
+      this.setTerminalResultPrimaryActionConsumed(answerId, consumed);
+    },
+
+    deleteFinalAnswerView(answerId) {
+      this.deleteTerminalResultView(answerId);
     },
 
     clearAllFinalAnswerViews() {
@@ -792,12 +806,12 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         return null;
       }
 
-      return {
+      return normalizeReadinessSnapshot({
         state: row.readiness_state,
         checkedAt: row.checked_at,
         details: JSON.parse(row.details_json) as ReadinessSnapshot["details"],
         appServerPid: row.app_server_pid
-      };
+      });
     }
   };
 }

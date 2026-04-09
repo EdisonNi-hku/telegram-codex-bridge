@@ -1,4 +1,8 @@
 import type { CodexAppServerClient, UserInput } from "../codex/app-server.js";
+import {
+  createRollbackConfirmView,
+  createRollbackPickerView
+} from "../core/workflow/runtime-workflow.js";
 import type { BridgeStateStore } from "../state/store.js";
 import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 import {
@@ -688,11 +692,11 @@ export class CodexCommandCoordinator {
         return;
       }
 
-      const rendered = buildRollbackPickerMessage({
+      const rendered = buildRollbackPickerMessage(createRollbackPickerView({
         sessionId: session.sessionId,
         page: 0,
         targets
-      });
+      }));
       await this.deps.safeSendHtmlMessage(chatId, rendered.text, rendered.replyMarkup);
       return;
     }
@@ -744,20 +748,20 @@ export class CodexCommandCoordinator {
         return;
       }
 
-      const rendered = buildRollbackConfirmMessage({
+      const rendered = buildRollbackConfirmMessage(createRollbackConfirmView({
         sessionId,
         page: options.page,
         target
-      });
+      }));
       await this.deps.safeEditHtmlMessageText(chatId, messageId, rendered.text, rendered.replyMarkup);
       return;
     }
 
-    const rendered = buildRollbackPickerMessage({
+    const rendered = buildRollbackPickerMessage(createRollbackPickerView({
       sessionId,
       page: options.page,
       targets
-    });
+    }));
     await this.deps.safeEditHtmlMessageText(chatId, messageId, rendered.text, rendered.replyMarkup);
   }
 

@@ -2,8 +2,9 @@
 
 import { getBridgePaths } from "./paths.js";
 import { createLogger } from "./logger.js";
-import { loadConfig, parseProjectScanRootsValue } from "./config.js";
+import { loadConfig, parseProjectScanRootsValue, type BridgeInstallOverrides } from "./config.js";
 import { buildPerformanceReport, parseReportWindowMs } from "./perf/report.js";
+import { parseBridgePackName } from "./packs/catalog.js";
 import { parseBooleanLike } from "./util/boolean.js";
 import {
   captureSystemdStopAuditCommand,
@@ -19,7 +20,7 @@ import {
   uninstallBridge,
   updateBridge
 } from "./install.js";
-import { runBridgeService } from "./service.js";
+import { runBridgeRuntime } from "./runtime.js";
 
 interface ParsedFlags {
   [key: string]: string | boolean | undefined;
@@ -59,10 +60,42 @@ function parseBooleanFlag(value: string | boolean | undefined): boolean | undefi
   return parseBooleanLike(value);
 }
 
+function parseRepeatedFlag(args: string[], flagName: string): string[] {
+  const matches: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== `--${flagName}`) {
+      continue;
+    }
+
+    const next = args[index + 1];
+    if (typeof next === "string" && !next.startsWith("--")) {
+      matches.push(next);
+      index += 1;
+    }
+  }
+
+  return matches;
+}
+
+function parsePackOptions(args: string[]): Record<string, string> {
+  const options: Record<string, string> = {};
+  for (const entry of parseRepeatedFlag(args, "pack-option")) {
+    const separator = entry.indexOf("=");
+    if (separator <= 0) {
+      continue;
+    }
+
+    options[entry.slice(0, separator)] = entry.slice(separator + 1);
+  }
+
+  return options;
+}
+
 function printUsage(): void {
   process.stdout.write(`Usage:
-  ctb install --telegram-token <token> [--codex-bin <bin>] [--project-scan-roots <path1:path2:...>] [--voice-input <true|false>] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>] [--perf-monitor-enabled <true|false>] [--perf-monitor-sample-interval-ms <ms>] [--perf-monitor-retention-days <days>] [--app-server-guard-enabled <true|false>] [--app-server-guard-sample-interval-ms <ms>] [--app-server-guard-mcp-worker-threshold <n>] [--app-server-guard-consecutive-windows <n>] [--app-server-guard-cooldown-ms <ms>]
-  ctb install-skill
+  ctb install [--pack <name>] [--pack-option key=value] [--telegram-token <token>] [--codex-bin <bin>] [--project-scan-roots <path1:path2:...>] [--voice-input <true|false>] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>] [--perf-monitor-enabled <true|false>] [--perf-monitor-sample-interval-ms <ms>] [--perf-monitor-retention-days <days>] [--app-server-guard-enabled <true|false>] [--app-server-guard-sample-interval-ms <ms>] [--app-server-guard-mcp-worker-threshold <n>] [--app-server-guard-consecutive-windows <n>] [--app-server-guard-cooldown-ms <ms>]
+  ctb install-skill [--pack <name>]
   ctb status
   ctb doctor
   ctb perf report [--window <5m|1h|24h|7d>]
@@ -83,29 +116,33 @@ async function main(): Promise<void> {
   const subcommand = argv[0];
   const flagArgs = subcommand?.startsWith("--") ? argv : argv.slice(1);
   const flags = parseFlags(flagArgs);
+  const packOptions = parsePackOptions(flagArgs);
 
   switch (command) {
     case "install": {
-      const installOverrides: {
-        telegramBotToken?: string;
-        codexBin?: string;
-        projectScanRoots?: string[];
-        voiceInputEnabled?: boolean;
-        voiceOpenaiApiKey?: string;
-        voiceOpenaiTranscribeModel?: string;
-        voiceFfmpegBin?: string;
-        perfMonitorEnabled?: boolean;
-        perfMonitorSampleIntervalMs?: number;
-        perfMonitorRetentionDays?: number;
-        appServerGuardEnabled?: boolean;
-        appServerGuardSampleIntervalMs?: number;
-        appServerGuardMcpWorkerThreshold?: number;
-        appServerGuardConsecutiveWindows?: number;
-        appServerGuardCooldownMs?: number;
-      } = {};
+      const installOverrides: BridgeInstallOverrides = {};
+
+      if (typeof flags.pack === "string") {
+        const packName = parseBridgePackName(flags.pack);
+        if (!packName) {
+          process.stderr.write("invalid --pack value\n");
+          process.exitCode = 1;
+          return;
+        }
+        installOverrides.activePack = packName;
+      }
+
+      if (Object.keys(packOptions).length > 0) {
+        installOverrides.packOptions = {
+          ...packOptions
+        };
+      }
 
       if (typeof flags["telegram-token"] === "string") {
-        installOverrides.telegramBotToken = flags["telegram-token"];
+        installOverrides.packOptions = {
+          ...(installOverrides.packOptions ?? {}),
+          "bot-token": flags["telegram-token"]
+        };
       }
 
       if (typeof flags["codex-bin"] === "string") {
@@ -173,7 +210,13 @@ async function main(): Promise<void> {
     }
 
     case "install-skill": {
-      process.stdout.write(`${await installCodexSkill(paths)}\n`);
+      const requestedPack = typeof flags.pack === "string" ? parseBridgePackName(flags.pack) : null;
+      if (typeof flags.pack === "string" && !requestedPack) {
+        process.stderr.write("invalid --pack value\n");
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(`${await installCodexSkill(paths, requestedPack ?? undefined)}\n`);
       return;
     }
 
@@ -297,7 +340,7 @@ async function main(): Promise<void> {
         return;
       }
 
-      await runBridgeService(import.meta.url);
+      await runBridgeRuntime(import.meta.url);
       return;
     }
 

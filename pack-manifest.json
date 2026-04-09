@@ -1,0 +1,11 @@
+{
+  "defaultPack": "telegram",
+  "supportedPacks": {
+    "feishu": {
+      "skillName": "feishu-codex-linker"
+    },
+    "telegram": {
+      "skillName": "telegram-codex-linker"
+    }
+  }
+}

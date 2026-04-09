@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
+import type { JsonRpcRequestId } from "../codex/app-server.js";
+import {
+  createStoredServerRequestId,
+  readStoredServerRequestId
+} from "../codex/protocol-truth.js";
 import { resolvePlatformChatRef } from "../core/domain/binding.js";
 import type {
   PendingInteractionKind,
@@ -13,18 +18,19 @@ import { buildInClausePlaceholders } from "./store-shared.js";
 interface PendingInteractionRecord {
   interaction_id: string;
   chat_id: string;
-  telegram_chat_id: string | null;
   session_id: string;
   thread_id: string;
   turn_id: string;
   request_id: string;
+  request_id_canonical: string | null;
+  request_id_legacy: string | null;
+  request_id_kind: "number" | "string" | null;
   request_method: string;
   interaction_kind: PendingInteractionKind;
   state: PendingInteractionState;
   prompt_json: string;
   response_json: string | null;
   message_id: number | null;
-  telegram_message_id: number | null;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
@@ -32,26 +38,25 @@ interface PendingInteractionRecord {
 }
 
 function mapPendingInteraction(record: PendingInteractionRecord): PendingInteractionRow {
-  const chatRef = resolvePlatformChatRef({
-    chatId: record.chat_id,
-    telegramChatId: record.telegram_chat_id
+  const requestId = readStoredServerRequestId({
+    requestIdText: record.request_id,
+    requestIdCanonical: record.request_id_canonical,
+    requestIdLegacy: record.request_id_legacy,
+    requestIdKind: record.request_id_kind
   });
-  const messageId = record.message_id ?? record.telegram_message_id;
   return {
     interactionId: record.interaction_id,
-    chatId: chatRef.chatId,
-    telegramChatId: record.telegram_chat_id ?? chatRef.chatId,
+    chatId: record.chat_id,
     sessionId: record.session_id,
     threadId: record.thread_id,
     turnId: record.turn_id,
-    requestId: record.request_id,
+    requestId: requestId.value,
     requestMethod: record.request_method,
     interactionKind: record.interaction_kind,
     state: record.state,
     promptJson: record.prompt_json,
     responseJson: record.response_json,
-    messageId,
-    telegramMessageId: record.telegram_message_id ?? messageId,
+    messageId: record.message_id,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
     resolvedAt: record.resolved_at,
@@ -65,9 +70,8 @@ function resolveChatId(options: { chatId: string }): string {
 
 function resolveMessageId(options: {
   messageId?: number | null | undefined;
-  telegramMessageId?: number | null | undefined;
 }): number | null {
-  return options.messageId ?? options.telegramMessageId ?? null;
+  return options.messageId ?? null;
 }
 
 export interface StorePendingInteractions {
@@ -77,18 +81,17 @@ export interface StorePendingInteractions {
     sessionId: string;
     threadId: string;
     turnId: string;
-    requestId: string;
+    requestId: JsonRpcRequestId;
     requestMethod: string;
     interactionKind: PendingInteractionKind;
     state?: PendingInteractionState;
     promptJson: string;
     responseJson?: string | null;
     messageId?: number | null;
-    telegramMessageId?: number | null;
     errorReason?: string | null;
   }): PendingInteractionRow;
   getPendingInteraction(interactionId: string, chatId?: string): PendingInteractionRow | null;
-  listPendingInteractionsByRequest(threadId: string, requestId: string): PendingInteractionRow[];
+  listPendingInteractionsByRequest(threadId: string, requestId: JsonRpcRequestId): PendingInteractionRow[];
   listPendingInteractionsByChat(
     chatId: string,
     states?: PendingInteractionState[]
@@ -96,6 +99,7 @@ export interface StorePendingInteractions {
   listPendingInteractionsByTurn(threadId: string, turnId: string): PendingInteractionRow[];
   listUnresolvedPendingInteractions(): PendingInteractionRow[];
   listPendingInteractionsForRunningSessions(): PendingInteractionRow[];
+  clearPendingInteractionsByChat(chatId: string): void;
   rebindPendingInteractionsChatIds(chatId: string, previousChatIds: string[]): void;
   clearAllPendingInteractions(): void;
   failPendingInteractionsForSessionIds(sessionIds: string[], timestamp: string, reason: string): void;
@@ -124,6 +128,7 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
       const interactionId = options.interactionId ?? randomUUID();
       const chatId = resolveChatId(options);
       const messageId = resolveMessageId(options);
+      const requestId = createStoredServerRequestId(options.requestId);
       const timestamp = nowIso();
       db
         .prepare(
@@ -131,40 +136,42 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
             INSERT INTO pending_interaction (
               interaction_id,
               chat_id,
-              telegram_chat_id,
               session_id,
               thread_id,
               turn_id,
               request_id,
+              request_id_canonical,
+              request_id_legacy,
+              request_id_kind,
               request_method,
               interaction_kind,
               state,
               prompt_json,
               response_json,
               message_id,
-              telegram_message_id,
               created_at,
               updated_at,
               resolved_at,
               error_reason
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
           `
         )
         .run(
           interactionId,
           chatId,
-          chatId,
           options.sessionId,
           options.threadId,
           options.turnId,
-          options.requestId,
+          requestId.canonical,
+          requestId.canonical,
+          requestId.legacy,
+          requestId.kind,
           options.requestMethod,
           options.interactionKind,
           options.state ?? "pending",
           options.promptJson,
           options.responseJson ?? null,
-          messageId,
           messageId,
           timestamp,
           timestamp,
@@ -174,18 +181,16 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
       return {
         interactionId,
         chatId,
-        telegramChatId: chatId,
         sessionId: options.sessionId,
         threadId: options.threadId,
         turnId: options.turnId,
-        requestId: options.requestId,
+        requestId: requestId.value,
         requestMethod: options.requestMethod,
         interactionKind: options.interactionKind,
         state: options.state ?? "pending",
         promptJson: options.promptJson,
         responseJson: options.responseJson ?? null,
         messageId,
-        telegramMessageId: messageId,
         createdAt: timestamp,
         updatedAt: timestamp,
         resolvedAt: null,
@@ -218,18 +223,40 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
     },
 
     listPendingInteractionsByRequest(threadId, requestId) {
+      const stored = createStoredServerRequestId(requestId);
       const rows = db
         .prepare(
           `
             SELECT *
             FROM pending_interaction
             WHERE thread_id = ?
-              AND request_id = ?
+              AND (
+                (
+                  request_id_kind = ?
+                  AND request_id_canonical = ?
+                )
+                OR (
+                  ? IS NOT NULL
+                  AND request_id_kind = 'string'
+                  AND request_id_legacy = ?
+                )
+                OR (
+                  request_id_kind IS NULL
+                  AND request_id IN (${buildInClausePlaceholders(stored.legacy ? 2 : 1)})
+                )
+              )
               AND state IN ('pending', 'awaiting_text')
             ORDER BY created_at DESC, interaction_id DESC
           `
         )
-        .all(threadId, requestId) as unknown as PendingInteractionRecord[];
+        .all(
+          threadId,
+          stored.kind,
+          stored.canonical,
+          stored.legacy,
+          stored.legacy,
+          ...(stored.legacy ? [stored.canonical, stored.legacy] : [stored.canonical])
+        ) as unknown as PendingInteractionRecord[];
 
       return rows.map(mapPendingInteraction);
     },
@@ -276,6 +303,17 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
       return rows.map(mapPendingInteraction);
     },
 
+    clearPendingInteractionsByChat(chatId) {
+      db
+        .prepare(
+          `
+            DELETE FROM pending_interaction
+            WHERE chat_id = ?
+          `
+        )
+        .run(chatId);
+    },
+
     listUnresolvedPendingInteractions() {
       const rows = db
         .prepare(
@@ -319,11 +357,11 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
         .prepare(
           `
             UPDATE pending_interaction
-            SET chat_id = ?, telegram_chat_id = ?
-            WHERE chat_id IN (${placeholders}) OR telegram_chat_id IN (${placeholders})
+            SET chat_id = ?
+            WHERE chat_id IN (${placeholders})
           `
         )
-        .run(chatId, chatId, ...previousChatIds, ...previousChatIds);
+        .run(chatId, ...previousChatIds);
     },
 
     clearAllPendingInteractions() {
@@ -357,11 +395,11 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
         .prepare(
           `
             UPDATE pending_interaction
-            SET message_id = ?, telegram_message_id = ?, updated_at = ?
+            SET message_id = ?, updated_at = ?
             WHERE interaction_id = ?
           `
         )
-        .run(messageId, messageId, nowIso(), interactionId);
+        .run(messageId, nowIso(), interactionId);
     },
 
     savePendingInteractionDraftResponse(interactionId, state, responseJson) {

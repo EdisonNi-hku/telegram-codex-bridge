@@ -7,7 +7,8 @@ import { join } from "node:path";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import type { CodexAppServerClient } from "../codex/app-server.js";
-import type { TelegramMessage } from "../telegram/api.js";
+import type { ControlSurfaceFileResult } from "../core/interaction-model/platform-actions.js";
+import { TELEGRAM_PACK } from "../packs/telegram/index.js";
 import { BridgeStateStore } from "../state/store.js";
 import { TurnCoordinator } from "./turn-coordinator.js";
 
@@ -69,15 +70,14 @@ async function createCoordinatorContext(options: {
       inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
     }
   ) => Promise<{ message_id: number } | null>;
-  safeSendDocumentResult?: (
+  sendControlSurfaceFile?: (
     chatId: string,
     filePath: string,
     options?: {
       caption?: string;
-      parseMode?: "HTML";
       fileName?: string;
     }
-  ) => Promise<TelegramMessage | null>;
+  ) => Promise<ControlSurfaceFileResult>;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ctb-turn-coordinator-test-"));
   const paths = createTestPaths(root);
@@ -174,22 +174,37 @@ async function createCoordinatorContext(options: {
       safeMessages.push(text);
       return true;
     },
-    safeSendDocumentResult: async (chatId, filePath, sendOptions) => {
-      if (options.safeSendDocumentResult) {
-        const sent = await options.safeSendDocumentResult(chatId, filePath, sendOptions);
-        if (sent) {
-          sentDocuments.push(sendOptions ? { chatId, filePath, options: sendOptions } : { chatId, filePath });
+    platformActions: {
+      sendControlSurfaceFile: async ({ chatId, filePath, caption, fileName }) => {
+        if (options.sendControlSurfaceFile) {
+          const sent = await options.sendControlSurfaceFile(chatId, filePath, {
+            ...(caption ? { caption } : {}),
+            ...(fileName ? { fileName } : {})
+          });
+          if (sent.outcome === "sent") {
+            sentDocuments.push(
+              caption || fileName
+                ? { chatId, filePath, options: { ...(caption ? { caption } : {}), ...(fileName ? { fileName } : {}) } }
+                : { chatId, filePath }
+            );
+          }
+          return sent;
         }
-        return sent;
-      }
 
-      sentDocuments.push(sendOptions ? { chatId, filePath, options: sendOptions } : { chatId, filePath });
-      return {
-        message_id: nextMessageId++,
-        date: 0,
-        chat: { id: 1, type: "private" }
-      };
+        sentDocuments.push(
+          caption || fileName
+            ? { chatId, filePath, options: { ...(caption ? { caption } : {}), ...(fileName ? { fileName } : {}) } }
+            : { chatId, filePath }
+        );
+        return {
+          action: "send_control_surface_file",
+          outcome: "sent",
+          deliveryRef: { messageId: nextMessageId++ }
+        };
+      }
     },
+    dynamicToolDeclarations: TELEGRAM_PACK.platformActions.getDynamicToolDeclarations(),
+    interpretPackServerRequest: TELEGRAM_PACK.platformActions.interpretServerRequest,
     safeSendHtmlMessageResult: async (chatId, html, replyMarkup) => {
       if (options.safeSendHtmlMessageResult) {
         const sent = await options.safeSendHtmlMessageResult(chatId, html, replyMarkup);
@@ -1808,6 +1823,53 @@ test("TurnCoordinator handles send_telegram_document tool calls by sending docum
   }
 });
 
+test("TurnCoordinator rejects send_telegram_document when the pack blocks uploads", async () => {
+  const requestResults: Array<{ id: string; payload: unknown }> = [];
+  const { coordinator, store, sentDocuments, cleanup } = await createCoordinatorContext({
+    appServer: {
+      respondToServerRequest: async (id, payload) => {
+        requestResults.push({ id: `${id}`, payload });
+      }
+    },
+    sendControlSurfaceFile: async () => ({
+      action: "send_control_surface_file",
+      outcome: "failed",
+      reason: "capability_blocked",
+      deliveryRef: { messageId: null }
+    })
+  });
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+
+    await coordinator.beginActiveTurn("chat-1", session, "thread-tool-blocked", "turn-tool-blocked", "inProgress");
+
+    await coordinator.handleAppServerServerRequest({
+      id: "tool-call-2",
+      method: "item/tool/call",
+      params: {
+        threadId: "thread-tool-blocked",
+        turnId: "turn-tool-blocked",
+        tool: "send_telegram_document",
+        arguments: {
+          path: "/tmp/tool-output.zip"
+        }
+      }
+    });
+
+    assert.deepEqual(sentDocuments, []);
+    assert.equal(requestResults.length, 1);
+    assert.match(JSON.stringify(requestResults[0]?.payload ?? {}), /"success":false/u);
+    assert.match(JSON.stringify(requestResults[0]?.payload ?? {}), /does not allow control-surface file delivery/u);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("TurnCoordinator rejects unknown dynamic tool calls and journals the rejection", async () => {
   const requestErrors: Array<{ id: string; code: number; message: string }> = [];
   const { coordinator, store, safeMessages, reanchorReasons, cleanup } = await createCoordinatorContext({
@@ -1841,7 +1903,7 @@ test("TurnCoordinator rejects unknown dynamic tool calls and journals the reject
     assert.deepEqual(requestErrors, [{
       id: "tool-call-1",
       code: -32601,
-      message: "Dynamic tool call is not supported by the Telegram bridge: view_image"
+      message: "Dynamic tool call is not supported by the active bridge pack: view_image"
     }]);
     assert.equal(safeMessages.length, 1);
     assert.match(safeMessages[0] ?? "", /动态工具调用/u);

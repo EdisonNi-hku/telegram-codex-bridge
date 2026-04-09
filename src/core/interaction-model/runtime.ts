@@ -17,11 +17,40 @@ export interface RuntimeStatusFieldOptionView {
   selected: boolean;
 }
 
+export interface RuntimePreferencesView {
+  token: string;
+  fields: RuntimeStatusField[];
+  page: number;
+}
+
+export interface RuntimeInspectView extends SessionDisplayContext {
+  sessionId: string;
+  html: string;
+}
+
+export interface RuntimeInspectControlsView {
+  sessionId: string;
+  page: number;
+  collapsed: boolean;
+}
+
 export interface RollbackTargetView {
   index: number;
   sequenceNumber: number;
   label: string;
   rollbackCount: number;
+}
+
+export interface RollbackPickerView {
+  sessionId: string;
+  page: number;
+  targets: RollbackTargetView[];
+}
+
+export interface RollbackConfirmView {
+  sessionId: string;
+  page: number;
+  target: RollbackTargetView;
 }
 
 export interface RuntimeStatusCardView extends SessionDisplayContext {

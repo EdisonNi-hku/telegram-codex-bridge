@@ -98,8 +98,9 @@ export function formatPendingInteractionTerminalReason(reason: string | null | u
     case "turn_failed":
     case "turn_interrupted":
       return "当前操作已结束，交互已失效。";
+    case "interaction_delivery_failed":
     case "telegram_delivery_failed":
-      return "Telegram 未能发送这张交互卡片。";
+      return "当前控制面未能送达这条交互。";
     default:
       return reason ? "这个交互无法继续。" : null;
   }

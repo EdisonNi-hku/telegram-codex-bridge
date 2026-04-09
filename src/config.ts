@@ -1,17 +1,21 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { delimiter } from "node:path";
 
+import {
+  getBridgePackCatalogEntry,
+  listSupportedBridgePacks,
+  parseBridgePackName,
+  type BridgePackOptionValue
+} from "./packs/catalog.js";
+import { DEFAULT_BRIDGE_PACK, type BridgePackName } from "./packs/names.js";
 import { getHostPlatform } from "./platform.js";
 import type { BridgePaths } from "./paths.js";
 import { parseBooleanLike } from "./util/boolean.js";
 import { expandHomePath, normalizeComparablePath } from "./util/path.js";
 
-export interface BridgeConfig {
-  telegramBotToken: string;
+export interface SharedBridgeConfig {
+  activePack: BridgePackName;
   codexBin: string;
-  telegramApiBaseUrl: string;
-  telegramPollTimeoutSeconds: number;
-  telegramPollIntervalMs: number;
   projectScanRoots: string[];
   voiceInputEnabled: boolean;
   voiceOpenaiApiKey: string;
@@ -27,11 +31,48 @@ export interface BridgeConfig {
   appServerGuardCooldownMs?: number;
 }
 
-const DEFAULT_CONFIG = {
+export interface BridgeConfig {
+  activePack: BridgePackName;
+  shared: SharedBridgeConfig;
+  packs: Partial<Record<BridgePackName, unknown>>;
+  codexBin: string;
+  projectScanRoots: string[];
+  voiceInputEnabled: boolean;
+  voiceOpenaiApiKey: string;
+  voiceOpenaiTranscribeModel: string;
+  voiceFfmpegBin: string;
+  perfMonitorEnabled: boolean;
+  perfMonitorSampleIntervalMs: number;
+  perfMonitorRetentionDays: number;
+  appServerGuardEnabled?: boolean;
+  appServerGuardSampleIntervalMs?: number;
+  appServerGuardMcpWorkerThreshold?: number;
+  appServerGuardConsecutiveWindows?: number;
+  appServerGuardCooldownMs?: number;
+}
+
+export interface BridgeInstallOverrides {
+  activePack?: BridgePackName;
+  codexBin?: string;
+  projectScanRoots?: string[];
+  voiceInputEnabled?: boolean;
+  voiceOpenaiApiKey?: string;
+  voiceOpenaiTranscribeModel?: string;
+  voiceFfmpegBin?: string;
+  perfMonitorEnabled?: boolean;
+  perfMonitorSampleIntervalMs?: number;
+  perfMonitorRetentionDays?: number;
+  appServerGuardEnabled?: boolean;
+  appServerGuardSampleIntervalMs?: number;
+  appServerGuardMcpWorkerThreshold?: number;
+  appServerGuardConsecutiveWindows?: number;
+  appServerGuardCooldownMs?: number;
+  packOptions?: Record<string, BridgePackOptionValue>;
+}
+
+const DEFAULT_SHARED_CONFIG = {
+  activePack: DEFAULT_BRIDGE_PACK,
   codexBin: "codex",
-  telegramApiBaseUrl: "https://api.telegram.org",
-  telegramPollTimeoutSeconds: 20,
-  telegramPollIntervalMs: 1500,
   projectScanRoots: [],
   voiceInputEnabled: false,
   voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
@@ -99,6 +140,39 @@ export function serializeProjectScanRoots(roots: string[]): string {
   return roots.join(delimiter);
 }
 
+export function buildConfigEnvironment(config: BridgeConfig): Record<string, string> {
+  const shared = config.shared;
+  const env: Record<string, string> = {
+    BRIDGE_PACK: config.activePack,
+    CODEX_BIN: shared.codexBin,
+    PROJECT_SCAN_ROOTS: serializeProjectScanRoots(shared.projectScanRoots),
+    VOICE_INPUT_ENABLED: shared.voiceInputEnabled ? "1" : "0",
+    VOICE_OPENAI_API_KEY: shared.voiceOpenaiApiKey,
+    VOICE_OPENAI_TRANSCRIBE_MODEL: shared.voiceOpenaiTranscribeModel,
+    VOICE_FFMPEG_BIN: shared.voiceFfmpegBin,
+    PERF_MONITOR_ENABLED: shared.perfMonitorEnabled ? "1" : "0",
+    PERF_MONITOR_SAMPLE_INTERVAL_MS: `${shared.perfMonitorSampleIntervalMs}`,
+    PERF_MONITOR_RETENTION_DAYS: `${shared.perfMonitorRetentionDays}`,
+    APP_SERVER_GUARD_ENABLED: `${(shared.appServerGuardEnabled ?? DEFAULT_SHARED_CONFIG.appServerGuardEnabled) ? 1 : 0}`,
+    APP_SERVER_GUARD_SAMPLE_INTERVAL_MS:
+      `${shared.appServerGuardSampleIntervalMs ?? DEFAULT_SHARED_CONFIG.appServerGuardSampleIntervalMs}`,
+    APP_SERVER_GUARD_MCP_WORKER_THRESHOLD:
+      `${shared.appServerGuardMcpWorkerThreshold ?? DEFAULT_SHARED_CONFIG.appServerGuardMcpWorkerThreshold}`,
+    APP_SERVER_GUARD_CONSECUTIVE_WINDOWS:
+      `${shared.appServerGuardConsecutiveWindows ?? DEFAULT_SHARED_CONFIG.appServerGuardConsecutiveWindows}`,
+    APP_SERVER_GUARD_COOLDOWN_MS:
+      `${shared.appServerGuardCooldownMs ?? DEFAULT_SHARED_CONFIG.appServerGuardCooldownMs}`
+  };
+
+  for (const packName of listSupportedBridgePacks()) {
+    const entry = getBridgePackCatalogEntry(packName);
+    const packConfig = (config.packs[packName] ?? entry.configCodec.getDefaultConfig()) as never;
+    Object.assign(env, entry.configCodec.writeToEnv(packConfig));
+  }
+
+  return env;
+}
+
 export async function loadConfig(paths: BridgePaths): Promise<BridgeConfig> {
   let envFile: Record<string, string> = {};
 
@@ -115,107 +189,141 @@ export async function loadConfig(paths: BridgePaths): Promise<BridgeConfig> {
     ...envFile
   };
 
-  return {
-    telegramBotToken: merged.TELEGRAM_BOT_TOKEN ?? "",
-    codexBin: merged.CODEX_BIN ?? DEFAULT_CONFIG.codexBin,
-    telegramApiBaseUrl: merged.TELEGRAM_API_BASE_URL ?? DEFAULT_CONFIG.telegramApiBaseUrl,
-    telegramPollTimeoutSeconds: Number.parseInt(
-      merged.TELEGRAM_POLL_TIMEOUT_SECONDS ?? `${DEFAULT_CONFIG.telegramPollTimeoutSeconds}`,
-      10
-    ),
-    telegramPollIntervalMs: Number.parseInt(
-      merged.TELEGRAM_POLL_INTERVAL_MS ?? `${DEFAULT_CONFIG.telegramPollIntervalMs}`,
-      10
-    ),
-    projectScanRoots: parseProjectScanRootsValue(merged.PROJECT_SCAN_ROOTS, paths.homeDir),
-    voiceInputEnabled: parseBooleanEnv(merged.VOICE_INPUT_ENABLED, DEFAULT_CONFIG.voiceInputEnabled),
+  const activePack = parseBridgePackName(merged.BRIDGE_PACK) ?? DEFAULT_SHARED_CONFIG.activePack;
+  const projectScanRoots = parseProjectScanRootsValue(merged.PROJECT_SCAN_ROOTS, paths.homeDir);
+  const shared: SharedBridgeConfig = {
+    activePack,
+    codexBin: merged.CODEX_BIN ?? DEFAULT_SHARED_CONFIG.codexBin,
+    projectScanRoots,
+    voiceInputEnabled: parseBooleanEnv(merged.VOICE_INPUT_ENABLED, DEFAULT_SHARED_CONFIG.voiceInputEnabled),
     voiceOpenaiApiKey: merged.VOICE_OPENAI_API_KEY ?? "",
-    voiceOpenaiTranscribeModel: merged.VOICE_OPENAI_TRANSCRIBE_MODEL ?? DEFAULT_CONFIG.voiceOpenaiTranscribeModel,
-    voiceFfmpegBin: merged.VOICE_FFMPEG_BIN ?? DEFAULT_CONFIG.voiceFfmpegBin,
-    perfMonitorEnabled: parseBooleanEnv(merged.PERF_MONITOR_ENABLED, DEFAULT_CONFIG.perfMonitorEnabled),
+    voiceOpenaiTranscribeModel: merged.VOICE_OPENAI_TRANSCRIBE_MODEL ?? DEFAULT_SHARED_CONFIG.voiceOpenaiTranscribeModel,
+    voiceFfmpegBin: merged.VOICE_FFMPEG_BIN ?? DEFAULT_SHARED_CONFIG.voiceFfmpegBin,
+    perfMonitorEnabled: parseBooleanEnv(merged.PERF_MONITOR_ENABLED, DEFAULT_SHARED_CONFIG.perfMonitorEnabled),
     perfMonitorSampleIntervalMs: Number.parseInt(
-      merged.PERF_MONITOR_SAMPLE_INTERVAL_MS ?? `${DEFAULT_CONFIG.perfMonitorSampleIntervalMs}`,
+      merged.PERF_MONITOR_SAMPLE_INTERVAL_MS ?? `${DEFAULT_SHARED_CONFIG.perfMonitorSampleIntervalMs}`,
       10
     ),
     perfMonitorRetentionDays: Number.parseInt(
-      merged.PERF_MONITOR_RETENTION_DAYS ?? `${DEFAULT_CONFIG.perfMonitorRetentionDays}`,
+      merged.PERF_MONITOR_RETENTION_DAYS ?? `${DEFAULT_SHARED_CONFIG.perfMonitorRetentionDays}`,
       10
     ),
-    appServerGuardEnabled: parseBooleanEnv(merged.APP_SERVER_GUARD_ENABLED, DEFAULT_CONFIG.appServerGuardEnabled),
+    appServerGuardEnabled: parseBooleanEnv(merged.APP_SERVER_GUARD_ENABLED, DEFAULT_SHARED_CONFIG.appServerGuardEnabled),
     appServerGuardSampleIntervalMs: Number.parseInt(
-      merged.APP_SERVER_GUARD_SAMPLE_INTERVAL_MS ?? `${DEFAULT_CONFIG.appServerGuardSampleIntervalMs}`,
+      merged.APP_SERVER_GUARD_SAMPLE_INTERVAL_MS ?? `${DEFAULT_SHARED_CONFIG.appServerGuardSampleIntervalMs}`,
       10
     ),
     appServerGuardMcpWorkerThreshold: Number.parseInt(
-      merged.APP_SERVER_GUARD_MCP_WORKER_THRESHOLD ?? `${DEFAULT_CONFIG.appServerGuardMcpWorkerThreshold}`,
+      merged.APP_SERVER_GUARD_MCP_WORKER_THRESHOLD ?? `${DEFAULT_SHARED_CONFIG.appServerGuardMcpWorkerThreshold}`,
       10
     ),
     appServerGuardConsecutiveWindows: Number.parseInt(
-      merged.APP_SERVER_GUARD_CONSECUTIVE_WINDOWS ?? `${DEFAULT_CONFIG.appServerGuardConsecutiveWindows}`,
+      merged.APP_SERVER_GUARD_CONSECUTIVE_WINDOWS ?? `${DEFAULT_SHARED_CONFIG.appServerGuardConsecutiveWindows}`,
       10
     ),
     appServerGuardCooldownMs: Number.parseInt(
-      merged.APP_SERVER_GUARD_COOLDOWN_MS ?? `${DEFAULT_CONFIG.appServerGuardCooldownMs}`,
+      merged.APP_SERVER_GUARD_COOLDOWN_MS ?? `${DEFAULT_SHARED_CONFIG.appServerGuardCooldownMs}`,
       10
     )
+  };
+  const packs = Object.fromEntries(
+    listSupportedBridgePacks().map((packName) => {
+      const entry = getBridgePackCatalogEntry(packName);
+      return [packName, entry.configCodec.readFromEnv(merged, paths.homeDir)];
+    })
+  ) as Partial<Record<BridgePackName, unknown>>;
+
+  return {
+    activePack,
+    shared,
+    packs,
+    codexBin: shared.codexBin,
+    projectScanRoots: shared.projectScanRoots,
+    voiceInputEnabled: shared.voiceInputEnabled,
+    voiceOpenaiApiKey: shared.voiceOpenaiApiKey,
+    voiceOpenaiTranscribeModel: shared.voiceOpenaiTranscribeModel,
+    voiceFfmpegBin: shared.voiceFfmpegBin,
+    perfMonitorEnabled: shared.perfMonitorEnabled,
+    perfMonitorSampleIntervalMs: shared.perfMonitorSampleIntervalMs,
+    perfMonitorRetentionDays: shared.perfMonitorRetentionDays,
+    appServerGuardEnabled: shared.appServerGuardEnabled ?? DEFAULT_SHARED_CONFIG.appServerGuardEnabled,
+    appServerGuardSampleIntervalMs:
+      shared.appServerGuardSampleIntervalMs ?? DEFAULT_SHARED_CONFIG.appServerGuardSampleIntervalMs,
+    appServerGuardMcpWorkerThreshold:
+      shared.appServerGuardMcpWorkerThreshold ?? DEFAULT_SHARED_CONFIG.appServerGuardMcpWorkerThreshold,
+    appServerGuardConsecutiveWindows:
+      shared.appServerGuardConsecutiveWindows ?? DEFAULT_SHARED_CONFIG.appServerGuardConsecutiveWindows,
+    appServerGuardCooldownMs: shared.appServerGuardCooldownMs ?? DEFAULT_SHARED_CONFIG.appServerGuardCooldownMs
   };
 }
 
 export async function writeConfig(paths: BridgePaths, config: BridgeConfig): Promise<void> {
-  const content = [
-    `TELEGRAM_BOT_TOKEN=${config.telegramBotToken}`,
-    `CODEX_BIN=${config.codexBin}`,
-    `TELEGRAM_API_BASE_URL=${config.telegramApiBaseUrl}`,
-    `TELEGRAM_POLL_TIMEOUT_SECONDS=${config.telegramPollTimeoutSeconds}`,
-    `TELEGRAM_POLL_INTERVAL_MS=${config.telegramPollIntervalMs}`,
-    `PROJECT_SCAN_ROOTS=${serializeProjectScanRoots(config.projectScanRoots)}`,
-    `VOICE_INPUT_ENABLED=${config.voiceInputEnabled ? "1" : "0"}`,
-    `VOICE_OPENAI_API_KEY=${config.voiceOpenaiApiKey}`,
-    `VOICE_OPENAI_TRANSCRIBE_MODEL=${config.voiceOpenaiTranscribeModel}`,
-    `VOICE_FFMPEG_BIN=${config.voiceFfmpegBin}`,
-    `PERF_MONITOR_ENABLED=${config.perfMonitorEnabled ? "1" : "0"}`,
-    `PERF_MONITOR_SAMPLE_INTERVAL_MS=${config.perfMonitorSampleIntervalMs}`,
-    `PERF_MONITOR_RETENTION_DAYS=${config.perfMonitorRetentionDays}`,
-    `APP_SERVER_GUARD_ENABLED=${(config.appServerGuardEnabled ?? DEFAULT_CONFIG.appServerGuardEnabled) ? "1" : "0"}`,
-    `APP_SERVER_GUARD_SAMPLE_INTERVAL_MS=${config.appServerGuardSampleIntervalMs ?? DEFAULT_CONFIG.appServerGuardSampleIntervalMs}`,
-    `APP_SERVER_GUARD_MCP_WORKER_THRESHOLD=${config.appServerGuardMcpWorkerThreshold ?? DEFAULT_CONFIG.appServerGuardMcpWorkerThreshold}`,
-    `APP_SERVER_GUARD_CONSECUTIVE_WINDOWS=${config.appServerGuardConsecutiveWindows ?? DEFAULT_CONFIG.appServerGuardConsecutiveWindows}`,
-    `APP_SERVER_GUARD_COOLDOWN_MS=${config.appServerGuardCooldownMs ?? DEFAULT_CONFIG.appServerGuardCooldownMs}`
-  ].join("\n");
+  const content = Object.entries(buildConfigEnvironment(config))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
 
   await writeFile(paths.envPath, `${content}\n`, "utf8");
 }
 
-export function withInstallOverrides(
-  current: BridgeConfig,
-  overrides: Partial<BridgeConfig>
-): BridgeConfig {
-  return {
-    telegramBotToken: overrides.telegramBotToken ?? current.telegramBotToken,
-    codexBin: overrides.codexBin ?? current.codexBin,
-    telegramApiBaseUrl: overrides.telegramApiBaseUrl ?? current.telegramApiBaseUrl,
-    telegramPollTimeoutSeconds: overrides.telegramPollTimeoutSeconds ?? current.telegramPollTimeoutSeconds,
-    telegramPollIntervalMs: overrides.telegramPollIntervalMs ?? current.telegramPollIntervalMs,
-    projectScanRoots: overrides.projectScanRoots ?? current.projectScanRoots,
-    voiceInputEnabled: overrides.voiceInputEnabled ?? current.voiceInputEnabled,
-    voiceOpenaiApiKey: overrides.voiceOpenaiApiKey ?? current.voiceOpenaiApiKey,
-    voiceOpenaiTranscribeModel: overrides.voiceOpenaiTranscribeModel ?? current.voiceOpenaiTranscribeModel,
-    voiceFfmpegBin: overrides.voiceFfmpegBin ?? current.voiceFfmpegBin,
-    perfMonitorEnabled: overrides.perfMonitorEnabled ?? current.perfMonitorEnabled,
-    perfMonitorSampleIntervalMs: overrides.perfMonitorSampleIntervalMs ?? current.perfMonitorSampleIntervalMs,
-    perfMonitorRetentionDays: overrides.perfMonitorRetentionDays ?? current.perfMonitorRetentionDays,
-    appServerGuardEnabled: overrides.appServerGuardEnabled ?? current.appServerGuardEnabled ?? DEFAULT_CONFIG.appServerGuardEnabled,
+export function withInstallOverrides(current: BridgeConfig, overrides: BridgeInstallOverrides): BridgeConfig {
+  const currentShared = current.shared;
+  const activePack = overrides.activePack ?? current.activePack ?? currentShared.activePack ?? DEFAULT_SHARED_CONFIG.activePack;
+  const shared: SharedBridgeConfig = {
+    activePack,
+    codexBin: overrides.codexBin ?? currentShared.codexBin,
+    projectScanRoots: overrides.projectScanRoots ?? currentShared.projectScanRoots,
+    voiceInputEnabled: overrides.voiceInputEnabled ?? currentShared.voiceInputEnabled,
+    voiceOpenaiApiKey: overrides.voiceOpenaiApiKey ?? currentShared.voiceOpenaiApiKey,
+    voiceOpenaiTranscribeModel: overrides.voiceOpenaiTranscribeModel ?? currentShared.voiceOpenaiTranscribeModel,
+    voiceFfmpegBin: overrides.voiceFfmpegBin ?? currentShared.voiceFfmpegBin,
+    perfMonitorEnabled: overrides.perfMonitorEnabled ?? currentShared.perfMonitorEnabled,
+    perfMonitorSampleIntervalMs: overrides.perfMonitorSampleIntervalMs ?? currentShared.perfMonitorSampleIntervalMs,
+    perfMonitorRetentionDays: overrides.perfMonitorRetentionDays ?? currentShared.perfMonitorRetentionDays,
+    appServerGuardEnabled: overrides.appServerGuardEnabled
+      ?? currentShared.appServerGuardEnabled
+      ?? DEFAULT_SHARED_CONFIG.appServerGuardEnabled,
     appServerGuardSampleIntervalMs: overrides.appServerGuardSampleIntervalMs
-      ?? current.appServerGuardSampleIntervalMs
-      ?? DEFAULT_CONFIG.appServerGuardSampleIntervalMs,
+      ?? currentShared.appServerGuardSampleIntervalMs
+      ?? DEFAULT_SHARED_CONFIG.appServerGuardSampleIntervalMs,
     appServerGuardMcpWorkerThreshold: overrides.appServerGuardMcpWorkerThreshold
-      ?? current.appServerGuardMcpWorkerThreshold
-      ?? DEFAULT_CONFIG.appServerGuardMcpWorkerThreshold,
+      ?? currentShared.appServerGuardMcpWorkerThreshold
+      ?? DEFAULT_SHARED_CONFIG.appServerGuardMcpWorkerThreshold,
     appServerGuardConsecutiveWindows: overrides.appServerGuardConsecutiveWindows
-      ?? current.appServerGuardConsecutiveWindows
-      ?? DEFAULT_CONFIG.appServerGuardConsecutiveWindows,
+      ?? currentShared.appServerGuardConsecutiveWindows
+      ?? DEFAULT_SHARED_CONFIG.appServerGuardConsecutiveWindows,
     appServerGuardCooldownMs: overrides.appServerGuardCooldownMs
-      ?? current.appServerGuardCooldownMs
-      ?? DEFAULT_CONFIG.appServerGuardCooldownMs
+      ?? currentShared.appServerGuardCooldownMs
+      ?? DEFAULT_SHARED_CONFIG.appServerGuardCooldownMs
+  };
+  const packs: Partial<Record<BridgePackName, unknown>> = {
+    ...current.packs
+  };
+  const activePackEntry = getBridgePackCatalogEntry(activePack);
+  packs[activePack] = activePackEntry.configCodec.applyInstallOptions(
+    current.packs[activePack] as never,
+    overrides.packOptions ?? {}
+  );
+
+  return {
+    activePack,
+    shared,
+    packs,
+    codexBin: shared.codexBin,
+    projectScanRoots: shared.projectScanRoots,
+    voiceInputEnabled: shared.voiceInputEnabled,
+    voiceOpenaiApiKey: shared.voiceOpenaiApiKey,
+    voiceOpenaiTranscribeModel: shared.voiceOpenaiTranscribeModel,
+    voiceFfmpegBin: shared.voiceFfmpegBin,
+    perfMonitorEnabled: shared.perfMonitorEnabled,
+    perfMonitorSampleIntervalMs: shared.perfMonitorSampleIntervalMs,
+    perfMonitorRetentionDays: shared.perfMonitorRetentionDays,
+    appServerGuardEnabled: shared.appServerGuardEnabled ?? DEFAULT_SHARED_CONFIG.appServerGuardEnabled,
+    appServerGuardSampleIntervalMs:
+      shared.appServerGuardSampleIntervalMs ?? DEFAULT_SHARED_CONFIG.appServerGuardSampleIntervalMs,
+    appServerGuardMcpWorkerThreshold:
+      shared.appServerGuardMcpWorkerThreshold ?? DEFAULT_SHARED_CONFIG.appServerGuardMcpWorkerThreshold,
+    appServerGuardConsecutiveWindows:
+      shared.appServerGuardConsecutiveWindows ?? DEFAULT_SHARED_CONFIG.appServerGuardConsecutiveWindows,
+    appServerGuardCooldownMs: shared.appServerGuardCooldownMs ?? DEFAULT_SHARED_CONFIG.appServerGuardCooldownMs
   };
 }

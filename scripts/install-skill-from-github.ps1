@@ -1,5 +1,6 @@
 [CmdletBinding()]
 param(
+  [string]$Pack = "",
   [string]$Ref = "master",
   [ValidateSet("branch", "tag")]
   [string]$RefType = "branch"
@@ -10,7 +11,6 @@ $ErrorActionPreference = "Stop"
 
 $RepoOwner = "InDreamer"
 $RepoName = "telegram-codex-bridge"
-$SkillName = "telegram-codex-linker"
 $WorkDir = $null
 
 function Get-ArchiveUrl {
@@ -28,6 +28,25 @@ function Get-ArchiveUrl {
   return "https://github.com/$Owner/$Name/archive/refs/tags/$GitRef.zip"
 }
 
+function Resolve-PackSkill {
+  param(
+    [Parameter(Mandatory = $true)][string]$ManifestPath,
+    [string]$RequestedPack
+  )
+
+  $manifest = Get-Content -Raw -Path $ManifestPath | ConvertFrom-Json
+  $resolvedPack = if ($RequestedPack) { $RequestedPack } else { $manifest.defaultPack }
+  $packEntry = $manifest.supportedPacks.$resolvedPack
+  if (-not $resolvedPack -or -not $packEntry -or -not $packEntry.skillName) {
+    throw "unsupported --pack: $RequestedPack"
+  }
+
+  return @{
+    Pack = $resolvedPack
+    SkillName = [string]$packEntry.skillName
+  }
+}
+
 $archiveUrl = Get-ArchiveUrl -Owner $RepoOwner -Name $RepoName -GitRef $Ref -Kind $RefType
 $WorkDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ctb-skill-install-" + [System.Guid]::NewGuid().ToString("N"))
 $archivePath = Join-Path $WorkDir "source.zip"
@@ -42,6 +61,8 @@ try {
     throw "GitHub archive did not contain a source directory"
   }
 
+  $packInfo = Resolve-PackSkill -ManifestPath (Join-Path $sourceDir.FullName "pack-manifest.json") -RequestedPack $Pack
+  $SkillName = $packInfo.SkillName
   $sourceSkillDir = Join-Path $sourceDir.FullName "skills\$SkillName"
   if (-not (Test-Path (Join-Path $sourceSkillDir "SKILL.md"))) {
     throw "skill bundle not found: $sourceSkillDir"

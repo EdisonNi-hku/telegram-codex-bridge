@@ -5,22 +5,24 @@ REPO_OWNER="InDreamer"
 REPO_NAME="telegram-codex-bridge"
 REF="master"
 REF_TYPE="branch"
+PACK=""
 TELEGRAM_TOKEN=""
 CODEX_BIN=""
 PROJECT_SCAN_ROOTS=""
 WORKDIR=""
+PACK_OPTIONS=()
 
 usage() {
   cat <<'EOF'
 Usage:
-  install-from-github.sh --telegram-token <token> [--codex-bin <path>] [--project-scan-roots <path1:path2:...>] [--ref <name>] [--ref-type branch|tag]
+  install-from-github.sh [--pack <name>] [--pack-option key=value] [--telegram-token <token>] [--codex-bin <path>] [--project-scan-roots <path1:path2:...>] [--ref <name>] [--ref-type branch|tag]
 EOF
 }
 
 if [[ "${1:-}" == "--windows-help" ]]; then
   cat <<'EOF'
 Windows entry:
-  powershell -ExecutionPolicy Bypass -File scripts/install-from-github.ps1 -TelegramToken "<token>" [-CodexBin "<path>"] [-ProjectScanRoots "<path1;path2;...>"] [-Ref <name>] [-RefType branch|tag]
+  powershell -ExecutionPolicy Bypass -File scripts/install-from-github.ps1 [-Pack <name>] [-PackOption key=value] [-TelegramToken "<token>"] [-CodexBin "<path>"] [-ProjectScanRoots "<path1;path2;...>"] [-Ref <name>] [-RefType branch|tag]
 EOF
   exit 0
 fi
@@ -29,6 +31,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --telegram-token)
       TELEGRAM_TOKEN="${2:-}"
+      shift 2
+      ;;
+    --pack)
+      PACK="${2:-}"
+      shift 2
+      ;;
+    --pack-option)
+      PACK_OPTIONS+=("${2:-}")
       shift 2
       ;;
     --codex-bin)
@@ -58,12 +68,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-if [[ -z "$TELEGRAM_TOKEN" ]]; then
-  echo "missing --telegram-token" >&2
-  usage >&2
-  exit 1
-fi
 
 for cmd in curl tar node npm; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -104,17 +108,37 @@ trap cleanup EXIT
 curl -fsSL "$ARCHIVE_URL" | tar -xzf - -C "$WORKDIR"
 SOURCE_DIR="$(find "$WORKDIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 
+PACK="$(node - "$SOURCE_DIR/pack-manifest.json" "$PACK" <<'NODE'
+const fs = require("node:fs");
+const manifestPath = process.argv[2];
+const requestedPack = process.argv[3];
+const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+const resolvedPack = requestedPack || manifest.defaultPack;
+if (!resolvedPack || !manifest.supportedPacks || !manifest.supportedPacks[resolvedPack]) {
+  console.error(`unsupported --pack: ${requestedPack || "<default>"}`);
+  process.exit(1);
+}
+process.stdout.write(resolvedPack);
+NODE
+)"
+
 cd "$SOURCE_DIR"
 npm install
 npm run build
 
-INSTALL_CMD=(node dist/cli.js install --telegram-token "$TELEGRAM_TOKEN")
+INSTALL_CMD=(node dist/cli.js install --pack "$PACK")
+if [[ -n "$TELEGRAM_TOKEN" ]]; then
+  INSTALL_CMD+=(--telegram-token "$TELEGRAM_TOKEN")
+fi
 if [[ -n "$CODEX_BIN" ]]; then
   INSTALL_CMD+=(--codex-bin "$CODEX_BIN")
 fi
 if [[ -n "$PROJECT_SCAN_ROOTS" ]]; then
   INSTALL_CMD+=(--project-scan-roots "$PROJECT_SCAN_ROOTS")
 fi
+for pack_option in "${PACK_OPTIONS[@]}"; do
+  INSTALL_CMD+=(--pack-option "$pack_option")
+done
 
 env \
   CTB_INSTALL_SOURCE_KIND=github-archive \

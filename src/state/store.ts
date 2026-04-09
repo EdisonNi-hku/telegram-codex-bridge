@@ -2,15 +2,21 @@ import { mkdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { dirname } from "node:path";
 
+import type { JsonRpcRequestId } from "../codex/app-server.js";
+import type { BridgePlatform } from "../core/domain/binding.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import { nowIso } from "../util/time.js";
+import {
+  applyFeishuSetupToSnapshot,
+  resetFeishuSetupCycle
+} from "../packs/feishu/setup.js";
 import type {
   AuthorizedUserRow,
+  BridgeReadinessState,
   ChatBindingRow,
   CurrentSessionCardRow,
   FailureReason,
-  FinalAnswerViewRow,
   PendingInteractionKind,
   PendingInteractionRow,
   PendingInteractionState,
@@ -26,6 +32,7 @@ import type {
   SessionDisplayNameSource,
   SessionRow,
   SessionStatus,
+  TerminalResultViewRow,
   UiLanguage,
   TurnInputSourceKind,
   TurnInputSourceRow
@@ -93,6 +100,18 @@ export class StateStoreOpenError extends Error {
 
 export { readStateStoreFailure } from "./store-open.js";
 
+function isTransientSqliteLockError(error: unknown): boolean {
+  const message = `${error}`.toLowerCase();
+  return message.includes("database is locked")
+    || message.includes("database busy")
+    || message.includes("sqlite_busy")
+    || message.includes("busy");
+}
+
+async function sleep(delayMs: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 export class BridgeStateStore {
   private readonly auth: StoreAuth;
   private readonly runtimeArtifacts: StoreRuntimeArtifacts;
@@ -102,7 +121,7 @@ export class BridgeStateStore {
   private constructor(
     private readonly db: DatabaseSync,
     private readonly logger: Logger,
-    readonly recoveredFromCorruption: boolean
+  readonly recoveredFromCorruption: boolean
   ) {
     this.auth = createStoreAuth(db);
     this.runtimeArtifacts = createStoreRuntimeArtifacts(db);
@@ -112,38 +131,140 @@ export class BridgeStateStore {
     });
   }
 
-  static async open(paths: BridgePaths, logger: Logger): Promise<BridgeStateStore> {
-    try {
-      const store = this.openInitializedStore(paths.dbPath, logger, false);
-      await clearStateStoreFailure(paths);
-      return store;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
-        try {
-          // First-run installs may be missing the state directory even though creating a new DB is safe.
-          await mkdir(dirname(paths.dbPath), { recursive: true });
-          const store = this.openInitializedStore(paths.dbPath, logger, false);
-          await clearStateStoreFailure(paths);
-          return store;
-        } catch (retryError) {
-          const failure = buildStateStoreFailure(
-            paths.dbPath,
-            getStateStoreFailureStage(retryError),
-            retryError
-          );
-          await persistStateStoreFailure(paths, failure, logger);
-          await logStateStoreOpenFailure(logger, failure);
-          throw new StateStoreOpenError(failure);
-        }
-      }
-
-      // Any non-ENOENT failure must preserve the existing database and stop the service cold.
-      const failure = buildStateStoreFailure(paths.dbPath, getStateStoreFailureStage(error), error);
-      await persistStateStoreFailure(paths, failure, logger);
-      await logStateStoreOpenFailure(logger, failure);
-      throw new StateStoreOpenError(failure);
+  private updateReadinessSnapshotAuthorization(
+    snapshot: ReadinessSnapshot,
+    platform: BridgePlatform | undefined,
+    authorized: boolean,
+    timestamp: string
+  ): ReadinessSnapshot {
+    const affectsActivePack = platform === undefined
+      || snapshot.details.activePack === undefined
+      || snapshot.details.activePack === platform;
+    if (!affectsActivePack) {
+      return snapshot;
     }
+
+    const activePack = platform ?? snapshot.details.activePack ?? "telegram";
+    const bindingCheckId = `${activePack}_authorization_binding`;
+    const bindingSummary = authorized
+      ? `${activePack} authorization is bound`
+      : `${activePack} authorization is pending`;
+    const previousPackChecks = snapshot.details.packChecks ?? [];
+    const hadBindingCheck = previousPackChecks.some((check) => check.id === bindingCheckId);
+    const packChecks = hadBindingCheck
+      ? previousPackChecks.map((check) => check.id === bindingCheckId
+        ? { ...check, ok: authorized, summary: bindingSummary }
+        : check)
+      : [
+        ...previousPackChecks,
+        {
+          id: bindingCheckId,
+          ok: authorized,
+          summary: bindingSummary
+        }
+      ];
+    const packState: "ready" | "awaiting_authorization" | "pack_unhealthy" =
+      snapshot.state === "pack_unhealthy" || snapshot.details.packState === "pack_unhealthy"
+      ? "pack_unhealthy"
+      : authorized
+        ? "ready"
+        : "awaiting_authorization";
+    const packIssues = packChecks.filter((check) => !check.ok).map((check) => check.summary);
+    const sharedIssues = snapshot.details.sharedIssues
+      ?? snapshot.details.issues.filter((issue) =>
+        !previousPackChecks.some((check) => check.summary === issue)
+      );
+
+    const nextState: BridgeReadinessState = packState === "pack_unhealthy"
+      ? "pack_unhealthy"
+      : !snapshot.details.codexAuthenticated
+        ? "codex_not_authenticated"
+        : !snapshot.details.appServerAvailable
+          ? "app_server_unavailable"
+          : authorized
+            ? "ready"
+            : "awaiting_authorization";
+    const nextSnapshot: ReadinessSnapshot = {
+      ...snapshot,
+      state: nextState,
+      checkedAt: timestamp,
+      details: {
+        ...snapshot.details,
+        activePack,
+        packState,
+        authorizedUserBound: authorized,
+        packChecks,
+        packIssues,
+        sharedIssues,
+        issues: [...sharedIssues, ...packIssues]
+      }
+    };
+
+    if (activePack !== "feishu") {
+      return nextSnapshot;
+    }
+
+    return authorized
+      ? applyFeishuSetupToSnapshot(nextSnapshot)
+      : resetFeishuSetupCycle(nextSnapshot, timestamp);
+  }
+
+  static async open(paths: BridgePaths, logger: Logger): Promise<BridgeStateStore> {
+    const retryDelaysMs = [150, 400, 900];
+
+    for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+      try {
+        const store = this.openInitializedStore(paths.dbPath, logger, false);
+        await clearStateStoreFailure(paths);
+        return store;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") {
+          try {
+            // First-run installs may be missing the state directory even though creating a new DB is safe.
+            await mkdir(dirname(paths.dbPath), { recursive: true });
+            const store = this.openInitializedStore(paths.dbPath, logger, false);
+            await clearStateStoreFailure(paths);
+            return store;
+          } catch (retryError) {
+            const retryFailure = buildStateStoreFailure(
+              paths.dbPath,
+              getStateStoreFailureStage(retryError),
+              retryError
+            );
+            if (retryFailure.classification === "transient_open_failure" && attempt < retryDelaysMs.length) {
+              const delayMs = retryDelaysMs[attempt];
+              if (delayMs !== undefined) {
+                await sleep(delayMs);
+              }
+              continue;
+            }
+            await persistStateStoreFailure(paths, retryFailure, logger);
+            await logStateStoreOpenFailure(logger, retryFailure);
+            throw new StateStoreOpenError(retryFailure);
+          }
+        }
+
+        const failure = buildStateStoreFailure(paths.dbPath, getStateStoreFailureStage(error), error);
+        if (failure.classification === "transient_open_failure" && isTransientSqliteLockError(error) && attempt < retryDelaysMs.length) {
+          const delayMs = retryDelaysMs[attempt];
+          if (delayMs !== undefined) {
+            await sleep(delayMs);
+          }
+          continue;
+        }
+
+        // Any non-ENOENT failure must preserve the existing database and stop the service cold.
+        await persistStateStoreFailure(paths, failure, logger);
+        await logStateStoreOpenFailure(logger, failure);
+        throw new StateStoreOpenError(failure);
+      }
+    }
+
+    const failure = buildStateStoreFailure(paths.dbPath, "open_db", "state store open retries exhausted");
+    await persistStateStoreFailure(paths, failure, logger);
+    await logStateStoreOpenFailure(logger, failure);
+    throw new StateStoreOpenError(failure);
   }
 
   private static openInitializedStore(
@@ -178,23 +299,27 @@ export class BridgeStateStore {
     }
   }
 
-  getAuthorizedUser(): AuthorizedUserRow | null {
-    return this.auth.getAuthorizedUser();
+  getAuthorizedUser(platform?: BridgePlatform): AuthorizedUserRow | null {
+    return this.auth.getAuthorizedUser(platform);
   }
 
-  getChatBinding(chatId: string): ChatBindingRow | null {
-    return this.auth.getChatBinding(chatId);
+  getChatBinding(chatId: string, platform?: BridgePlatform): ChatBindingRow | null {
+    return this.auth.getChatBinding(chatId, platform);
   }
 
-  listChatBindings(): ChatBindingRow[] {
-    return this.auth.listChatBindings();
+  listChatBindings(platform?: BridgePlatform): ChatBindingRow[] {
+    return this.auth.listChatBindings(platform);
   }
 
-  listPendingAuthorizations(options?: { includeExpired?: boolean }): PendingAuthorizationRow[] {
+  listPendingAuthorizations(options?: {
+    includeExpired?: boolean;
+    platform?: BridgePlatform;
+  }): PendingAuthorizationRow[] {
     return this.auth.listPendingAuthorizations(options);
   }
 
   upsertPendingAuthorization(candidate: {
+    platform?: BridgePlatform;
     userId?: string;
     telegramUserId?: string;
     chatId?: string;
@@ -213,14 +338,15 @@ export class BridgeStateStore {
 
     const timestamp = nowIso();
     const previousSnapshot = this.getReadinessSnapshot();
-    this.db.exec("BEGIN");
+    this.db.exec("BEGIN IMMEDIATE");
 
     try {
-      const existingBindings = this.auth.listChatBindingsByUserId(candidate.userId);
+      const existingBindings = this.auth.listChatBindingsByUserId(candidate.userId, candidate.platform);
       const previousChatIds = existingBindings.map((binding) => binding.chatId);
       const migratedActiveSessionId = choosePreferredActiveSessionId(existingBindings);
 
       this.auth.saveAuthorizedUser({
+        platform: candidate.platform,
         userId: candidate.userId,
         username: candidate.username,
         displayName: candidate.displayName,
@@ -232,16 +358,17 @@ export class BridgeStateStore {
         this.sessions.rebindSessionsChatIds(candidate.chatId, previousChatIds);
         this.runtimeArtifacts.rebindRuntimeNoticesChatIds(candidate.chatId, previousChatIds);
         this.runtimeArtifacts.rebindCurrentSessionCardsChatIds(candidate.chatId, previousChatIds);
-        this.runtimeArtifacts.rebindFinalAnswerViewsChatIds(candidate.chatId, previousChatIds);
+        this.runtimeArtifacts.rebindTerminalResultViewsChatIds(candidate.chatId, previousChatIds);
 
         if (appliedTableExists(this.db, "pending_interaction")) {
           this.pendingInteractions.rebindPendingInteractionsChatIds(candidate.chatId, previousChatIds);
         }
 
-        this.auth.deleteChatBindingsByUserId(candidate.userId);
+        this.auth.deleteChatBindingsByUserId(candidate.userId, candidate.platform);
       }
 
       this.auth.replaceChatBinding({
+        platform: candidate.platform,
         chatId: candidate.chatId,
         userId: candidate.userId,
         activeSessionId: migratedActiveSessionId,
@@ -251,27 +378,12 @@ export class BridgeStateStore {
 
       this.sessions.normalizeActiveSession(candidate.chatId);
 
-      this.auth.clearPendingAuthorizations();
+      this.auth.clearPendingAuthorizations(candidate.platform);
 
       if (previousSnapshot) {
-        const nextState =
-          previousSnapshot.details.codexAuthenticated &&
-          previousSnapshot.details.telegramTokenValid &&
-          previousSnapshot.details.appServerAvailable
-            ? "ready"
-            : previousSnapshot.state === "awaiting_authorization"
-              ? "ready"
-              : previousSnapshot.state;
-
-        this.writeReadinessSnapshot({
-          ...previousSnapshot,
-          state: nextState,
-          checkedAt: timestamp,
-          details: {
-            ...previousSnapshot.details,
-            authorizedUserBound: true
-          }
-        });
+        this.writeReadinessSnapshot(
+          this.updateReadinessSnapshotAuthorization(previousSnapshot, candidate.platform, true, timestamp)
+        );
       }
 
       this.db.exec("COMMIT");
@@ -281,30 +393,42 @@ export class BridgeStateStore {
     }
   }
 
-  clearAuthorization(): void {
+  clearAuthorization(platform?: BridgePlatform): void {
     const previousSnapshot = this.getReadinessSnapshot();
-    this.db.exec("BEGIN");
+    this.db.exec("BEGIN IMMEDIATE");
 
     try {
-      this.auth.clearAuthorizedUsers();
-      this.auth.clearChatBindings();
-      this.auth.clearPendingAuthorizations();
-      this.runtimeArtifacts.clearAllCurrentSessionCards();
-      this.runtimeArtifacts.clearAllFinalAnswerViews();
-      if (appliedTableExists(this.db, "pending_interaction")) {
-        this.pendingInteractions.clearAllPendingInteractions();
+      const bindings = platform ? this.auth.listChatBindings(platform) : this.auth.listChatBindings();
+
+      this.auth.clearAuthorizedUsers(platform);
+      this.auth.clearChatBindings(platform);
+      this.auth.clearPendingAuthorizations(platform);
+
+      if (platform) {
+        for (const binding of bindings) {
+          this.runtimeArtifacts.deleteCurrentSessionCard(binding.chatId);
+          for (const notice of this.runtimeArtifacts.listRuntimeNotices(binding.chatId)) {
+            this.runtimeArtifacts.clearRuntimeNotice(notice.key);
+          }
+          for (const result of this.runtimeArtifacts.listTerminalResultViews(binding.chatId)) {
+            this.runtimeArtifacts.deleteTerminalResultView(result.answerId);
+          }
+          if (appliedTableExists(this.db, "pending_interaction")) {
+            this.pendingInteractions.clearPendingInteractionsByChat(binding.chatId);
+          }
+        }
+      } else {
+        this.runtimeArtifacts.clearAllCurrentSessionCards();
+        this.runtimeArtifacts.clearAllFinalAnswerViews();
+        if (appliedTableExists(this.db, "pending_interaction")) {
+          this.pendingInteractions.clearAllPendingInteractions();
+        }
       }
 
       if (previousSnapshot) {
-        this.writeReadinessSnapshot({
-          ...previousSnapshot,
-          state: "awaiting_authorization",
-          checkedAt: nowIso(),
-          details: {
-            ...previousSnapshot.details,
-            authorizedUserBound: false
-          }
-        });
+        this.writeReadinessSnapshot(
+          this.updateReadinessSnapshotAuthorization(previousSnapshot, platform, false, nowIso())
+        );
       }
 
       this.db.exec("COMMIT");
@@ -339,7 +463,6 @@ export class BridgeStateStore {
         const notice: RuntimeNotice = {
           key: `restart:${session.sessionId}:${timestamp}`,
           chatId: session.chatId,
-          telegramChatId: session.chatId,
           type: "bridge_restart_recovery",
           message: "桥接服务已重启，正在运行的操作状态未知，请查看会话状态后重新发起。",
           createdAt: timestamp
@@ -604,6 +727,46 @@ export class BridgeStateStore {
     this.runtimeArtifacts.deleteCurrentSessionCard(chatId);
   }
 
+  saveTerminalResultView(options: {
+    answerId?: string;
+    chatId: string;
+    deliveryMessageId?: number | null;
+    sessionId: string;
+    threadId: string;
+    turnId: string;
+    kind?: TerminalResultViewRow["kind"];
+    deliveryState?: TerminalResultViewRow["deliveryState"];
+    previewHtml: string;
+    pages: string[];
+    primaryActionConsumed?: boolean;
+  }): TerminalResultViewRow {
+    return this.runtimeArtifacts.saveTerminalResultView(options);
+  }
+
+  getTerminalResultView(answerId: string, chatId: string): TerminalResultViewRow | null {
+    return this.runtimeArtifacts.getTerminalResultView(answerId, chatId);
+  }
+
+  listTerminalResultViews(chatId: string): TerminalResultViewRow[] {
+    return this.runtimeArtifacts.listTerminalResultViews(chatId);
+  }
+
+  setTerminalResultMessageId(answerId: string, messageId: number): void {
+    this.runtimeArtifacts.setTerminalResultMessageId(answerId, messageId);
+  }
+
+  setTerminalResultDeliveryState(answerId: string, deliveryState: TerminalResultViewRow["deliveryState"]): void {
+    this.runtimeArtifacts.setTerminalResultDeliveryState(answerId, deliveryState);
+  }
+
+  setTerminalResultPrimaryActionConsumed(answerId: string, consumed: boolean): void {
+    this.runtimeArtifacts.setTerminalResultPrimaryActionConsumed(answerId, consumed);
+  }
+
+  deleteTerminalResultView(answerId: string): void {
+    this.runtimeArtifacts.deleteTerminalResultView(answerId);
+  }
+
   saveFinalAnswerView(options: {
     answerId?: string;
     chatId: string;
@@ -611,37 +774,37 @@ export class BridgeStateStore {
     sessionId: string;
     threadId: string;
     turnId: string;
-    kind?: FinalAnswerViewRow["kind"];
-    deliveryState?: FinalAnswerViewRow["deliveryState"];
+    kind?: TerminalResultViewRow["kind"];
+    deliveryState?: TerminalResultViewRow["deliveryState"];
     previewHtml: string;
     pages: string[];
     primaryActionConsumed?: boolean;
-  }): FinalAnswerViewRow {
-    return this.runtimeArtifacts.saveFinalAnswerView(options);
+  }): TerminalResultViewRow {
+    return this.saveTerminalResultView(options);
   }
 
-  getFinalAnswerView(answerId: string, chatId: string): FinalAnswerViewRow | null {
-    return this.runtimeArtifacts.getFinalAnswerView(answerId, chatId);
+  getFinalAnswerView(answerId: string, chatId: string): TerminalResultViewRow | null {
+    return this.getTerminalResultView(answerId, chatId);
   }
 
-  listFinalAnswerViews(chatId: string): FinalAnswerViewRow[] {
-    return this.runtimeArtifacts.listFinalAnswerViews(chatId);
+  listFinalAnswerViews(chatId: string): TerminalResultViewRow[] {
+    return this.listTerminalResultViews(chatId);
   }
 
   setFinalAnswerMessageId(answerId: string, messageId: number): void {
-    this.runtimeArtifacts.setFinalAnswerMessageId(answerId, messageId);
+    this.setTerminalResultMessageId(answerId, messageId);
   }
 
-  setFinalAnswerDeliveryState(answerId: string, deliveryState: FinalAnswerViewRow["deliveryState"]): void {
-    this.runtimeArtifacts.setFinalAnswerDeliveryState(answerId, deliveryState);
+  setFinalAnswerDeliveryState(answerId: string, deliveryState: TerminalResultViewRow["deliveryState"]): void {
+    this.setTerminalResultDeliveryState(answerId, deliveryState);
   }
 
   setFinalAnswerPrimaryActionConsumed(answerId: string, consumed: boolean): void {
-    this.runtimeArtifacts.setFinalAnswerPrimaryActionConsumed(answerId, consumed);
+    this.setTerminalResultPrimaryActionConsumed(answerId, consumed);
   }
 
   deleteFinalAnswerView(answerId: string): void {
-    this.runtimeArtifacts.deleteFinalAnswerView(answerId);
+    this.deleteTerminalResultView(answerId);
   }
 
   saveTurnInputSource(options: {
@@ -663,14 +826,13 @@ export class BridgeStateStore {
     sessionId: string;
     threadId: string;
     turnId: string;
-    requestId: string;
+    requestId: JsonRpcRequestId;
     requestMethod: string;
     interactionKind: PendingInteractionKind;
     state?: PendingInteractionState;
     promptJson: string;
     responseJson?: string | null;
     messageId?: number | null;
-    telegramMessageId?: number | null;
     errorReason?: string | null;
   }): PendingInteractionRow {
     return this.pendingInteractions.createPendingInteraction(options);
@@ -680,7 +842,7 @@ export class BridgeStateStore {
     return this.pendingInteractions.getPendingInteraction(interactionId, chatId);
   }
 
-  listPendingInteractionsByRequest(threadId: string, requestId: string): PendingInteractionRow[] {
+  listPendingInteractionsByRequest(threadId: string, requestId: JsonRpcRequestId): PendingInteractionRow[] {
     return this.pendingInteractions.listPendingInteractionsByRequest(threadId, requestId);
   }
 

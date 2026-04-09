@@ -8,6 +8,7 @@ import type { Logger } from "../logger.js";
 import type { PerformanceRecorder } from "../perf/recorder.js";
 import { buildSpawnPlan } from "../process.js";
 import type { ReasoningEffort } from "../types.js";
+import type { BridgeDynamicToolDeclaration } from "./server-request-policy.js";
 
 interface JsonRpcSuccess {
   id: JsonRpcRequestId;
@@ -65,7 +66,7 @@ interface ThreadStartParams {
     inputSchema: {
       type: "object";
       properties: Record<string, { type: "string" }>;
-      required?: string[];
+      required?: readonly string[];
     };
   }>;
 }
@@ -384,24 +385,13 @@ export interface ThreadReadResult {
 export function buildThreadStartParams(options: {
   cwd: string;
   model?: string;
+  dynamicTools?: BridgeDynamicToolDeclaration[];
 }): ThreadStartParams {
   return {
     cwd: options.cwd,
     approvalPolicy: "never",
     sandbox: "danger-full-access",
-    dynamicTools: [{
-      name: "send_telegram_document",
-      description: "Send a local server file to the current Telegram chat as a document attachment.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          caption: { type: "string" },
-          filename: { type: "string" }
-        },
-        required: ["path"]
-      }
-    }],
+    dynamicTools: options.dynamicTools ?? [],
     ...(options.model ? { model: options.model } : {})
   };
 }
@@ -538,6 +528,7 @@ export class CodexAppServerClient {
   async startThread(options: {
     cwd: string;
     model?: string;
+    dynamicTools?: BridgeDynamicToolDeclaration[];
   }): Promise<ThreadStartResult> {
     return await this.request<ThreadStartResult>("thread/start", buildThreadStartParams(options));
   }

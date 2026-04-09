@@ -809,7 +809,7 @@ test("syncSessionTitleFromThread falls back to a cleaned preview when the thread
   }
 });
 
-test("saveFinalAnswerView keeps only the 50 most recent answers per chat", async () => {
+test("saveTerminalResultView keeps only the 50 most recent answers per chat", async () => {
   const { store, cleanup } = await openStore();
 
   try {
@@ -831,7 +831,7 @@ test("saveFinalAnswerView keeps only the 50 most recent answers per chat", async
     store.updateSessionThreadId(session.sessionId, "thread-final-answer-limit");
 
     for (let index = 0; index < 55; index += 1) {
-      store.saveFinalAnswerView({
+      store.saveTerminalResultView({
         answerId: `answer-${index}`,
         chatId: "chat-final-answer-limit",
         deliveryMessageId: 1000 + index,
@@ -843,12 +843,12 @@ test("saveFinalAnswerView keeps only the 50 most recent answers per chat", async
       });
     }
 
-    const views = store.listFinalAnswerViews("chat-final-answer-limit");
+    const views = store.listTerminalResultViews("chat-final-answer-limit");
     assert.equal(views.length, 50);
     assert.equal(views.at(0)?.answerId, "answer-54");
     assert.equal(views.at(-1)?.answerId, "answer-5");
-    assert.equal(store.getFinalAnswerView("answer-0", "chat-final-answer-limit"), null);
-    assert.equal(store.getFinalAnswerView("answer-54", "chat-final-answer-limit")?.deliveryMessageId, 1054);
+    assert.equal(store.getTerminalResultView("answer-0", "chat-final-answer-limit"), null);
+    assert.equal(store.getTerminalResultView("answer-54", "chat-final-answer-limit")?.deliveryMessageId, 1054);
   } finally {
     await cleanup();
   }
@@ -1455,7 +1455,7 @@ test("open migrates legacy stores so pending interactions can be persisted", asy
         sessionId: "session-legacy",
         threadId: "thread-legacy",
         turnId: "turn-legacy",
-        requestId: JSON.stringify(7),
+        requestId: 7,
         requestMethod: "item/commandExecution/requestApproval",
         interactionKind: "approval",
         promptJson: JSON.stringify({ kind: "approval", title: "Approval" })
@@ -1466,6 +1466,234 @@ test("open migrates legacy stores so pending interactions can be persisted", asy
     } finally {
       store.close();
     }
+  } finally {
+    await cleanup();
+  }
+});
+
+test("clearAuthorization can clear only the requested platform without touching the other pack", async () => {
+  const { store, cleanup } = await openStore();
+
+  try {
+    store.upsertPendingAuthorization({
+      platform: "telegram",
+      userId: "telegram-user",
+      chatId: "telegram-chat",
+      username: "tg",
+      displayName: "Telegram User"
+    });
+    store.upsertPendingAuthorization({
+      platform: "feishu",
+      userId: "feishu-user",
+      chatId: "feishu-chat",
+      username: "fs",
+      displayName: "Feishu User"
+    });
+
+    const telegramCandidate = store.listPendingAuthorizations({ platform: "telegram" })[0];
+    const feishuCandidate = store.listPendingAuthorizations({ platform: "feishu" })[0];
+    assert.ok(telegramCandidate);
+    assert.ok(feishuCandidate);
+
+    store.confirmPendingAuthorization(telegramCandidate);
+    store.confirmPendingAuthorization(feishuCandidate);
+
+    const telegramSession = store.createSession({
+      chatId: "telegram-chat",
+      projectName: "Telegram Project",
+      projectPath: "/tmp/telegram-project"
+    });
+    const feishuSession = store.createSession({
+      chatId: "feishu-chat",
+      projectName: "Feishu Project",
+      projectPath: "/tmp/feishu-project"
+    });
+
+    store.saveFinalAnswerView({
+      answerId: "telegram-answer",
+      chatId: "telegram-chat",
+      sessionId: telegramSession.sessionId,
+      threadId: "thread-telegram",
+      turnId: "turn-telegram",
+      previewHtml: "<b>Telegram</b>",
+      pages: ["telegram"]
+    });
+    store.saveFinalAnswerView({
+      answerId: "feishu-answer",
+      chatId: "feishu-chat",
+      sessionId: feishuSession.sessionId,
+      threadId: "thread-feishu",
+      turnId: "turn-feishu",
+      previewHtml: "<b>Feishu</b>",
+      pages: ["feishu"]
+    });
+
+    store.clearAuthorization("telegram");
+
+    assert.equal(store.getAuthorizedUser("telegram"), null);
+    assert.equal(store.getChatBinding("telegram-chat", "telegram"), null);
+    assert.equal(store.listFinalAnswerViews("telegram-chat").length, 0);
+
+    assert.equal(store.getAuthorizedUser("feishu")?.userId, "feishu-user");
+    assert.equal(store.getChatBinding("feishu-chat", "feishu")?.userId, "feishu-user");
+    assert.equal(store.listFinalAnswerViews("feishu-chat").length, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("auth and binding rows allow the same user and chat identifiers on different platforms", async () => {
+  const { store, cleanup } = await openStore();
+
+  try {
+    store.upsertPendingAuthorization({
+      platform: "telegram",
+      userId: "shared-user",
+      chatId: "shared-chat",
+      username: "tg-user",
+      displayName: "Telegram Shared"
+    });
+    store.upsertPendingAuthorization({
+      platform: "feishu",
+      userId: "shared-user",
+      chatId: "shared-chat",
+      username: "fs-user",
+      displayName: "Feishu Shared"
+    });
+
+    const telegramCandidate = store.listPendingAuthorizations({ platform: "telegram" })[0];
+    const feishuCandidate = store.listPendingAuthorizations({ platform: "feishu" })[0];
+    assert.ok(telegramCandidate);
+    assert.ok(feishuCandidate);
+
+    store.confirmPendingAuthorization(telegramCandidate);
+    store.confirmPendingAuthorization(feishuCandidate);
+
+    assert.equal(store.getAuthorizedUser("telegram")?.userId, "shared-user");
+    assert.equal(store.getAuthorizedUser("feishu")?.userId, "shared-user");
+    assert.equal(store.getChatBinding("shared-chat", "telegram")?.userId, "shared-user");
+    assert.equal(store.getChatBinding("shared-chat", "feishu")?.userId, "shared-user");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("authorization updates keep readiness state and pack state consistent", async () => {
+  const { store, cleanup } = await openStore();
+
+  try {
+    store.writeReadinessSnapshot({
+      state: "awaiting_authorization",
+      checkedAt: "2026-04-09T00:00:00.000Z",
+      details: {
+        activePack: "feishu",
+        codexInstalled: true,
+        codexAuthenticated: true,
+        appServerAvailable: true,
+        packState: "awaiting_authorization",
+        authorizedUserBound: false,
+        issues: ["feishu authorization is pending"],
+        sharedIssues: [],
+        packIssues: ["feishu authorization is pending"],
+        packChecks: [{
+          id: "feishu_authorization_binding",
+          ok: false,
+          summary: "feishu authorization is pending"
+        }]
+      }
+    });
+
+    store.upsertPendingAuthorization({
+      platform: "feishu",
+      userId: "feishu-user-ready",
+      chatId: "feishu-chat-ready",
+      username: "feishu",
+      displayName: "Feishu Ready"
+    });
+    const candidate = store.listPendingAuthorizations({ platform: "feishu" })[0];
+    assert.ok(candidate);
+    store.confirmPendingAuthorization(candidate);
+
+    const afterConfirm = store.getReadinessSnapshot();
+    assert.equal(afterConfirm?.state, "ready");
+    assert.equal(afterConfirm?.details.packState, "ready");
+    assert.equal(afterConfirm?.details.setupState, "incomplete");
+    assert.equal(afterConfirm?.details.authorizedUserBound, true);
+    assert.match((afterConfirm?.details.packIssues ?? []).join("\n"), /text ingress has not been observed/u);
+    assert.match((afterConfirm?.details.packIssues ?? []).join("\n"), /interactive card delivery has not been observed/u);
+    assert.match((afterConfirm?.details.packIssues ?? []).join("\n"), /card callback has not been observed/u);
+
+    store.clearAuthorization("feishu");
+
+    const afterClear = store.getReadinessSnapshot();
+    assert.equal(afterClear?.state, "awaiting_authorization");
+    assert.equal(afterClear?.details.packState, "awaiting_authorization");
+    assert.equal(afterClear?.details.setupState, "incomplete");
+    assert.equal(afterClear?.details.authorizedUserBound, false);
+    assert.match((afterClear?.details.packIssues ?? []).join("\n"), /feishu authorization is pending/u);
+    assert.match((afterClear?.details.packIssues ?? []).join("\n"), /text ingress has not been observed/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("authorization transitions keep readiness snapshot pack fields consistent", async () => {
+  const { store, cleanup } = await openStore();
+
+  try {
+    store.writeReadinessSnapshot({
+      state: "awaiting_authorization",
+      checkedAt: "2026-04-09T00:00:00.000Z",
+      details: {
+        activePack: "telegram",
+        codexInstalled: true,
+        codexAuthenticated: true,
+        appServerAvailable: true,
+        packState: "awaiting_authorization",
+        authorizedUserBound: false,
+        issues: ["telegram authorization is pending"],
+        sharedIssues: [],
+        packIssues: ["telegram authorization is pending"],
+        packChecks: [{
+          id: "telegram_authorization_binding",
+          ok: false,
+          summary: "telegram authorization is pending"
+        }]
+      }
+    });
+
+    store.upsertPendingAuthorization({
+      platform: "telegram",
+      userId: "user-ready",
+      chatId: "chat-ready",
+      username: "ready",
+      displayName: "Ready"
+    });
+    const candidate = store.listPendingAuthorizations({ platform: "telegram" })[0];
+    assert.ok(candidate);
+    store.confirmPendingAuthorization(candidate);
+
+    const afterConfirm = store.getReadinessSnapshot();
+    assert.equal(afterConfirm?.state, "ready");
+    assert.equal(afterConfirm?.details.packState, "ready");
+    assert.equal(afterConfirm?.details.setupState, "complete");
+    assert.equal(afterConfirm?.details.authorizedUserBound, true);
+    assert.deepEqual(afterConfirm?.details.packIssues, []);
+    assert.deepEqual(afterConfirm?.details.issues, []);
+    assert.equal(afterConfirm?.details.packChecks?.[0]?.ok, true);
+    assert.equal(afterConfirm?.details.packChecks?.[0]?.summary, "telegram authorization is bound");
+
+    store.clearAuthorization("telegram");
+
+    const afterClear = store.getReadinessSnapshot();
+    assert.equal(afterClear?.state, "awaiting_authorization");
+    assert.equal(afterClear?.details.packState, "awaiting_authorization");
+    assert.equal(afterClear?.details.setupState, "complete");
+    assert.equal(afterClear?.details.authorizedUserBound, false);
+    assert.deepEqual(afterClear?.details.packIssues, ["telegram authorization is pending"]);
+    assert.deepEqual(afterClear?.details.issues, ["telegram authorization is pending"]);
+    assert.equal(afterClear?.details.packChecks?.[0]?.ok, false);
+    assert.equal(afterClear?.details.packChecks?.[0]?.summary, "telegram authorization is pending");
   } finally {
     await cleanup();
   }
@@ -1487,7 +1715,7 @@ test("pending interactions persist lifecycle state and survive reopen", async ()
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-1",
-      requestId: JSON.stringify("server-1"),
+      requestId: "server-1",
       requestMethod: "item/tool/requestUserInput",
       interactionKind: "questionnaire",
       promptJson: JSON.stringify({
@@ -1566,7 +1794,7 @@ test("pending interactions persist canceled terminal state and exclude it from u
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-2",
-      requestId: JSON.stringify("server-cancel"),
+      requestId: "server-cancel",
       requestMethod: "item/commandExecution/requestApproval",
       interactionKind: "approval",
       promptJson: JSON.stringify({
@@ -1619,7 +1847,7 @@ test("markPendingInteractionExpired persists expired terminal state", async () =
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-expired",
-      requestId: JSON.stringify("server-expired"),
+      requestId: "server-expired",
       requestMethod: "item/tool/requestUserInput",
       interactionKind: "questionnaire",
       promptJson: JSON.stringify({
@@ -1669,7 +1897,7 @@ test("markRunningSessionsFailedWithNotices also fails unresolved pending interac
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-1",
-      requestId: JSON.stringify("server-2"),
+      requestId: "server-2",
       requestMethod: "item/commandExecution/requestApproval",
       interactionKind: "approval",
       promptJson: JSON.stringify({ kind: "approval", title: "Approval" })
@@ -1679,7 +1907,7 @@ test("markRunningSessionsFailedWithNotices also fails unresolved pending interac
       sessionId: session.sessionId,
       threadId: "thread-1",
       turnId: "turn-1",
-      requestId: JSON.stringify("server-3"),
+      requestId: "server-3",
       requestMethod: "item/tool/requestUserInput",
       interactionKind: "questionnaire",
       promptJson: JSON.stringify({ kind: "questionnaire", title: "Questions" })
@@ -2212,7 +2440,7 @@ test("migration keeps legacy project-name session titles auto even when project 
   }
 });
 
-test("listPendingInteractionsByRequest returns only unresolved rows for the exact stored request id", async () => {
+test("listPendingInteractionsByRequest matches compatible legacy and canonical request ids while excluding resolved rows", async () => {
   const { store, cleanup } = await openStore();
 
   try {
@@ -2228,17 +2456,27 @@ test("listPendingInteractionsByRequest returns only unresolved rows for the exac
       sessionId: session.sessionId,
       threadId: "thread-request-id",
       turnId: "turn-1",
-      requestId: "\"server-1\"",
+      requestId: "server-1",
       requestMethod: "item/commandExecution/requestApproval",
       interactionKind: "approval",
       promptJson: JSON.stringify({ kind: "approval", title: "Need approval" })
+    });
+    const legacyPending = store.createPendingInteraction({
+      chatId: "chat-request-id",
+      sessionId: session.sessionId,
+      threadId: "thread-request-id",
+      turnId: "turn-1",
+      requestId: "server-1",
+      requestMethod: "item/tool/requestUserInput",
+      interactionKind: "questionnaire",
+      promptJson: JSON.stringify({ kind: "questionnaire", title: "Legacy request" })
     });
     const awaitingText = store.createPendingInteraction({
       chatId: "chat-request-id",
       sessionId: session.sessionId,
       threadId: "thread-request-id",
       turnId: "turn-1",
-      requestId: "\"server-1\"",
+      requestId: "server-1",
       requestMethod: "item/tool/requestUserInput",
       interactionKind: "questionnaire",
       promptJson: JSON.stringify({ kind: "questionnaire", title: "Need input" })
@@ -2248,7 +2486,7 @@ test("listPendingInteractionsByRequest returns only unresolved rows for the exac
       sessionId: session.sessionId,
       threadId: "thread-request-id",
       turnId: "turn-1",
-      requestId: "\"server-1\"",
+      requestId: "server-1",
       requestMethod: "item/tool/requestUserInput",
       interactionKind: "questionnaire",
       promptJson: JSON.stringify({ kind: "questionnaire", title: "Answered" })
@@ -2258,7 +2496,7 @@ test("listPendingInteractionsByRequest returns only unresolved rows for the exac
       sessionId: session.sessionId,
       threadId: "thread-request-id",
       turnId: "turn-1",
-      requestId: "\"server-2\"",
+      requestId: "server-2",
       requestMethod: "item/tool/requestUserInput",
       interactionKind: "questionnaire",
       promptJson: JSON.stringify({ kind: "questionnaire", title: "Other request" })
@@ -2267,13 +2505,243 @@ test("listPendingInteractionsByRequest returns only unresolved rows for the exac
     store.markPendingInteractionAwaitingText(awaitingText.interactionId, JSON.stringify({ awaitingQuestionId: "q1" }));
     store.markPendingInteractionAnswered(answered.interactionId, JSON.stringify({ decision: "accept" }));
 
-    const matching = store.listPendingInteractionsByRequest("thread-request-id", "\"server-1\"");
+    const matching = store.listPendingInteractionsByRequest("thread-request-id", "server-1");
     assert.deepEqual(
       matching.map((row) => row.interactionId).sort(),
-      [awaitingText.interactionId, pending.interactionId].sort()
+      [awaitingText.interactionId, legacyPending.interactionId, pending.interactionId].sort()
     );
     assert.equal(matching.some((row) => row.interactionId === answered.interactionId), false);
     assert.equal(matching.some((row) => row.interactionId === otherRequest.interactionId), false);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("listPendingInteractionsByRequest keeps numeric-looking string ids distinct from numeric ids", async () => {
+  const { paths, store, cleanup } = await openStore();
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-request-id-numeric",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    store.updateSessionThreadId(session.sessionId, "thread-request-id-numeric");
+
+    const stringRequest = store.createPendingInteraction({
+      chatId: "chat-request-id-numeric",
+      sessionId: session.sessionId,
+      threadId: "thread-request-id-numeric",
+      turnId: "turn-1",
+      requestId: "7",
+      requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval",
+      promptJson: JSON.stringify({ kind: "approval", title: "String request" })
+    });
+    const numericRequest = store.createPendingInteraction({
+      chatId: "chat-request-id-numeric",
+      sessionId: session.sessionId,
+      threadId: "thread-request-id-numeric",
+      turnId: "turn-1",
+      requestId: 7,
+      requestMethod: "item/tool/requestUserInput",
+      interactionKind: "questionnaire",
+      promptJson: JSON.stringify({ kind: "questionnaire", title: "Numeric request" })
+    });
+
+    const timestamp = "2026-04-08T00:00:00.000Z";
+    ((store as unknown as { db: import("node:sqlite").DatabaseSync }).db)
+      .prepare(
+        `
+          INSERT INTO pending_interaction (
+            interaction_id,
+            chat_id,
+            session_id,
+            thread_id,
+            turn_id,
+            request_id,
+            request_id_canonical,
+            request_id_legacy,
+            request_id_kind,
+            request_method,
+            interaction_kind,
+            state,
+            prompt_json,
+            response_json,
+            message_id,
+            created_at,
+            updated_at,
+            resolved_at,
+            error_reason
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL)
+        `
+      )
+      .run(
+        "legacy-string-request-id",
+        "chat-request-id-numeric",
+        session.sessionId,
+        "thread-request-id-numeric",
+        "turn-1",
+        "7",
+        "\"7\"",
+        "7",
+        "string",
+        "item/commandExecution/requestApproval",
+        "approval",
+        "pending",
+        JSON.stringify({ kind: "approval", title: "Legacy string request" }),
+        timestamp,
+        timestamp
+      );
+
+    assert.deepEqual(
+      store.listPendingInteractionsByRequest("thread-request-id-numeric", "7").map((row) => row.interactionId).sort(),
+      ["legacy-string-request-id", stringRequest.interactionId].sort()
+    );
+    assert.deepEqual(
+      store.listPendingInteractionsByRequest("thread-request-id-numeric", 7).map((row) => row.interactionId),
+      [numericRequest.interactionId]
+    );
+
+    store.close();
+    const reopened = await BridgeStateStore.open(paths, testLogger);
+    try {
+      assert.deepEqual(
+        reopened.listPendingInteractionsByRequest("thread-request-id-numeric", "7").map((row) => row.interactionId).sort(),
+        ["legacy-string-request-id", stringRequest.interactionId].sort()
+      );
+      assert.deepEqual(
+        reopened.listPendingInteractionsByRequest("thread-request-id-numeric", 7).map((row) => row.interactionId),
+        [numericRequest.interactionId]
+      );
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test("open migrates runtime and interaction artifacts off Telegram mirror columns and preserves data after reopen", async () => {
+  const { paths, store, cleanup } = await openStore();
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-mirror-cleanup",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    store.updateSessionThreadId(session.sessionId, "thread-mirror-cleanup");
+    store.createRuntimeNotice({
+      key: "notice-mirror-cleanup",
+      chatId: "chat-mirror-cleanup",
+      type: "app_server_notice",
+      message: "mirror cleanup"
+    });
+    store.upsertCurrentSessionCard({
+      chatId: "chat-mirror-cleanup",
+      messageId: 77,
+      sessionId: session.sessionId
+    });
+    store.saveTerminalResultView({
+      answerId: "answer-mirror-cleanup",
+      chatId: "chat-mirror-cleanup",
+      deliveryMessageId: 88,
+      sessionId: session.sessionId,
+      threadId: "thread-mirror-cleanup",
+      turnId: "turn-mirror-cleanup",
+      previewHtml: "<b>Preview</b>",
+      pages: ["Page 1"]
+    });
+    store.createPendingInteraction({
+      interactionId: "interaction-mirror-cleanup",
+      chatId: "chat-mirror-cleanup",
+      sessionId: session.sessionId,
+      threadId: "thread-mirror-cleanup",
+      turnId: "turn-mirror-cleanup",
+      requestId: "mirror-cleanup",
+      requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval",
+      promptJson: JSON.stringify({ kind: "approval", title: "Cleanup" }),
+      messageId: 99
+    });
+
+    store.close();
+
+    const db = new DatabaseSync(paths.dbPath);
+    try {
+      db.prepare("DELETE FROM schema_migrations WHERE version = 20").run();
+
+      db.exec("ALTER TABLE runtime_notice ADD COLUMN telegram_chat_id TEXT NULL");
+      db.exec("UPDATE runtime_notice SET telegram_chat_id = chat_id WHERE telegram_chat_id IS NULL");
+
+      db.exec("ALTER TABLE final_answer_view ADD COLUMN telegram_chat_id TEXT NULL");
+      db.exec("ALTER TABLE final_answer_view ADD COLUMN telegram_message_id INTEGER NULL");
+      db.exec(
+        `
+          UPDATE final_answer_view
+          SET
+            telegram_chat_id = chat_id,
+            telegram_message_id = delivery_message_id
+        `
+      );
+
+      db.exec("ALTER TABLE current_session_card ADD COLUMN telegram_chat_id TEXT NULL");
+      db.exec("ALTER TABLE current_session_card ADD COLUMN telegram_message_id INTEGER NULL");
+      db.exec(
+        `
+          UPDATE current_session_card
+          SET
+            telegram_chat_id = chat_id,
+            telegram_message_id = message_id
+        `
+      );
+
+      db.exec("ALTER TABLE pending_interaction ADD COLUMN telegram_chat_id TEXT NULL");
+      db.exec("ALTER TABLE pending_interaction ADD COLUMN telegram_message_id INTEGER NULL");
+      db.exec(
+        `
+          UPDATE pending_interaction
+          SET
+            telegram_chat_id = chat_id,
+            telegram_message_id = message_id
+        `
+      );
+    } finally {
+      db.close();
+    }
+
+    const reopened = await BridgeStateStore.open(paths, testLogger);
+    try {
+      const rawDb = new DatabaseSync(paths.dbPath);
+      try {
+        const runtimeNoticeColumns = rawDb.prepare("PRAGMA table_info(runtime_notice)").all() as Array<{ name: string }>;
+        const terminalResultColumns = rawDb.prepare("PRAGMA table_info(final_answer_view)").all() as Array<{ name: string }>;
+        const currentCardColumns = rawDb.prepare("PRAGMA table_info(current_session_card)").all() as Array<{ name: string }>;
+        const pendingColumns = rawDb.prepare("PRAGMA table_info(pending_interaction)").all() as Array<{ name: string }>;
+
+        assert.equal(runtimeNoticeColumns.some((column) => column.name === "telegram_chat_id"), false);
+        assert.equal(terminalResultColumns.some((column) => column.name === "telegram_chat_id"), false);
+        assert.equal(terminalResultColumns.some((column) => column.name === "telegram_message_id"), false);
+        assert.equal(currentCardColumns.some((column) => column.name === "telegram_chat_id"), false);
+        assert.equal(currentCardColumns.some((column) => column.name === "telegram_message_id"), false);
+        assert.equal(pendingColumns.some((column) => column.name === "telegram_chat_id"), false);
+        assert.equal(pendingColumns.some((column) => column.name === "telegram_message_id"), false);
+      } finally {
+        rawDb.close();
+      }
+
+      assert.equal(reopened.listRuntimeNotices("chat-mirror-cleanup")[0]?.chatId, "chat-mirror-cleanup");
+      assert.equal(reopened.getCurrentSessionCard("chat-mirror-cleanup")?.messageId, 77);
+      assert.equal(reopened.getTerminalResultView("answer-mirror-cleanup", "chat-mirror-cleanup")?.deliveryMessageId, 88);
+      assert.equal(
+        reopened.getPendingInteraction("interaction-mirror-cleanup", "chat-mirror-cleanup")?.messageId,
+        99
+      );
+    } finally {
+      reopened.close();
+    }
   } finally {
     await cleanup();
   }

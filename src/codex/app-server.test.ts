@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import type { Logger } from "../logger.js";
+import { TELEGRAM_PACK } from "../packs/telegram/index.js";
 import { CodexAppServerClient, buildThreadStartParams, buildTurnStartParams } from "./app-server.js";
 
 const testLogger: Logger = {
@@ -11,13 +12,16 @@ const testLogger: Logger = {
 };
 
 test("buildThreadStartParams requests full-access sandbox", () => {
-  assert.deepEqual(buildThreadStartParams({ cwd: "/tmp/project" }), {
+  assert.deepEqual(buildThreadStartParams({
+    cwd: "/tmp/project",
+    dynamicTools: TELEGRAM_PACK.platformActions.getDynamicToolDeclarations()
+  }), {
     cwd: "/tmp/project",
     approvalPolicy: "never",
     sandbox: "danger-full-access",
     dynamicTools: [{
       name: "send_telegram_document",
-      description: "Send a local server file to the current Telegram chat as a document attachment.",
+      description: "Send a local server file to the active control surface as a document attachment.",
       inputSchema: {
         type: "object",
         properties: {
