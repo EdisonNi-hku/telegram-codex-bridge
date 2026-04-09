@@ -262,6 +262,9 @@ export const FEISHU_PACK: BridgePackDefinition<FeishuPackConfig> = {
     ownsRichInput: false,
     ownsMediaIngress: false
   },
+  presentation: {
+    preferBridgeCommandButtons: true
+  },
   egress: {
     kind: "bot_api",
     syncControlSurface: async () => {}

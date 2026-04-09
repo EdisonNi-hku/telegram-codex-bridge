@@ -2,6 +2,7 @@ import type {
   NormalizedInteraction,
 } from "../../interactions/normalize.js";
 import type { PersistedInteractionRecord } from "../domain/records.js";
+import type { BridgeCommandActionView } from "../interaction-model/bridge-actions.js";
 import type { InteractionCardView } from "../interaction-model/interaction.js";
 import {
   buildAnsweredInteractionDetails,
@@ -20,9 +21,11 @@ export function createInteractionCardView(
   options?: {
     answeredExpanded?: boolean;
     hubHint?: string | null;
+    bridgeActions?: BridgeCommandActionView[];
   }
 ): InteractionCardView {
   const hubHint = options?.hubHint ?? null;
+  const bridgeActions = options?.bridgeActions ?? [];
 
   if (row.state === "answered") {
     const details = buildAnsweredInteractionDetails(row.responseJson, interaction);
@@ -35,7 +38,8 @@ export function createInteractionCardView(
       expandable: details.length > 0,
       expanded: options?.answeredExpanded ?? false,
       interactionId: row.interactionId,
-      hubHint
+      hubHint,
+      ...(bridgeActions.length > 0 ? { bridgeActions } : {})
     };
   }
 
@@ -48,7 +52,8 @@ export function createInteractionCardView(
       details: [],
       expandable: false,
       expanded: false,
-      ...(hubHint ? { hubHint } : {})
+      ...(hubHint ? { hubHint } : {}),
+      ...(bridgeActions.length > 0 ? { bridgeActions } : {})
     };
   }
 
@@ -83,6 +88,7 @@ export function createInteractionCardView(
         body: interaction.body,
         detail: interaction.detail,
         hubHint,
+        ...(bridgeActions.length > 0 ? { bridgeActions } : {}),
         actions: buildApprovalActions(interaction)
       };
     case "permissions":
@@ -94,6 +100,7 @@ export function createInteractionCardView(
         body: summarizePermissions(interaction.requestedPermissions),
         detail: interaction.detail,
         hubHint,
+        ...(bridgeActions.length > 0 ? { bridgeActions } : {}),
         actions: [
           { text: "批准本次权限", decisionKey: "accept" },
           { text: "本会话内总是批准", decisionKey: "acceptForSession" },
@@ -109,6 +116,7 @@ export function createInteractionCardView(
         body: interaction.message,
         detail: interaction.detail,
         hubHint,
+        ...(bridgeActions.length > 0 ? { bridgeActions } : {}),
         actions: [
           { text: "接受", decisionKey: "accept" },
           { text: "拒绝", decisionKey: "decline" }
@@ -144,10 +152,11 @@ export function createInteractionCardView(
           description: option.description
         })) ?? null,
         isOther: currentQuestion.isOther,
-        isSecret: currentQuestion.isSecret,
-        awaitingText: row.state === "awaiting_text",
-        hubHint
-      };
+          isSecret: currentQuestion.isSecret,
+          awaitingText: row.state === "awaiting_text",
+          hubHint,
+          ...(bridgeActions.length > 0 ? { bridgeActions } : {})
+        };
     }
   }
 }

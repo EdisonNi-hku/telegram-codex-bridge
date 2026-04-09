@@ -1,4 +1,5 @@
 import type { BridgeConfig } from "../config.js";
+import type { BridgeCommandActionView } from "../core/interaction-model/bridge-actions.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import { buildProjectPicker, refreshProjectPicker, validateManualProjectPath } from "../project/discovery.js";
@@ -26,7 +27,8 @@ import {
   buildSessionSwitchedText,
   buildStatusText,
   buildUnarchiveSuccessText,
-  buildWhereText
+  buildWhereText,
+  buildBridgeCommandReplyMarkup
 } from "../telegram/ui.js";
 import type {
   ProjectPickerResult,
@@ -58,6 +60,7 @@ interface SessionProjectCoordinatorDeps {
   logger: Pick<Logger, "warn">;
   paths: Pick<BridgePaths, "homeDir">;
   config: Pick<BridgeConfig, "projectScanRoots">;
+  preferBridgeCommandButtons: boolean;
   getStore: () => BridgeStateStore | null;
   getSnapshot: () => ReadinessSnapshot | null;
   ensureAppServerAvailable: () => Promise<SessionProjectArchiveAppServer>;
@@ -120,6 +123,14 @@ export class SessionProjectCoordinator {
   private readonly renameSurfaceMessageIds = new Map<string, number>();
 
   constructor(private readonly deps: SessionProjectCoordinatorDeps) {}
+
+  private buildBridgeCommandActionsReplyMarkup(actions: BridgeCommandActionView[]): TelegramInlineKeyboardMarkup | undefined {
+    if (!this.deps.preferBridgeCommandButtons || actions.length === 0) {
+      return undefined;
+    }
+
+    return buildBridgeCommandReplyMarkup(actions, "zh", { chunkSize: 2 });
+  }
 
   async handleNew(chatId: string): Promise<void> {
     const store = this.deps.getStore();
@@ -299,7 +310,8 @@ export class SessionProjectCoordinator {
     if (!candidate) {
       await this.deps.safeSendMessage(
         chatId,
-        "这个目录不可用，请重新发送目录路径。\n也可以发送 /cancel 返回项目列表。"
+        "这个目录不可用，请重新发送目录路径。\n也可以发送 /cancel 返回项目列表。",
+        this.buildBridgeCommandActionsReplyMarkup([{ command: "cancel" }])
       );
       return;
     }
@@ -1003,12 +1015,13 @@ export class SessionProjectCoordinator {
   }
 
   private async editOrSendRenamePrompt(chatId: string, messageId: number, promptText: string): Promise<number> {
-    const result = await this.deps.safeEditMessageText(chatId, messageId, promptText);
+    const replyMarkup = this.buildBridgeCommandActionsReplyMarkup([{ command: "cancel" }]);
+    const result = await this.deps.safeEditMessageText(chatId, messageId, promptText, replyMarkup);
     if (isTelegramEditCommitted(result)) {
       return messageId;
     }
 
-    const sent = await this.deps.safeSendMessageResult(chatId, promptText);
+    const sent = await this.deps.safeSendMessageResult(chatId, promptText, replyMarkup);
     if (sent) {
       await this.cleanupSupersededInteractiveMessage(chatId, messageId, sent.message_id);
       return sent.message_id;

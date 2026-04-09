@@ -140,6 +140,9 @@ export const TELEGRAM_PACK: BridgePackDefinition<TelegramPackConfig> = {
     ownsRichInput: true,
     ownsMediaIngress: true
   },
+  presentation: {
+    preferBridgeCommandButtons: false
+  },
   egress: {
     kind: "bot_api",
     syncControlSurface: async ({ config }) => {

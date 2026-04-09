@@ -720,6 +720,24 @@ test("buildRuntimeHubReplyMarkup renders a fixed five-slot selector row without 
   assert.doesNotMatch(buttonLabels, /查看详情|中断操作|Session Alpha|Project One/u);
 });
 
+test("buildRuntimeHubReplyMarkup can render shared bridge command actions", () => {
+  const replyMarkup = buildRuntimeHubReplyMarkup({
+    token: "hubtoken",
+    callbackVersion: 2,
+    slotSessionIds: ["session-1", null, null, null, null],
+    focusedSessionId: "session-1",
+    bridgeActions: [
+      { command: "status" },
+      { command: "inspect" },
+      { command: "interrupt" },
+      { command: "commands" }
+    ]
+  });
+
+  assert.deepEqual(replyMarkup.inline_keyboard[1]?.map((button) => button.text), ["状态", "详情"]);
+  assert.deepEqual(replyMarkup.inline_keyboard[2]?.map((button) => button.text), ["中断操作", "命令"]);
+});
+
 test("buildRuntimeStatusCard renders expanded running agents inline", () => {
   const text = buildRuntimeStatusCard({
     language: "en",
@@ -1666,6 +1684,20 @@ test("interaction card builders can append a /hub hint", () => {
   assert.match(approval.text, /如需查看或刷新 Hub，可发送 \/hub。/u);
   assert.match(questionnaire.text, /如需查看或刷新 Hub，可发送 \/hub。/u);
   assert.match(resolved.text, /如需查看或刷新 Hub，可发送 \/hub。/u);
+});
+
+test("interaction card builders can append shared bridge action buttons", () => {
+  const approval = buildInteractionApprovalCard({
+    interactionId: "ix-hint-approval",
+    title: "Codex 需要命令批准",
+    subtitle: "命令审批",
+    body: "pnpm test",
+    detail: null,
+    actions: [{ text: "批准", decisionKey: "accept" }],
+    bridgeActions: [{ command: "hub" }]
+  });
+
+  assert.equal(approval.replyMarkup.inline_keyboard.at(-1)?.[0]?.text, "运行卡");
 });
 
 test("buildInspectText includes pending interaction summaries when present", () => {

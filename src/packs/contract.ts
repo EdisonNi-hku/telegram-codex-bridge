@@ -42,6 +42,9 @@ export interface BridgePackDefinition<PackConfig = unknown> {
     ownsRichInput: boolean;
     ownsMediaIngress: boolean;
   };
+  presentation: {
+    preferBridgeCommandButtons: boolean;
+  };
   egress: {
     kind: "bot_api" | "open_api";
     syncControlSurface(options: {

@@ -41,6 +41,7 @@ import {
   dispatchControlSurfaceFileAction,
   dispatchControlSurfaceImageAction
 } from "./core/interaction-model/platform-actions.js";
+import type { BridgeCommandActionView } from "./core/interaction-model/bridge-actions.js";
 import {
   createPlatformChatRef,
   isSamePlatformChatRef
@@ -74,6 +75,7 @@ import type { BridgeDynamicToolDeclaration, ServerRequestSupport } from "./codex
 import type { JsonRpcServerRequest, UserInput } from "./codex/app-server.js";
 import { parseAgentMessagePhase } from "./codex/protocol-truth.js";
 import {
+  buildBridgeCommandReplyMarkup,
   buildCommandPanelEditMessage,
   buildCommandPanelMessage,
   buildHelpReplyMarkup,
@@ -238,6 +240,7 @@ export class BridgeService {
   private appServerHealthGuard: AppServerHealthGuardLike | null = null;
   private readonly unauthorizedReplyAt = new Map<string, number>();
   private readonly commandPanelDrafts = new Map<string, CommandPanelDraftState>();
+  private readonly preferBridgeCommandButtons: boolean;
   private stopping = false;
 
   constructor(
@@ -247,6 +250,7 @@ export class BridgeService {
   ) {
     const activePack = getActiveBridgePack(this.config);
     const platformCapabilities = activePack.capabilities;
+    this.preferBridgeCommandButtons = activePack.presentation.preferBridgeCommandButtons;
     this.logger = createLogger("bridge", paths.bridgeLogPath);
     this.bootstrapLogger = createLogger("bootstrap", paths.bootstrapLogPath);
     this.runtimeCardTraceLoggers = {
@@ -281,6 +285,7 @@ export class BridgeService {
       getStore: () => this.store,
       getAppServer: () => this.appServer,
       logger: this.logger,
+      preferBridgeCommandButtons: this.preferBridgeCommandButtons,
       safeSendMessage: async (chatId, text) => this.safeSendMessage(chatId, text),
       safeSendHtmlMessageResult: async (chatId, html, replyMarkup) => this.safeSendHtmlMessageResult(chatId, html, replyMarkup),
       safeEditHtmlMessageText: async (chatId, messageId, html, replyMarkup) => this.safeEditHtmlMessageText(chatId, messageId, html, replyMarkup),
@@ -306,6 +311,7 @@ export class BridgeService {
       },
       paths: { homeDir: this.paths.homeDir },
       config: { projectScanRoots: this.config.projectScanRoots },
+      preferBridgeCommandButtons: this.preferBridgeCommandButtons,
       getStore: () => this.store,
       getSnapshot: () => this.snapshot,
       ensureAppServerAvailable: async () => this.requireAppServer(),
@@ -350,6 +356,7 @@ export class BridgeService {
     this.runtimeSurfaceController = new RuntimeSurfaceController({
       logger: this.logger,
       getStore: () => this.store,
+      preferBridgeCommandButtons: this.preferBridgeCommandButtons,
       listActiveTurns: () => this.listActiveTurns() as never,
       getActiveInspectActivity: (sessionId) => this.turnCoordinator.getActiveInspectActivity(sessionId) as never,
       getRecentActivity: (sessionId) => this.turnCoordinator.getRecentActivity(sessionId) as never,
@@ -468,6 +475,7 @@ export class BridgeService {
     });
     this.richInputAdapter = new RichInputAdapter({
       getStore: () => this.store,
+      preferBridgeCommandButtons: this.preferBridgeCommandButtons,
       getApi: () => this.api,
       ensureAppServerAvailable: async () => this.requireAppServer(),
       fetchAllModels: async () => this.fetchAllModels(),
@@ -483,6 +491,7 @@ export class BridgeService {
       paths: {
         cacheDir: this.paths.cacheDir
       },
+      getUiLanguage: () => this.getUiLanguage(),
       isStopping: () => this.stopping,
       sleep: async (delayMs) => this.sleep(delayMs),
       getBlockedTurnSteerAvailability: (chatId, session) => {
@@ -538,6 +547,21 @@ export class BridgeService {
 
   private get activePackLabel(): string {
     return this.config.activePack === "feishu" ? "飞书" : "Telegram";
+  }
+
+  private buildBridgeCommandActionsReplyMarkup(actions: BridgeCommandActionView[]): TelegramInlineKeyboardMarkup | undefined {
+    if (!this.preferBridgeCommandButtons || actions.length === 0) {
+      return undefined;
+    }
+
+    return buildBridgeCommandReplyMarkup(actions, this.getUiLanguage(), { chunkSize: 2 });
+  }
+
+  private buildBusyTurnReplyMarkup(includeHub = false): TelegramInlineKeyboardMarkup | undefined {
+    return this.buildBridgeCommandActionsReplyMarkup([
+      { command: "interrupt", style: "primary" },
+      ...(includeHub ? [{ command: "hub" as const }] : [])
+    ]);
   }
 
   /** Ensure app-server is available and return it, or throw. */
@@ -1976,74 +2000,17 @@ export class BridgeService {
 
   private async handleResultSendActionCallback(
     callbackQueryId: string,
-    chatId: string,
-    messageId: number,
-    answerId: string,
+    _chatId: string,
+    _messageId: number,
+    _answerId: string,
     kind: "file" | "image"
   ): Promise<void> {
-    if (!this.store) {
-      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
-      return;
-    }
-
-    const view = this.resolveTerminalResultActionView(chatId, messageId, answerId);
-    if (!view) {
-      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
-      return;
-    }
-
-    const session = this.store.getSessionById(view.sessionId);
-    if (
-      !session
-      || !isSamePlatformChatRef(createPlatformChatRef(session.chatId), createPlatformChatRef(chatId))
-    ) {
-      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
-      return;
-    }
-
-    if (session.status === "running" || this.getActiveTurnForSession(session.sessionId)) {
-      await this.safeAnswerCallbackQuery(callbackQueryId, "当前项目仍在执行，请等待完成或发送 /interrupt。");
-      return;
-    }
-
-    const capacity = this.turnCoordinator.getRunningTurnCapacity(chatId);
-    if (!capacity.allowed) {
-      await this.safeAnswerCallbackQuery(
-        callbackQueryId,
-        `当前最多只能并行运行 ${capacity.limit} 个会话，请先等待完成或停止部分任务。`
-      );
-      return;
-    }
-
-    this.store.setActiveSession(chatId, session.sessionId);
-    try {
-      await this.currentSessionCardController.syncForChat(chatId, "session_switched");
-    } catch {
-      // Ignore command-panel follow-up card sync errors.
-    }
-
-    try {
-      await this.startRealTurn(chatId, this.store.getSessionById(session.sessionId) ?? session, this.buildResultSendPrompt(kind));
-    } catch {
-      await this.safeAnswerCallbackQuery(
-        callbackQueryId,
-        kind === "image" ? "当前无法开始尝试发送图片，请稍后重试。" : "当前无法开始尝试发送文件，请稍后重试。"
-      );
-      return;
-    }
-
     await this.safeAnswerCallbackQuery(
       callbackQueryId,
-      kind === "image" ? "已开始尝试发送图片。" : "已开始尝试发送文件。"
+      kind === "image"
+        ? "这个入口已下线。请直接告诉 Codex 发送图片。"
+        : "这个入口已下线。请直接告诉 Codex 发送文件。"
     );
-  }
-
-  private buildResultSendPrompt(kind: "file" | "image"): string {
-    if (kind === "image") {
-      return "Please send the most relevant image from your last result to the active chat using the available control-surface image sending tool. If there is no suitable image to send, reply briefly that there is no image to send.";
-    }
-
-    return "Please send the most relevant file from your last result to the active chat using the available control-surface file sending tool. If there is no suitable file to send, reply briefly that there is no file to send.";
   }
 
   private async runGuardedCommand(
@@ -2154,7 +2121,8 @@ export class BridgeService {
         chatId,
         reminder
           ? `当前项目仍在执行，请等待完成或发送 /interrupt。${reminder}`
-          : "当前项目仍在执行，请等待完成或发送 /interrupt。"
+          : "当前项目仍在执行，请等待完成或发送 /interrupt。",
+        this.buildBusyTurnReplyMarkup(Boolean(reminder))
       );
       return;
     }

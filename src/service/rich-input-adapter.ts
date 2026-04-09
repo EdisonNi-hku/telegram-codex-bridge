@@ -4,12 +4,14 @@ import { basename, extname, join, resolve } from "node:path";
 
 import type { CodexAppServerClient, UserInput } from "../codex/app-server.js";
 import type { BridgeConfig } from "../config.js";
+import type { BridgeCommandActionView } from "../core/interaction-model/bridge-actions.js";
 import type { InboundUserMediaEvent, ResolvedMediaAsset } from "../core/interaction-model/media.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import { commandExists, runCommand } from "../process.js";
 import type { BridgeStateStore } from "../state/store.js";
-import type { TelegramApi, TelegramMessage } from "../telegram/api.js";
+import type { TelegramApi, TelegramInlineKeyboardMarkup, TelegramMessage } from "../telegram/api.js";
+import { buildBridgeCommandReplyMarkup } from "../telegram/ui.js";
 import type { SessionRow } from "../types.js";
 import { normalizeAndTruncate, normalizeWhitespace, splitStructuredInputCommand, truncateText } from "../util/text.js";
 import { asRecord, getArray, getString } from "../util/untyped.js";
@@ -83,6 +85,7 @@ export type RichInputTurnAvailability =
 
 interface RichInputAdapterDeps {
   getStore: () => BridgeStateStore | null;
+  preferBridgeCommandButtons: boolean;
   getApi: () => Pick<TelegramApi, "getFile" | "downloadFile"> | null;
   ensureAppServerAvailable: () => Promise<CodexAppServerClient>;
   fetchAllModels: () => Promise<NonNullable<Awaited<ReturnType<CodexAppServerClient["listModels"]>>["data"]>>;
@@ -97,6 +100,7 @@ interface RichInputAdapterDeps {
     "voiceInputEnabled" | "voiceOpenaiApiKey" | "voiceOpenaiTranscribeModel" | "voiceFfmpegBin"
   >;
   paths: Pick<BridgePaths, "cacheDir">;
+  getUiLanguage: () => "zh" | "en";
   isStopping: () => boolean;
   sleep: (delayMs: number) => Promise<void>;
   getBlockedTurnSteerAvailability: (chatId: string, session: SessionRow) => RichInputTurnAvailability;
@@ -112,7 +116,7 @@ interface RichInputAdapterDeps {
     }
   ) => Promise<void>;
   startStructuredTurn: (chatId: string, session: SessionRow, input: UserInput[]) => Promise<void>;
-  safeSendMessage: (chatId: string, text: string) => Promise<boolean>;
+  safeSendMessage: (chatId: string, text: string, replyMarkup?: TelegramInlineKeyboardMarkup) => Promise<boolean>;
 }
 
 export class RichInputAdapter {
@@ -125,6 +129,25 @@ export class RichInputAdapter {
   private realtimeVoiceModelId: string | null | undefined = undefined;
 
   constructor(private readonly deps: RichInputAdapterDeps) {}
+
+  private buildBridgeCommandActionsReplyMarkup(actions: BridgeCommandActionView[]): TelegramInlineKeyboardMarkup | undefined {
+    if (!this.deps.preferBridgeCommandButtons || actions.length === 0) {
+      return undefined;
+    }
+
+    return buildBridgeCommandReplyMarkup(actions, this.deps.getUiLanguage(), { chunkSize: 2 });
+  }
+
+  private buildCancelReplyMarkup(): TelegramInlineKeyboardMarkup | undefined {
+    return this.buildBridgeCommandActionsReplyMarkup([{ command: "cancel" }]);
+  }
+
+  private buildBusyTurnReplyMarkup(includeHub = false): TelegramInlineKeyboardMarkup | undefined {
+    return this.buildBridgeCommandActionsReplyMarkup([
+      { command: "interrupt", style: "primary" },
+      ...(includeHub ? [{ command: "hub" as const }] : [])
+    ]);
+  }
 
   resetRuntimeCaches(): void {
     this.realtimeVoiceModelId = undefined;
@@ -452,7 +475,7 @@ export class RichInputAdapter {
         return;
       }
 
-      await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。");
+      await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。", this.buildBusyTurnReplyMarkup());
       return;
     }
 
@@ -461,7 +484,11 @@ export class RichInputAdapter {
       inputs,
       promptLabel
     });
-    await this.deps.safeSendMessage(chatId, `已记录${promptLabel}，请继续发送任务说明，或发送 /cancel 取消。`);
+    await this.deps.safeSendMessage(
+      chatId,
+      `已记录${promptLabel}，请继续发送任务说明，或发送 /cancel 取消。`,
+      this.buildCancelReplyMarkup()
+    );
   }
 
   private enqueueVoiceProcessingTask(task: VoiceProcessingTask): void {
@@ -583,7 +610,7 @@ export class RichInputAdapter {
         return;
       }
 
-      await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。");
+      await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。", this.buildBusyTurnReplyMarkup());
       return;
     }
 
@@ -623,7 +650,7 @@ export class RichInputAdapter {
         return;
       }
 
-      await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。");
+      await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。", this.buildBusyTurnReplyMarkup());
       return;
     }
 
@@ -660,7 +687,7 @@ export class RichInputAdapter {
         return;
       }
 
-      await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。");
+      await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。", this.buildBusyTurnReplyMarkup());
       return;
     }
 
@@ -943,8 +970,9 @@ export class RichInputAdapter {
     await this.deps.safeSendMessage(
       chatId,
       registered.length === 1
-        ? `已接收文件附件：\n${summary}\n下一条消息会自动带上最近附件；也可用 /attach <附件ID> :: 任务说明。`
-        : `已接收 ${registered.length} 个文件附件：\n${summary}\n下一条消息会自动带上最近附件；也可用 /attach <附件ID> :: 任务说明。`
+        ? `已接收文件附件：\n${summary}\n下一条消息会自动带上最近附件；也可用 /attach <附件ID> :: 任务说明；发送 /cancel 可取消。`
+        : `已接收 ${registered.length} 个文件附件：\n${summary}\n下一条消息会自动带上最近附件；也可用 /attach <附件ID> :: 任务说明；发送 /cancel 可取消。`,
+      this.buildCancelReplyMarkup()
     );
   }
 

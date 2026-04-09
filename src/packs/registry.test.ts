@@ -10,6 +10,7 @@ test("telegram pack exposes the phase 3 pack contract surface", () => {
   assert.equal(pack.ingress.ownsCallbacks, true);
   assert.equal(pack.ingress.ownsRichInput, true);
   assert.equal(pack.ingress.ownsMediaIngress, true);
+  assert.equal(pack.presentation.preferBridgeCommandButtons, false);
   assert.equal(pack.egress.kind, "bot_api");
   assert.equal(pack.capabilities.supportsUploads, true);
   assert.equal(pack.capabilities.canReceiveFile, true);
@@ -63,6 +64,7 @@ test("feishu pack exposes the phase 4 pack contract surface", () => {
   assert.equal(pack.ingress.ownsCallbacks, true);
   assert.equal(pack.ingress.ownsRichInput, false);
   assert.equal(pack.ingress.ownsMediaIngress, false);
+  assert.equal(pack.presentation.preferBridgeCommandButtons, true);
   assert.equal(pack.egress.kind, "bot_api");
   assert.equal(pack.capabilities.supportsUploads, true);
   assert.equal(pack.capabilities.canReceiveImage, true);

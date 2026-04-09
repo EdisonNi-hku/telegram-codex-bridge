@@ -34,8 +34,7 @@ import {
   buildCollapsibleFinalAnswerView,
   buildFinalAnswerReplyMarkup,
   buildPlanResultActionRows,
-  buildPlanResultReplyMarkup,
-  buildTerminalResultSendActionRows
+  buildPlanResultReplyMarkup
 } from "../telegram/ui-final-answer.js";
 import { executeTelegramHtmlSurfaceOperation } from "../telegram/surface-adapter.js";
 import type {
@@ -1188,8 +1187,7 @@ export class TurnCoordinator {
     }
 
     return buildFinalAnswerReplyMarkup({
-      ...controls,
-      extraRows: buildTerminalResultSendActionRows(saved.answerId)
+      ...controls
     });
   }
 
@@ -1210,10 +1208,7 @@ export class TurnCoordinator {
       parseMode: "HTML",
       replyMarkup: saved.kind === "plan_result"
         ? buildPlanResultReplyMarkup(renderedNotice.controls)
-        : buildFinalAnswerReplyMarkup({
-          ...renderedNotice.controls,
-          extraRows: buildTerminalResultSendActionRows(saved.answerId)
-        }),
+        : buildFinalAnswerReplyMarkup(renderedNotice.controls),
       sessionId: activeTurn.sessionId,
       turnId: activeTurn.turnId
     });
@@ -1223,10 +1218,7 @@ export class TurnCoordinator {
       html: renderedNotice.html,
       replyMarkup: saved.kind === "plan_result"
         ? buildPlanResultReplyMarkup(renderedNotice.controls)
-        : buildFinalAnswerReplyMarkup({
-          ...renderedNotice.controls,
-          extraRows: buildTerminalResultSendActionRows(saved.answerId)
-        }),
+        : buildFinalAnswerReplyMarkup(renderedNotice.controls),
       requirements: {
         requiresCallbacks: true,
         requiresRichTextPreview: true

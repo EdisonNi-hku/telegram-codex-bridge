@@ -121,7 +121,7 @@ async function createAdapterContext(options: {
   ]);
 
   const store = await BridgeStateStore.open(paths, testLogger);
-  const sentMessages: string[] = [];
+  const sentMessages: Array<{ text: string; replyMarkup?: unknown }> = [];
   const startTextTurns: Array<{ chatId: string; sessionId: string; text: string; transcript?: string }> = [];
   const startStructuredTurns: Array<{ chatId: string; sessionId: string; input: unknown[] }> = [];
   const pendingInteractionNotices: string[] = [];
@@ -129,6 +129,7 @@ async function createAdapterContext(options: {
 
   const adapter = new RichInputAdapter({
     getStore: () => store,
+    preferBridgeCommandButtons: (options.config ?? testConfig).activePack === "feishu",
     getApi: () => options.api as never,
     ensureAppServerAvailable: async () => ({
       steerTurn: async () => {},
@@ -159,6 +160,7 @@ async function createAdapterContext(options: {
     paths: {
       cacheDir: paths.cacheDir
     },
+    getUiLanguage: () => "zh",
     isStopping: () => false,
     sleep: async () => {},
     getBlockedTurnSteerAvailability: () =>
@@ -187,8 +189,8 @@ async function createAdapterContext(options: {
         input
       });
     },
-    safeSendMessage: async (_chatId, text) => {
-      sentMessages.push(text);
+    safeSendMessage: async (_chatId, text, replyMarkup) => {
+      sentMessages.push({ text, replyMarkup });
       return true;
     }
   });
@@ -284,7 +286,7 @@ test("RichInputAdapter sends /attach as a structured mention turn for the stored
       }]
     });
 
-    assert.match(sentMessages[0] ?? "", /att-b3fc722f89/u);
+    assert.match(sentMessages[0]?.text ?? "", /att-b3fc722f89/u);
 
     await adapter.handleAttach("1", "att-b3fc722f89 :: 帮我查看");
 
@@ -412,7 +414,7 @@ test("RichInputAdapter voice processing stays in the background so later structu
 
     await adapter.handleMention("1", "Docs | app://docs/reference :: use this context");
 
-    assert.match(sentMessages[0] ?? "", /已收到语音，正在转写/u);
+    assert.match(sentMessages[0]?.text ?? "", /已收到语音，正在转写/u);
     assert.equal(startStructuredTurns.length, 1);
     assert.deepEqual(startStructuredTurns[0]?.input, [
       { type: "mention", name: "Docs", path: "app://docs/reference" },
@@ -456,12 +458,92 @@ test("RichInputAdapter receives files as attachments and still forwards accompan
       }]
     });
 
-    assert.match(sentMessages[0] ?? "", /已接收文件附件/u);
+    assert.match(sentMessages[0]?.text ?? "", /已接收文件附件/u);
+    assert.match(sentMessages[0]?.text ?? "", /发送 \/cancel 可取消/u);
+    assert.equal((sentMessages[0]?.replyMarkup as any)?.inline_keyboard?.[0]?.[0]?.text, undefined);
     assert.deepEqual(startTextTurns, [{
       chatId: "1",
       sessionId: session.sessionId,
       text: "summarize the attachment"
     }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RichInputAdapter shows a clickable cancel action for Feishu file receipts and queued images", async () => {
+  const feishuConfig: BridgeConfig = {
+    ...testConfig,
+    activePack: "feishu",
+    shared: {
+      ...testConfig.shared,
+      activePack: "feishu"
+    },
+    packs: {
+      ...testConfig.packs,
+      feishu: {
+        appId: "cli_test",
+        appSecret: "secret",
+        apiBaseUrl: "https://open.feishu.cn"
+      }
+    }
+  };
+  const { adapter, store, sentMessages, cleanup } = await createAdapterContext({
+    config: feishuConfig
+  });
+
+  try {
+    authorizeChatWithSession(store, "1");
+
+    await adapter.handleInboundMediaEvent("1", {
+      text: null,
+      media: [{
+        descriptor: {
+          kind: "file",
+          role: "user_input",
+          source: "platform_resource",
+          filename: "report.pdf",
+          platformRef: {
+            platform: "feishu",
+            conversationId: "oc_chat_1",
+            messageId: "om_file_1",
+            resourceId: "file_key_1",
+            resourceType: "file"
+          }
+        },
+        status: "resolved",
+        localPath: "/tmp/report.pdf",
+        sha256: "1234567890abcdef",
+        resolvedAt: "2026-04-09T00:00:00.000Z",
+        expiresAt: "2026-04-16T00:00:00.000Z"
+      }]
+    });
+    await adapter.handleInboundMediaEvent("1", {
+      text: null,
+      media: [{
+        descriptor: {
+          kind: "image",
+          role: "user_input",
+          source: "platform_resource",
+          filename: "diagram.png",
+          platformRef: {
+            platform: "feishu",
+            conversationId: "oc_chat_1",
+            messageId: "om_image_1",
+            resourceId: "image_key_1",
+            resourceType: "image"
+          }
+        },
+        status: "resolved",
+        localPath: "/tmp/diagram.png",
+        sha256: "fedcba0987654321",
+        resolvedAt: "2026-04-09T00:00:00.000Z",
+        expiresAt: "2026-04-16T00:00:00.000Z"
+      }]
+    });
+
+    assert.equal((sentMessages[0]?.replyMarkup as any)?.inline_keyboard?.[0]?.[0]?.text, "取消");
+    assert.equal((sentMessages[1]?.replyMarkup as any)?.inline_keyboard?.[0]?.[0]?.text, "取消");
   } finally {
     await cleanup();
   }

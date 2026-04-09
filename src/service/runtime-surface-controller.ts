@@ -28,7 +28,6 @@ import {
   buildFinalAnswerReplyMarkup,
   buildRecentOutputEntryHtml,
   buildRecentOutputReplyMarkup,
-  buildTerminalResultSendActionRows,
   buildInspectClosedMessage,
   buildInspectText,
   buildInspectViewMessage,
@@ -210,6 +209,7 @@ interface TurnHubAutoRefreshState {
 interface RuntimeSurfaceControllerDeps {
   logger: Logger;
   getStore: () => BridgeStateStore | null;
+  preferBridgeCommandButtons: boolean;
   listActiveTurns: () => RuntimeSurfaceActiveTurn[];
   getActiveInspectActivity: (sessionId: string) => InspectActivityEntry | null;
   getRecentActivity: (sessionId: string) => InspectActivityEntry | null;
@@ -1362,7 +1362,15 @@ export class RuntimeSurfaceController {
           planEntries: focused.planEntries,
           planExpanded: !options?.compactFocused && visibleState.planExpanded,
           agentEntries: focused.agentEntries,
-          agentsExpanded: !options?.compactFocused && visibleState.agentsExpanded
+          agentsExpanded: !options?.compactFocused && visibleState.agentsExpanded,
+          ...(this.deps.preferBridgeCommandButtons ? {
+            bridgeActions: [
+              { command: "status" as const },
+              { command: "inspect" as const },
+              { command: "interrupt" as const },
+              { command: "commands" as const }
+            ]
+          } : {})
         }),
         visibleState: this.cloneRuntimeHubVisibleState(visibleState)
       };
@@ -1507,7 +1515,15 @@ export class RuntimeSurfaceController {
           planEntries: [],
           planExpanded: false,
           agentEntries: [],
-          agentsExpanded: false
+          agentsExpanded: false,
+          ...(this.deps.preferBridgeCommandButtons ? {
+            bridgeActions: [
+              { command: "status" as const },
+              { command: "inspect" as const },
+              { command: "interrupt" as const },
+              { command: "commands" as const }
+            ]
+          } : {})
         }),
         visibleState
       };
@@ -3060,8 +3076,7 @@ export class RuntimeSurfaceController {
         buildFinalAnswerReplyMarkup({
           answerId,
           totalPages: view.pages.length,
-          expanded: false,
-          extraRows: buildTerminalResultSendActionRows(answerId)
+          expanded: false
         })
       );
       await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result, {
@@ -3084,14 +3099,13 @@ export class RuntimeSurfaceController {
       chatId,
       messageId,
       pageHtml,
-      buildFinalAnswerReplyMarkup({
-        answerId,
-        totalPages: view.pages.length,
-        expanded: true,
-        currentPage: page,
-        extraRows: buildTerminalResultSendActionRows(answerId)
-      })
-    );
+        buildFinalAnswerReplyMarkup({
+          answerId,
+          totalPages: view.pages.length,
+          expanded: true,
+          currentPage: page
+        })
+      );
     await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result, {
       chatId,
       sessionId: view.sessionId,
@@ -3197,10 +3211,7 @@ export class RuntimeSurfaceController {
         chatId,
         messageId,
         buildRecentOutputEntryHtml(entryView),
-        buildRecentOutputReplyMarkup({
-          ...createRecentOutputControlsView(view),
-          extraRows: buildTerminalResultSendActionRows(answerId)
-        })
+        buildRecentOutputReplyMarkup(createRecentOutputControlsView(view))
       );
       await this.finishBridgeOwnedCallbackRender(callbackQueryId, result);
       return;
@@ -3217,13 +3228,10 @@ export class RuntimeSurfaceController {
       chatId,
       messageId,
       view.kind === "plan_result" ? this.buildPlanResultHtml(pageHtml, view.primaryActionConsumed) : pageHtml,
-      buildRecentOutputReplyMarkup({
-        ...createRecentOutputControlsView(view, {
-          expanded: true,
-          currentPage: page
-        }),
-        extraRows: buildTerminalResultSendActionRows(answerId)
-      })
+      buildRecentOutputReplyMarkup(createRecentOutputControlsView(view, {
+        expanded: true,
+        currentPage: page
+      }))
     );
     await this.finishBridgeOwnedCallbackRender(callbackQueryId, result);
   }
@@ -3446,10 +3454,7 @@ export class RuntimeSurfaceController {
       chatId,
       buildRecentOutputEntryHtml(entryView),
       latestView
-        ? buildRecentOutputReplyMarkup({
-          ...createRecentOutputControlsView(latestView),
-          extraRows: buildTerminalResultSendActionRows(latestView.answerId)
-        })
+        ? buildRecentOutputReplyMarkup(createRecentOutputControlsView(latestView))
         : undefined
     );
     if (!sent) {

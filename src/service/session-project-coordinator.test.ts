@@ -68,6 +68,7 @@ async function createCoordinatorContext() {
     logger: { warn: async () => {} },
     paths: { homeDir: root },
     config: { projectScanRoots: [] },
+    preferBridgeCommandButtons: false,
     getStore: () => store,
     getSnapshot: () => null,
     ensureAppServerAvailable: async () => {
@@ -382,6 +383,7 @@ test("handleArchive keeps using the original store after remote archive mirrorin
       logger: { warn: async () => {} },
       paths: { homeDir: "/tmp" },
       config: { projectScanRoots: [] },
+      preferBridgeCommandButtons: false,
       getStore: () => {
         getStoreCalls += 1;
         return getStoreCalls === 1 ? store : null;

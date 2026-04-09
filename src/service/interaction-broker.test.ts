@@ -67,6 +67,7 @@ async function createBrokerContext(options: {
     getStore: () => store,
     getAppServer: () => options.appServer as never,
     logger: testLogger,
+    preferBridgeCommandButtons: false,
     safeSendMessage: async () => true,
     safeSendHtmlMessageResult: async (chatId, html) => {
       sentHtml.push({ chatId, html });

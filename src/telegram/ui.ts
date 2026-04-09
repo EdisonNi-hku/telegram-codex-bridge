@@ -1,4 +1,5 @@
 export * from "./ui-browser.js";
+export * from "./ui-bridge-actions.js";
 export * from "./ui-commands.js";
 export * from "./ui-callbacks.js";
 export * from "./ui-final-answer.js";

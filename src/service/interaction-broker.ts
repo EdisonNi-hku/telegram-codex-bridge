@@ -78,6 +78,7 @@ interface InteractionBrokerDeps {
   getStore: () => BridgeStateStore | null;
   getAppServer: () => InteractionBrokerAppServer | null;
   logger: Logger;
+  preferBridgeCommandButtons: boolean;
   safeSendMessage(chatId: string, text: string): Promise<boolean>;
   safeSendHtmlMessageResult(
     chatId: string,
@@ -482,7 +483,10 @@ export class InteractionBroker {
       return;
     }
 
-    const rendered = buildPendingInteractionSurface(row, interaction, { answeredExpanded: expanded });
+    const rendered = buildPendingInteractionSurface(row, interaction, {
+      answeredExpanded: expanded,
+      preferBridgeCommandButtons: this.deps.preferBridgeCommandButtons
+    });
     const result = await this.deps.safeEditHtmlMessageText(chatId, messageId, rendered.text, rendered.replyMarkup);
     if (isTelegramEditCommitted(result)) {
       await this.deps.safeAnswerCallbackQuery(callbackQueryId);
@@ -740,7 +744,9 @@ export class InteractionBroker {
       return;
     }
 
-    const rendered = buildPendingInteractionSurface(row, interaction);
+    const rendered = buildPendingInteractionSurface(row, interaction, {
+      preferBridgeCommandButtons: this.deps.preferBridgeCommandButtons
+    });
     const result = await executeTelegramHtmlSurfaceOperation({
       intent: "pending_interaction",
       chatId,
@@ -761,7 +767,9 @@ export class InteractionBroker {
     pending: PendingInteractionRow,
     interaction: NormalizedInteraction
   ): Promise<PlatformSurfaceOperationResult> {
-    const rendered = buildPendingInteractionSurface(pending, interaction);
+    const rendered = buildPendingInteractionSurface(pending, interaction, {
+      preferBridgeCommandButtons: this.deps.preferBridgeCommandButtons
+    });
     return await executeTelegramHtmlSurfaceOperation({
       intent: "pending_interaction",
       chatId,
@@ -917,6 +925,7 @@ function buildPendingInteractionSurface(
   interaction: NormalizedInteraction,
   options?: {
     answeredExpanded?: boolean;
+    preferBridgeCommandButtons?: boolean;
   }
 ): {
   text: string;
@@ -924,7 +933,8 @@ function buildPendingInteractionSurface(
 } {
   return renderInteractionCardView(createInteractionCardView(row, interaction, {
     ...(options?.answeredExpanded !== undefined ? { answeredExpanded: options.answeredExpanded } : {}),
-    hubHint: INTERACTION_HUB_HINT
+    hubHint: INTERACTION_HUB_HINT,
+    ...(options?.preferBridgeCommandButtons ? { bridgeActions: [{ command: "hub" as const }] } : {})
   }));
 }
 

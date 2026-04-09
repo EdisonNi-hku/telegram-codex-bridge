@@ -66,6 +66,7 @@ import {
   formatHtmlHeading,
   formatRelativeTime
 } from "./ui-shared.js";
+import { buildBridgeCommandActionRows } from "./ui-bridge-actions.js";
 
 export type {
   InteractionApprovalCardView,
@@ -668,6 +669,7 @@ export function buildRuntimeHubReplyMarkup(options: {
   planExpanded?: boolean;
   agentEntries?: CollabAgentStateSnapshot[];
   agentsExpanded?: boolean;
+  bridgeActions?: Array<{ command: "cancel" | "hub" | "status" | "inspect" | "interrupt" | "commands"; style?: "default" | "primary" }>;
 }): TelegramInlineKeyboardMarkup {
   const language = options.language ?? "zh";
   const rows: TelegramInlineKeyboardMarkup["inline_keyboard"] = [];
@@ -709,7 +711,16 @@ export function buildRuntimeHubReplyMarkup(options: {
     }
   }
 
-  appendHubSecondaryButtons(rows, options.focusedSessionId, options.planEntries, options.planExpanded, options.agentEntries, options.agentsExpanded, language);
+  appendHubSecondaryButtons(
+    rows,
+    options.focusedSessionId,
+    options.planEntries,
+    options.planExpanded,
+    options.agentEntries,
+    options.agentsExpanded,
+    language,
+    options.bridgeActions
+  );
 
   return { inline_keyboard: rows };
 }
@@ -721,7 +732,8 @@ function appendHubSecondaryButtons(
   planExpanded: boolean | undefined,
   agentEntries: CollabAgentStateSnapshot[] | undefined,
   agentsExpanded: boolean | undefined,
-  language: UiLanguage
+  language: UiLanguage,
+  bridgeActions?: Array<{ command: "cancel" | "hub" | "status" | "inspect" | "interrupt" | "commands"; style?: "default" | "primary" }>
 ): void {
   const buttons: TelegramInlineKeyboardMarkup["inline_keyboard"][number] = [];
 
@@ -749,6 +761,11 @@ function appendHubSecondaryButtons(
 
   if (buttons.length > 0) {
     rows.push(buttons);
+  }
+
+  if (bridgeActions && bridgeActions.length > 0) {
+    rows.push(...buildBridgeCommandActionRows(bridgeActions, language, { chunkSize: 2 }));
+    return;
   }
 
   rows.push([{
@@ -1064,10 +1081,26 @@ function appendInteractionHubHint(lines: string[], hubHint?: string | null): voi
   lines.push("", escapeHtml(hubHint));
 }
 
+function appendBridgeActionRows(
+  rows: TelegramInlineKeyboardMarkup["inline_keyboard"],
+  actions: readonly { command: "cancel" | "hub" | "status" | "inspect" | "interrupt" | "commands"; style?: "default" | "primary" }[] | undefined,
+  language: UiLanguage,
+  options?: {
+    chunkSize?: number;
+  }
+): void {
+  if (!actions || actions.length === 0) {
+    return;
+  }
+
+  rows.push(...buildBridgeCommandActionRows(actions, language, options));
+}
+
 export function buildInteractionApprovalCard(options: InteractionApprovalCardRenderView): {
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
 } {
+  const language: UiLanguage = "zh";
   const lines = [formatHtmlHeading(options.title), formatHtmlField("类型：", options.subtitle)];
   if (options.body) {
     lines.push(formatHtmlField("内容：", options.body));
@@ -1085,10 +1118,14 @@ export function buildInteractionApprovalCard(options: InteractionApprovalCardRen
   return {
     text: lines.join("\n"),
     replyMarkup: {
-      inline_keyboard: [
+      inline_keyboard: (() => {
+        const rows: TelegramInlineKeyboardMarkup["inline_keyboard"] = [
         actionRow,
         [{ text: "取消本次交互", callback_data: encodeInteractionCancelCallback(options.interactionId) }]
-      ]
+        ];
+        appendBridgeActionRows(rows, options.bridgeActions, language, { chunkSize: 2 });
+        return rows;
+      })()
     }
   };
 }
@@ -1097,6 +1134,7 @@ export function buildInteractionQuestionCard(options: InteractionQuestionCardRen
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
 } {
+  const language: UiLanguage = "zh";
   const lines = [
     formatHtmlHeading(options.title),
     formatHtmlField("问题：", `${options.questionIndex}/${options.totalQuestions}`),
@@ -1114,7 +1152,13 @@ export function buildInteractionQuestionCard(options: InteractionQuestionCardRen
     return {
       text: lines.join("\n"),
       replyMarkup: {
-        inline_keyboard: [[{ text: "取消本次交互", callback_data: encodeInteractionCancelCallback(options.interactionId) }]]
+        inline_keyboard: (() => {
+          const rows: TelegramInlineKeyboardMarkup["inline_keyboard"] = [
+            [{ text: "取消本次交互", callback_data: encodeInteractionCancelCallback(options.interactionId) }]
+          ];
+          appendBridgeActionRows(rows, options.bridgeActions, language, { chunkSize: 2 });
+          return rows;
+        })()
       }
     };
   }
@@ -1125,10 +1169,14 @@ export function buildInteractionQuestionCard(options: InteractionQuestionCardRen
     return {
       text: lines.join("\n"),
       replyMarkup: {
-        inline_keyboard: [
+        inline_keyboard: (() => {
+          const rows: TelegramInlineKeyboardMarkup["inline_keyboard"] = [
           [{ text: "发送文字回答", callback_data: encodeInteractionTextCallback(options.interactionId, options.questionIndex - 1) }],
           [{ text: "取消本次交互", callback_data: encodeInteractionCancelCallback(options.interactionId) }]
-        ]
+          ];
+          appendBridgeActionRows(rows, options.bridgeActions, language, { chunkSize: 2 });
+          return rows;
+        })()
       }
     };
   }
@@ -1153,6 +1201,7 @@ export function buildInteractionQuestionCard(options: InteractionQuestionCardRen
   }
 
   rows.push([{ text: "取消本次交互", callback_data: encodeInteractionCancelCallback(options.interactionId) }]);
+  appendBridgeActionRows(rows, options.bridgeActions, language, { chunkSize: 2 });
   appendInteractionHubHint(lines, options.hubHint);
 
   return {
@@ -1165,6 +1214,7 @@ export function buildInteractionResolvedCard(options: InteractionResolvedCardRen
   text: string;
   replyMarkup?: TelegramInlineKeyboardMarkup;
 } {
+  const language: UiLanguage = "zh";
   const stateText = options.state === "answered"
     ? "已处理"
     : options.state === "canceled"
@@ -1186,18 +1236,26 @@ export function buildInteractionResolvedCard(options: InteractionResolvedCardRen
   appendInteractionHubHint(lines, options.hubHint);
 
   if (!options.expandable || !options.interactionId) {
-    return { text: lines.join("\n") };
+    const rows = buildBridgeCommandActionRows(options.bridgeActions ?? [], language, { chunkSize: 2 });
+    return rows.length > 0
+      ? {
+          text: lines.join("\n"),
+          replyMarkup: { inline_keyboard: rows }
+        }
+      : { text: lines.join("\n") };
   }
 
+  const rows: TelegramInlineKeyboardMarkup["inline_keyboard"] = [[{
+    text: options.expanded ? "收起已提交回答" : "查看已提交回答",
+    callback_data: options.expanded
+      ? encodeInteractionAnswerCollapseCallback(options.interactionId)
+      : encodeInteractionAnswerExpandCallback(options.interactionId)
+  }]];
+  appendBridgeActionRows(rows, options.bridgeActions, language, { chunkSize: 2 });
   return {
     text: lines.join("\n"),
     replyMarkup: {
-      inline_keyboard: [[{
-        text: options.expanded ? "收起已提交回答" : "查看已提交回答",
-        callback_data: options.expanded
-          ? encodeInteractionAnswerCollapseCallback(options.interactionId)
-          : encodeInteractionAnswerExpandCallback(options.interactionId)
-      }]]
+      inline_keyboard: rows
     }
   };
 }
