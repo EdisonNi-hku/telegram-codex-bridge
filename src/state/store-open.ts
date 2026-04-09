@@ -25,7 +25,7 @@ const LEGACY_RUNTIME_STATUS_FIELD_MIGRATIONS: ReadonlyMap<string, RuntimeStatusF
   ["thread_id", "session-id"]
 ]);
 const RUNTIME_STATUS_FIELD_V4_MIGRATION_CUTOFF = "2026-03-17T00:00:00.000Z";
-const CURRENT_SCHEMA_VERSION = 21;
+const CURRENT_SCHEMA_VERSION = 22;
 
 export function parseRuntimeStatusFields(fieldsJson: string): RuntimeStatusField[] {
   try {
@@ -217,6 +217,12 @@ function initialSchema(): string {
     CREATE TABLE IF NOT EXISTS bridge_settings (
       key TEXT PRIMARY KEY,
       ui_language TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS command_panel_preferences (
+      chat_id TEXT PRIMARY KEY,
+      commands_json TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
 
@@ -1518,6 +1524,20 @@ function applyMigrations(db: DatabaseSync): void {
     );
 
     recordMigration(db, 21);
+  }
+
+  if (!applied.has(22)) {
+    db.exec(
+      `
+        CREATE TABLE IF NOT EXISTS command_panel_preferences (
+          chat_id TEXT PRIMARY KEY,
+          commands_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `
+    );
+
+    recordMigration(db, 22);
   }
 }
 

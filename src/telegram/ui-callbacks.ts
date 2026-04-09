@@ -1,6 +1,15 @@
 import type { ReasoningEffort, RuntimeStatusField, UiLanguage } from "../types.js";
 
 export type ParsedCallbackData =
+  | { kind: "commands_open" }
+  | { kind: "commands_help" }
+  | { kind: "commands_run"; command: string }
+  | { kind: "commands_edit_open" }
+  | { kind: "commands_edit_page"; token: string; page: number }
+  | { kind: "commands_edit_toggle"; token: string; command: string }
+  | { kind: "commands_edit_save"; token: string }
+  | { kind: "commands_edit_reset"; token: string }
+  | { kind: "commands_edit_close"; token: string }
   | { kind: "pick"; projectKey: string }
   | { kind: "scan_more" }
   | { kind: "path_manual" }
@@ -36,6 +45,8 @@ export type ParsedCallbackData =
   | { kind: "recent_output_open"; answerId: string }
   | { kind: "recent_output_close"; answerId: string }
   | { kind: "recent_output_page"; answerId: string; page: number }
+  | { kind: "result_send_file"; answerId: string }
+  | { kind: "result_send_image"; answerId: string }
   | { kind: "runtime_page"; token: string; page: number }
   | { kind: "runtime_toggle"; token: string; field: RuntimeStatusField }
   | { kind: "runtime_save"; token: string }
@@ -128,6 +139,42 @@ export function parseCommand(text: string): { name: string; args: string } | nul
 
 export function encodePickCallback(projectKey: string): string {
   return `v1:pick:${projectKey}`;
+}
+
+export function encodeCommandPanelOpenCallback(): string {
+  return "v8:cp:o";
+}
+
+export function encodeCommandPanelEditHelpCallback(): string {
+  return "v8:cp:h";
+}
+
+export function encodeCommandPanelRunCallback(command: string): string {
+  return ensureTelegramCallbackDataLimit(`v8:cp:r:${command}`);
+}
+
+export function encodeCommandPanelEditOpenCallback(): string {
+  return "v8:ce:o";
+}
+
+export function encodeCommandPanelEditPageCallback(token: string, page: number): string {
+  return ensureTelegramCallbackDataLimit(`v8:ce:p:${token}:${encodeInteractionIndex(page)}`);
+}
+
+export function encodeCommandPanelEditToggleCallback(token: string, command: string): string {
+  return ensureTelegramCallbackDataLimit(`v8:ce:t:${token}:${command}`);
+}
+
+export function encodeCommandPanelEditSaveCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v8:ce:s:${token}`);
+}
+
+export function encodeCommandPanelEditResetCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v8:ce:r:${token}`);
+}
+
+export function encodeCommandPanelEditCloseCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v8:ce:c:${token}`);
 }
 
 export function encodeScanMoreCallback(): string {
@@ -272,6 +319,14 @@ export function encodeRecentOutputPageCallback(answerId: string, page: number): 
   return ensureTelegramCallbackDataLimit(`v7:rr:p:${answerId}:${encodeInteractionIndex(page)}`);
 }
 
+export function encodeResultSendFileCallback(answerId: string): string {
+  return ensureTelegramCallbackDataLimit(`v8:rs:f:${answerId}`);
+}
+
+export function encodeResultSendImageCallback(answerId: string): string {
+  return ensureTelegramCallbackDataLimit(`v8:rs:i:${answerId}`);
+}
+
 export function encodeRuntimePageCallback(token: string, page: number): string {
   return ensureTelegramCallbackDataLimit(`v4:rt:p:${token}:${encodeInteractionIndex(page)}`);
 }
@@ -380,6 +435,65 @@ export function encodeHubSelectCallback(token: string, version: number, slot: nu
 
 export function parseCallbackData(data: string): ParsedCallbackData | null {
   const parts = data.split(":");
+  if (parts[0] === "v8" && parts[1] === "cp") {
+    if (parts[2] === "o") {
+      return { kind: "commands_open" };
+    }
+
+    if (parts[2] === "h") {
+      return { kind: "commands_help" };
+    }
+
+    if (parts[2] === "r" && parts[3]) {
+      return { kind: "commands_run", command: parts[3] };
+    }
+
+    return null;
+  }
+
+  if (parts[0] === "v8" && parts[1] === "ce") {
+    if (parts[2] === "o") {
+      return { kind: "commands_edit_open" };
+    }
+
+    if (parts[2] === "p" && parts[3] && parts[4]) {
+      const page = decodeInteractionIndex(parts[4]);
+      if (page !== null) {
+        return { kind: "commands_edit_page", token: parts[3], page };
+      }
+    }
+
+    if (parts[2] === "t" && parts[3] && parts[4]) {
+      return { kind: "commands_edit_toggle", token: parts[3], command: parts[4] };
+    }
+
+    if (parts[2] === "s" && parts[3]) {
+      return { kind: "commands_edit_save", token: parts[3] };
+    }
+
+    if (parts[2] === "r" && parts[3]) {
+      return { kind: "commands_edit_reset", token: parts[3] };
+    }
+
+    if (parts[2] === "c" && parts[3]) {
+      return { kind: "commands_edit_close", token: parts[3] };
+    }
+
+    return null;
+  }
+
+  if (parts[0] === "v8" && parts[1] === "rs") {
+    if (parts[2] === "f" && parts[3]) {
+      return { kind: "result_send_file", answerId: parts[3] };
+    }
+
+    if (parts[2] === "i" && parts[3]) {
+      return { kind: "result_send_image", answerId: parts[3] };
+    }
+
+    return null;
+  }
+
   if (parts[0] === "v7" && parts[1] === "rr") {
     if (parts[2] === "o" && parts[3]) {
       return { kind: "recent_output_open", answerId: parts[3] };

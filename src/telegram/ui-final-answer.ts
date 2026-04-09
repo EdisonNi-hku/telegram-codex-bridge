@@ -10,6 +10,8 @@ import {
   encodeRecentOutputCloseCallback,
   encodeRecentOutputOpenCallback,
   encodeRecentOutputPageCallback,
+  encodeResultSendFileCallback,
+  encodeResultSendImageCallback,
   encodePlanResultCloseCallback,
   encodePlanResultOpenCallback,
   encodePlanResultPageCallback
@@ -187,6 +189,13 @@ export function buildPlanResultActionRows(answerId: string): Array<Array<{ text:
   ]];
 }
 
+export function buildTerminalResultSendActionRows(answerId: string): Array<Array<{ text: string; callback_data: string }>> {
+  return [[
+    { text: "发送文件", callback_data: encodeResultSendFileCallback(answerId) },
+    { text: "发送图片", callback_data: encodeResultSendImageCallback(answerId) }
+  ]];
+}
+
 export function buildRecentOutputEntryHtml(options: RecentOutputEntryView): string {
   const identity = buildFinalAnswerIdentityHeader({
     ...(options.sessionName !== undefined ? { sessionName: options.sessionName } : {}),
@@ -202,13 +211,20 @@ export function buildRecentOutputEntryHtml(options: RecentOutputEntryView): stri
   ].filter((part) => part.length > 0).join("\n\n");
 }
 
-export function buildRecentOutputReplyMarkup(options: TerminalResultControlView): TelegramInlineKeyboardMarkup {
+export function buildRecentOutputReplyMarkup(
+  options: TerminalResultControlView & {
+    extraRows?: Array<Array<{ text: string; callback_data: string }>>;
+  }
+): TelegramInlineKeyboardMarkup {
   if (!options.expanded) {
     return {
-      inline_keyboard: [[{
-        text: "展开最近输出",
-        callback_data: encodeRecentOutputOpenCallback(options.answerId)
-      }]]
+      inline_keyboard: [
+        ...(options.extraRows ?? []),
+        [{
+          text: "展开最近输出",
+          callback_data: encodeRecentOutputOpenCallback(options.answerId)
+        }]
+      ]
     };
   }
 
@@ -231,7 +247,10 @@ export function buildRecentOutputReplyMarkup(options: TerminalResultControlView)
   });
 
   return {
-    inline_keyboard: [buttons]
+    inline_keyboard: [
+      ...(options.extraRows ?? []),
+      buttons
+    ]
   };
 }
 

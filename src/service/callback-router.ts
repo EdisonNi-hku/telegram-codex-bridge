@@ -3,6 +3,15 @@ import type { ReasoningEffort, RuntimeStatusField, UiLanguage } from "../types.j
 
 export interface BridgeCallbackRouterHandlers {
   answer(text?: string): Promise<void>;
+  openCommandPanel(): Promise<void>;
+  sendHelpFromPanel(): Promise<void>;
+  runCommandFromPanel(command: string): Promise<void>;
+  openCommandPanelEditor(): Promise<void>;
+  handleCommandPanelEditPage(token: string, page: number): Promise<void>;
+  handleCommandPanelEditToggle(token: string, command: string): Promise<void>;
+  handleCommandPanelEditSave(token: string): Promise<void>;
+  handleCommandPanelEditReset(token: string): Promise<void>;
+  handleCommandPanelEditClose(token: string): Promise<void>;
   handleProjectPick(projectKey: string): Promise<void>;
   handleScanMore(): Promise<void>;
   enterManualPathMode(): Promise<void>;
@@ -32,6 +41,7 @@ export interface BridgeCallbackRouterHandlers {
   renderPersistedFinalAnswer(answerId: string, mode: { expanded: boolean; page?: number }): Promise<void>;
   renderPersistedPlanResult(answerId: string, mode: { expanded: boolean; page?: number }): Promise<void>;
   renderRecentOutputEntry(answerId: string, mode: { expanded: boolean; page?: number }): Promise<void>;
+  handleResultSendAction(answerId: string, kind: "file" | "image"): Promise<void>;
   handleRuntimePreferencesPage(token: string, page: number): Promise<void>;
   handleRuntimePreferencesToggle(token: string, field: RuntimeStatusField): Promise<void>;
   handleRuntimePreferencesSave(token: string): Promise<void>;
@@ -59,6 +69,33 @@ export async function routeBridgeCallback(
   handlers: BridgeCallbackRouterHandlers
 ): Promise<void> {
   switch (parsed.kind) {
+    case "commands_open":
+      await handlers.openCommandPanel();
+      return;
+    case "commands_help":
+      await handlers.sendHelpFromPanel();
+      return;
+    case "commands_run":
+      await handlers.runCommandFromPanel(parsed.command);
+      return;
+    case "commands_edit_open":
+      await handlers.openCommandPanelEditor();
+      return;
+    case "commands_edit_page":
+      await handlers.handleCommandPanelEditPage(parsed.token, parsed.page);
+      return;
+    case "commands_edit_toggle":
+      await handlers.handleCommandPanelEditToggle(parsed.token, parsed.command);
+      return;
+    case "commands_edit_save":
+      await handlers.handleCommandPanelEditSave(parsed.token);
+      return;
+    case "commands_edit_reset":
+      await handlers.handleCommandPanelEditReset(parsed.token);
+      return;
+    case "commands_edit_close":
+      await handlers.handleCommandPanelEditClose(parsed.token);
+      return;
     case "pick":
       await handlers.answer();
       await handlers.handleProjectPick(parsed.projectKey);
@@ -159,6 +196,12 @@ export async function routeBridgeCallback(
       return;
     case "recent_output_page":
       await handlers.renderRecentOutputEntry(parsed.answerId, { expanded: true, page: parsed.page });
+      return;
+    case "result_send_file":
+      await handlers.handleResultSendAction(parsed.answerId, "file");
+      return;
+    case "result_send_image":
+      await handlers.handleResultSendAction(parsed.answerId, "image");
       return;
     case "runtime_page":
       await handlers.handleRuntimePreferencesPage(parsed.token, parsed.page);

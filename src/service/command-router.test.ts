@@ -7,6 +7,7 @@ import { TELEGRAM_COMMANDS } from "../telegram/commands.js";
 function createHandlers(calls: string[]) {
   return {
     sendHelp: async () => { calls.push("sendHelp"); },
+    handleCommands: async () => { calls.push("handleCommands"); },
     sendStatus: async () => { calls.push("sendStatus"); },
     handleHub: async () => { calls.push("handleHub"); },
     handleNew: async () => { calls.push("handleNew"); },
@@ -61,5 +62,5 @@ test("routeBridgeCommand keeps help aliases and unsupported fallback aligned wit
   await routeBridgeCommand("commands", handlers);
   await routeBridgeCommand("does_not_exist", handlers);
 
-  assert.deepEqual(calls, ["sendHelp", "sendHelp", "sendUnsupported"]);
+  assert.deepEqual(calls, ["sendHelp", "handleCommands", "sendUnsupported"]);
 });

@@ -668,12 +668,16 @@ test("buildRuntimeStatusReplyMarkup uses a fixed collapsed plan label", () => {
 
   assert.equal(replyMarkup?.inline_keyboard[0]?.[0]?.text, "计划清单");
   assert.equal(replyMarkup?.inline_keyboard.at(-1)?.[0]?.text, "查看详情");
-  assert.equal(replyMarkup?.inline_keyboard.at(-1)?.[1]?.text, "中断操作");
+  assert.equal(replyMarkup?.inline_keyboard.at(-1)?.[1]?.text, "命令");
+  assert.equal(replyMarkup?.inline_keyboard.at(-1)?.[2]?.text, "中断操作");
   assert.deepEqual(parseCallbackData(replyMarkup?.inline_keyboard.at(-1)?.[0]?.callback_data ?? ""), {
     kind: "status_inspect",
     sessionId: "session-1"
   });
   assert.deepEqual(parseCallbackData(replyMarkup?.inline_keyboard.at(-1)?.[1]?.callback_data ?? ""), {
+    kind: "commands_open"
+  });
+  assert.deepEqual(parseCallbackData(replyMarkup?.inline_keyboard.at(-1)?.[2]?.callback_data ?? ""), {
     kind: "status_interrupt",
     sessionId: "session-1"
   });

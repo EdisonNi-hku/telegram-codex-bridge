@@ -11,6 +11,33 @@ function createHandlers(calls: Call[]) {
     answer: async (text?: string) => {
       calls.push({ name: "answer", args: [text] });
     },
+    openCommandPanel: async () => {
+      calls.push({ name: "openCommandPanel", args: [] });
+    },
+    sendHelpFromPanel: async () => {
+      calls.push({ name: "sendHelpFromPanel", args: [] });
+    },
+    runCommandFromPanel: async (command: string) => {
+      calls.push({ name: "runCommandFromPanel", args: [command] });
+    },
+    openCommandPanelEditor: async () => {
+      calls.push({ name: "openCommandPanelEditor", args: [] });
+    },
+    handleCommandPanelEditPage: async (token: string, page: number) => {
+      calls.push({ name: "handleCommandPanelEditPage", args: [token, page] });
+    },
+    handleCommandPanelEditToggle: async (token: string, command: string) => {
+      calls.push({ name: "handleCommandPanelEditToggle", args: [token, command] });
+    },
+    handleCommandPanelEditSave: async (token: string) => {
+      calls.push({ name: "handleCommandPanelEditSave", args: [token] });
+    },
+    handleCommandPanelEditReset: async (token: string) => {
+      calls.push({ name: "handleCommandPanelEditReset", args: [token] });
+    },
+    handleCommandPanelEditClose: async (token: string) => {
+      calls.push({ name: "handleCommandPanelEditClose", args: [token] });
+    },
     handleProjectPick: async (projectKey: string) => {
       calls.push({ name: "handleProjectPick", args: [projectKey] });
     },
@@ -82,6 +109,9 @@ function createHandlers(calls: Call[]) {
     renderRecentOutputEntry: async (answerId: string, mode: { expanded: boolean; page?: number }) => {
       calls.push({ name: "renderRecentOutputEntry", args: [answerId, mode] });
     },
+    handleResultSendAction: async (answerId: string, kind: "file" | "image") => {
+      calls.push({ name: "handleResultSendAction", args: [answerId, kind] });
+    },
     handleRuntimePreferencesPage: async (token: string, page: number) => {
       calls.push({ name: "handleRuntimePreferencesPage", args: [token, page] });
     },
@@ -144,6 +174,26 @@ function createHandlers(calls: Call[]) {
     }
   };
 }
+
+test("command-panel callbacks delegate without extra acknowledgement", async () => {
+  const cases: Array<{ parsed: ParsedCallbackData; expected: Call[] }> = [
+    { parsed: { kind: "commands_open" }, expected: [{ name: "openCommandPanel", args: [] }] },
+    { parsed: { kind: "commands_help" }, expected: [{ name: "sendHelpFromPanel", args: [] }] },
+    { parsed: { kind: "commands_run", command: "status" }, expected: [{ name: "runCommandFromPanel", args: ["status"] }] },
+    { parsed: { kind: "commands_edit_open" }, expected: [{ name: "openCommandPanelEditor", args: [] }] },
+    { parsed: { kind: "commands_edit_page", token: "tok", page: 1 }, expected: [{ name: "handleCommandPanelEditPage", args: ["tok", 1] }] },
+    { parsed: { kind: "commands_edit_toggle", token: "tok", command: "model" }, expected: [{ name: "handleCommandPanelEditToggle", args: ["tok", "model"] }] },
+    { parsed: { kind: "commands_edit_save", token: "tok" }, expected: [{ name: "handleCommandPanelEditSave", args: ["tok"] }] },
+    { parsed: { kind: "commands_edit_reset", token: "tok" }, expected: [{ name: "handleCommandPanelEditReset", args: ["tok"] }] },
+    { parsed: { kind: "commands_edit_close", token: "tok" }, expected: [{ name: "handleCommandPanelEditClose", args: ["tok"] }] }
+  ];
+
+  for (const { parsed, expected } of cases) {
+    const calls: Call[] = [];
+    await routeBridgeCallback(parsed, createHandlers(calls));
+    assert.deepEqual(calls, expected);
+  }
+});
 
 test("project picker and rename callbacks acknowledge before delegating", async () => {
   const cases: Array<{ parsed: ParsedCallbackData; expected: Call[] }> = [
@@ -268,6 +318,8 @@ test("status-card, inspect, and persisted-result callbacks preserve their routin
       parsed: { kind: "recent_output_close", answerId: "answer-3d" } as ParsedCallbackData,
       expected: [{ name: "renderRecentOutputEntry", args: ["answer-3d", { expanded: false }] }]
     },
+    { parsed: { kind: "result_send_file", answerId: "answer-3e" }, expected: [{ name: "handleResultSendAction", args: ["answer-3e", "file"] }] },
+    { parsed: { kind: "result_send_image", answerId: "answer-3f" }, expected: [{ name: "handleResultSendAction", args: ["answer-3f", "image"] }] },
     { parsed: { kind: "inspect_expand", sessionId: "session-3", page: 1 }, expected: [{ name: "handleInspectView", args: ["session-3", { collapsed: false, page: 1 }] }] },
     { parsed: { kind: "inspect_collapse", sessionId: "session-4" }, expected: [{ name: "handleInspectView", args: ["session-4", { collapsed: true, page: 0 }] }] },
     { parsed: { kind: "inspect_close", sessionId: "session-4b" }, expected: [{ name: "handleInspectClose", args: ["session-4b"] }] },

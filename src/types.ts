@@ -305,6 +305,12 @@ export interface RuntimeCardPreferencesRow {
   updatedAt: string;
 }
 
+export interface CommandPanelPreferencesRow {
+  chatId: string;
+  commands: string[];
+  updatedAt: string;
+}
+
 export interface UiLanguageRow {
   key: "global";
   language: UiLanguage;

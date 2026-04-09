@@ -4,6 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 import { DEFAULT_RUNTIME_STATUS_FIELDS, normalizeReadinessSnapshot } from "../types.js";
 import type {
+  CommandPanelPreferencesRow,
   CurrentSessionCardRow,
   ReadinessSnapshot,
   RuntimeCardPreferencesRow,
@@ -65,6 +66,12 @@ interface RuntimeCardPreferencesRecord {
 interface UiLanguageRecord {
   key: "global";
   ui_language: UiLanguage;
+  updated_at: string;
+}
+
+interface CommandPanelPreferencesRecord {
+  chat_id: string;
+  commands_json: string;
   updated_at: string;
 }
 
@@ -163,6 +170,24 @@ function mapTurnInputSource(record: TurnInputSourceRecord): TurnInputSourceRow {
   };
 }
 
+function mapCommandPanelPreferences(record: CommandPanelPreferencesRecord): CommandPanelPreferencesRow {
+  let commands: string[] = [];
+  try {
+    const parsed = JSON.parse(record.commands_json) as unknown;
+    if (Array.isArray(parsed)) {
+      commands = parsed.filter((value): value is string => typeof value === "string");
+    }
+  } catch {
+    commands = [];
+  }
+
+  return {
+    chatId: record.chat_id,
+    commands,
+    updatedAt: record.updated_at
+  };
+}
+
 export interface StoreRuntimeArtifacts {
   listRuntimeNotices(chatId: string): RuntimeNotice[];
   countRuntimeNotices(): number;
@@ -184,6 +209,9 @@ export interface StoreRuntimeArtifacts {
   setRuntimeCardPreferences(fields: RuntimeStatusField[]): RuntimeCardPreferencesRow;
   getUiLanguage(): UiLanguage;
   setUiLanguage(language: UiLanguage): UiLanguage;
+  getCommandPanelPreferences(chatId: string): CommandPanelPreferencesRow | null;
+  setCommandPanelPreferences(chatId: string, commands: string[]): CommandPanelPreferencesRow;
+  deleteCommandPanelPreferences(chatId: string): void;
   getCurrentSessionCard(chatId: string): CurrentSessionCardRow | null;
   upsertCurrentSessionCard(options: {
     chatId: string;
@@ -484,6 +512,49 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .run(next, updatedAt);
 
       return next;
+    },
+
+    getCommandPanelPreferences(chatId) {
+      const row = db
+        .prepare(
+          `
+            SELECT *
+            FROM command_panel_preferences
+            WHERE chat_id = ?
+          `
+        )
+        .get(chatId) as CommandPanelPreferencesRecord | undefined;
+
+      return row ? mapCommandPanelPreferences(row) : null;
+    },
+
+    setCommandPanelPreferences(chatId, commands) {
+      const updatedAt = nowIso();
+      const uniqueCommands = [...new Set(commands)];
+
+      db
+        .prepare(
+          `
+            INSERT OR REPLACE INTO command_panel_preferences (
+              chat_id,
+              commands_json,
+              updated_at
+            )
+            VALUES (?, ?, ?)
+          `
+        )
+        .run(chatId, JSON.stringify(uniqueCommands), updatedAt);
+
+      const saved = this.getCommandPanelPreferences(chatId);
+      if (!saved) {
+        throw new Error(`persisted command panel preferences missing after save: ${chatId}`);
+      }
+
+      return saved;
+    },
+
+    deleteCommandPanelPreferences(chatId) {
+      db.prepare("DELETE FROM command_panel_preferences WHERE chat_id = ?").run(chatId);
     },
 
     getCurrentSessionCard,

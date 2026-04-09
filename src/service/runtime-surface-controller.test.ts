@@ -1019,7 +1019,7 @@ test("RuntimeSurfaceController hub selection sends and replaces a recent-output 
     assert.match(sentHtml[1]?.html ?? "", /Session Beta/u);
     assert.deepEqual(
       parseCallbackData(
-        ((sentHtml[1]?.replyMarkup as TelegramInlineKeyboardMarkup | undefined)?.inline_keyboard[0]?.[0]?.callback_data) ?? ""
+        ((sentHtml[1]?.replyMarkup as TelegramInlineKeyboardMarkup | undefined)?.inline_keyboard[1]?.[0]?.callback_data) ?? ""
       ),
       { kind: "recent_output_open", answerId: "answer-session-2" }
     );

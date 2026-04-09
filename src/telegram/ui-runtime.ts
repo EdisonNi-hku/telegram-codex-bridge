@@ -31,6 +31,7 @@ import type { TelegramInlineKeyboardButton, TelegramInlineKeyboardMarkup } from 
 import {
   encodeAgentCollapseCallback,
   encodeAgentExpandCallback,
+  encodeCommandPanelOpenCallback,
   encodeHubSelectCallback,
   encodeInspectCollapseCallback,
   encodeInspectCloseCallback,
@@ -187,6 +188,10 @@ export function buildRuntimeStatusReplyMarkup(options: RuntimeStatusControlsView
     {
       text: language === "en" ? "Inspect" : "查看详情",
       callback_data: encodeStatusInspectCallback(options.sessionId)
+    },
+    {
+      text: language === "en" ? "Commands" : "命令",
+      callback_data: encodeCommandPanelOpenCallback()
     },
     {
       text: language === "en" ? "Interrupt" : "中断操作",
@@ -745,6 +750,11 @@ function appendHubSecondaryButtons(
   if (buttons.length > 0) {
     rows.push(buttons);
   }
+
+  rows.push([{
+    text: language === "en" ? "Commands" : "命令",
+    callback_data: encodeCommandPanelOpenCallback()
+  }]);
 }
 
 export function buildRuntimeStatusFieldLabel(field: RuntimeStatusField): string {
@@ -907,6 +917,10 @@ export function buildInspectViewMessage(options: RuntimeInspectView & RuntimeIns
             callback_data: encodeInspectExpandCallback(options.sessionId, safePage)
           },
           {
+            text: "命令",
+            callback_data: encodeCommandPanelOpenCallback()
+          },
+          {
             text: "关闭",
             callback_data: encodeInspectCloseCallback(options.sessionId)
           }
@@ -930,6 +944,7 @@ export function buildInspectViewMessage(options: RuntimeInspectView & RuntimeIns
   }
   rows.push([
     { text: "收起详情", callback_data: encodeInspectCollapseCallback(options.sessionId) },
+    { text: "命令", callback_data: encodeCommandPanelOpenCallback() },
     { text: "关闭", callback_data: encodeInspectCloseCallback(options.sessionId) }
   ]);
 

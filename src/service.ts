@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
 import { createLogger, type Logger } from "./logger.js";
@@ -73,7 +74,11 @@ import type { BridgeDynamicToolDeclaration, ServerRequestSupport } from "./codex
 import type { JsonRpcServerRequest, UserInput } from "./codex/app-server.js";
 import { parseAgentMessagePhase } from "./codex/protocol-truth.js";
 import {
+  buildCommandPanelEditMessage,
+  buildCommandPanelMessage,
+  buildHelpReplyMarkup,
   buildProjectSelectedText,
+  resolveCommandPanelEntries,
   buildRuntimeErrorCard,
   buildRuntimeStatusReplyMarkup,
   buildRuntimeStatusCard,
@@ -86,7 +91,12 @@ import {
   parseCommand,
   type RuntimeCommandEntryView
 } from "./telegram/ui.js";
-import { buildHelpText, syncTelegramCommands } from "./telegram/commands.js";
+import {
+  buildHelpText,
+  getDefaultCommandPanelCommands,
+  normalizeCommandPanelCommands,
+  syncTelegramCommands
+} from "./telegram/commands.js";
 import {
   DEFAULT_RUNTIME_STATUS_FIELDS,
   isOperationalReadinessState,
@@ -113,6 +123,13 @@ interface InspectRenderPayload {
   snapshot: InspectSnapshot;
   commands: RuntimeCommandEntryView[];
   note: string | null;
+}
+
+interface CommandPanelDraftState {
+  chatId: string;
+  messageId: number;
+  commands: string[];
+  page: number;
 }
 
 const HISTORY_SUMMARY_LIMIT = 5;
@@ -220,6 +237,7 @@ export class BridgeService {
   private performanceSampler: PerformanceSamplerLike | null = null;
   private appServerHealthGuard: AppServerHealthGuardLike | null = null;
   private readonly unauthorizedReplyAt = new Map<string, number>();
+  private readonly commandPanelDrafts = new Map<string, CommandPanelDraftState>();
   private stopping = false;
 
   constructor(
@@ -826,6 +844,11 @@ export class BridgeService {
       return;
     }
 
+    if (this.shouldOpenCommandPanelFromText(text)) {
+      await this.openCommandPanel(chatId);
+      return;
+    }
+
     const command = parseCommand(text);
 
     if (!command) {
@@ -865,6 +888,46 @@ export class BridgeService {
 
     await routeBridgeCallback(parsed, {
       answer: async (text) => this.safeAnswerCallbackQuery(callbackQuery.id, text),
+      openCommandPanel: async () => this.handleCommandPanelOpenCallback(callbackQuery.id, chatId),
+      sendHelpFromPanel: async () => this.handleCommandPanelHelpCallback(callbackQuery.id, chatId),
+      runCommandFromPanel: async (command) => this.handleCommandPanelRunCallback(callbackQuery.id, chatId, command),
+      openCommandPanelEditor: async () => this.handleCommandPanelEditorOpenCallback(
+        callbackQuery.id,
+        chatId,
+        message.message_id
+      ),
+      handleCommandPanelEditPage: async (token, page) => this.handleCommandPanelEditPageCallback(
+        callbackQuery.id,
+        chatId,
+        message.message_id,
+        token,
+        page
+      ),
+      handleCommandPanelEditToggle: async (token, command) => this.handleCommandPanelEditToggleCallback(
+        callbackQuery.id,
+        chatId,
+        message.message_id,
+        token,
+        command
+      ),
+      handleCommandPanelEditSave: async (token) => this.handleCommandPanelEditSaveCallback(
+        callbackQuery.id,
+        chatId,
+        message.message_id,
+        token
+      ),
+      handleCommandPanelEditReset: async (token) => this.handleCommandPanelEditResetCallback(
+        callbackQuery.id,
+        chatId,
+        message.message_id,
+        token
+      ),
+      handleCommandPanelEditClose: async (token) => this.handleCommandPanelEditCloseCallback(
+        callbackQuery.id,
+        chatId,
+        message.message_id,
+        token
+      ),
       handleProjectPick: async (projectKey) => this.handleProjectPick(chatId, message.message_id, projectKey),
       handleScanMore: async () => this.handleScanMore(chatId, message.message_id),
       enterManualPathMode: async () => this.enterManualPathMode(chatId, message.message_id),
@@ -953,6 +1016,13 @@ export class BridgeService {
         message.message_id,
         answerId,
         mode
+      ),
+      handleResultSendAction: async (answerId, kind) => this.handleResultSendActionCallback(
+        callbackQuery.id,
+        chatId,
+        message.message_id,
+        answerId,
+        kind
       ),
       handleRuntimePreferencesPage: async (token, page) => this.handleRuntimePreferencesPageCallback(
         callbackQuery.id,
@@ -1316,7 +1386,7 @@ export class BridgeService {
       return;
     }
 
-    const view = this.resolvePlanResultActionView(chatId, messageId, answerId);
+    const view = this.resolveTerminalResultActionView(chatId, messageId, answerId);
     if (!view) {
       await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
       return;
@@ -1385,7 +1455,7 @@ export class BridgeService {
     );
   }
 
-  private resolvePlanResultActionView(
+  private resolveTerminalResultActionView(
     chatId: string,
     messageId: number,
     answerIdOrLegacySessionId: string
@@ -1480,7 +1550,10 @@ export class BridgeService {
   private async routeCommand(chatId: string, commandName: string, args: string): Promise<void> {
     await routeBridgeCommand(commandName, {
       sendHelp: async () => {
-        await this.safeSendMessage(chatId, buildHelpText(this.getUiLanguage()));
+        await this.sendHelp(chatId);
+      },
+      handleCommands: async () => {
+        await this.handleCommands(chatId, args);
       },
       sendStatus: async () => {
         await this.sendStatus(chatId);
@@ -1629,6 +1702,348 @@ export class BridgeService {
     }
 
     await this.safeSendMessage(chatId, "当前没有可取消的输入。");
+  }
+
+  private shouldOpenCommandPanelFromText(text: string): boolean {
+    if (this.config.activePack !== "feishu") {
+      return false;
+    }
+
+    const trimmed = text.trim().toLowerCase();
+    return trimmed === "help" || trimmed === "commands" || trimmed === "帮助" || trimmed === "命令";
+  }
+
+  private async sendHelp(chatId: string): Promise<void> {
+    const language = this.getUiLanguage();
+    await this.safeSendMessage(chatId, buildHelpText(language), buildHelpReplyMarkup(language));
+  }
+
+  private async handleCommands(chatId: string, args: string): Promise<void> {
+    if (args.trim().toLowerCase() === "edit") {
+      await this.openCommandPanelEditor(chatId);
+      return;
+    }
+
+    await this.openCommandPanel(chatId);
+  }
+
+  private getCommandPanelCommands(chatId: string): string[] {
+    return normalizeCommandPanelCommands(
+      this.store?.getCommandPanelPreferences(chatId)?.commands ?? getDefaultCommandPanelCommands()
+    );
+  }
+
+  private async openCommandPanel(chatId: string): Promise<boolean> {
+    const rendered = buildCommandPanelMessage({
+      commands: this.getCommandPanelEntryViews(chatId),
+      language: this.getUiLanguage()
+    });
+
+    return await this.safeSendHtmlMessage(chatId, rendered.text, rendered.replyMarkup);
+  }
+
+  private async openCommandPanelEditor(chatId: string): Promise<boolean> {
+    const store = this.store;
+    if (!store) {
+      await this.safeSendMessage(chatId, this.getUiLanguage() === "en" ? "State storage unavailable." : "状态存储当前不可用。");
+      return false;
+    }
+
+    const token = this.createCommandPanelDraftToken();
+    const draft: CommandPanelDraftState = {
+      chatId,
+      messageId: 0,
+      commands: this.getCommandPanelCommands(chatId),
+      page: 0
+    };
+    const rendered = buildCommandPanelEditMessage({
+      token,
+      commands: draft.commands,
+      page: draft.page,
+      language: this.getUiLanguage()
+    });
+    const sent = await this.safeSendHtmlMessageResult(chatId, rendered.text, rendered.replyMarkup);
+    if (!sent) {
+      return false;
+    }
+
+    draft.messageId = sent.message_id;
+    this.commandPanelDrafts.set(token, draft);
+    return true;
+  }
+
+  private getCommandPanelEntryViews(chatId: string) {
+    return resolveCommandPanelEntries(this.getCommandPanelCommands(chatId), this.getUiLanguage());
+  }
+
+  private createCommandPanelDraftToken(): string {
+    return randomUUID().replace(/-/gu, "").slice(0, 10);
+  }
+
+  private getCommandPanelDraft(token: string, chatId: string, messageId: number): CommandPanelDraftState | null {
+    const draft = this.commandPanelDrafts.get(token);
+    if (!draft || draft.chatId !== chatId || draft.messageId !== messageId) {
+      return null;
+    }
+
+    return draft;
+  }
+
+  private async renderCommandPanelDraft(token: string, draft: CommandPanelDraftState): Promise<boolean> {
+    const rendered = buildCommandPanelEditMessage({
+      token,
+      commands: draft.commands,
+      page: draft.page,
+      language: this.getUiLanguage()
+    });
+    const result = await this.safeEditHtmlMessageText(draft.chatId, draft.messageId, rendered.text, rendered.replyMarkup);
+    return isTelegramEditCommitted(result);
+  }
+
+  private async handleCommandPanelOpenCallback(callbackQueryId: string, chatId: string): Promise<void> {
+    const sent = await this.openCommandPanel(chatId);
+    await this.safeAnswerCallbackQuery(callbackQueryId, sent ? undefined : "暂时无法打开命令面板，请稍后重试。");
+  }
+
+  private async handleCommandPanelHelpCallback(callbackQueryId: string, chatId: string): Promise<void> {
+    await this.safeAnswerCallbackQuery(callbackQueryId);
+    await this.sendHelp(chatId);
+  }
+
+  private async handleCommandPanelRunCallback(
+    callbackQueryId: string,
+    chatId: string,
+    command: string
+  ): Promise<void> {
+    await this.safeAnswerCallbackQuery(callbackQueryId);
+    await this.routeCommand(chatId, command, "");
+  }
+
+  private async handleCommandPanelEditorOpenCallback(
+    callbackQueryId: string,
+    chatId: string,
+    messageId: number
+  ): Promise<void> {
+    if (!this.store) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "状态存储当前不可用。");
+      return;
+    }
+
+    const token = this.createCommandPanelDraftToken();
+    const draft: CommandPanelDraftState = {
+      chatId,
+      messageId,
+      commands: this.getCommandPanelCommands(chatId),
+      page: 0
+    };
+    const rendered = buildCommandPanelEditMessage({
+      token,
+      commands: draft.commands,
+      page: draft.page,
+      language: this.getUiLanguage()
+    });
+    const nextMessageId = await this.replaceBridgeOwnedHtmlMessageResult(chatId, messageId, rendered.text, rendered.replyMarkup);
+    if (!nextMessageId) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "暂时无法打开编辑器，请稍后重试。");
+      return;
+    }
+
+    draft.messageId = nextMessageId;
+    this.commandPanelDrafts.set(token, draft);
+    await this.safeAnswerCallbackQuery(callbackQueryId);
+  }
+
+  private async handleCommandPanelEditPageCallback(
+    callbackQueryId: string,
+    chatId: string,
+    messageId: number,
+    token: string,
+    page: number
+  ): Promise<void> {
+    const draft = this.getCommandPanelDraft(token, chatId, messageId);
+    if (!draft) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新打开编辑器。");
+      return;
+    }
+
+    draft.page = page;
+    await this.safeAnswerCallbackQuery(callbackQueryId, await this.renderCommandPanelDraft(token, draft) ? undefined : "暂时无法更新编辑器，请稍后重试。");
+  }
+
+  private async handleCommandPanelEditToggleCallback(
+    callbackQueryId: string,
+    chatId: string,
+    messageId: number,
+    token: string,
+    command: string
+  ): Promise<void> {
+    const draft = this.getCommandPanelDraft(token, chatId, messageId);
+    if (!draft) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新打开编辑器。");
+      return;
+    }
+
+    if (resolveCommandPanelEntries([command], this.getUiLanguage()).length === 0) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "这个指令当前不能加入快捷指令。");
+      return;
+    }
+
+    const currentIndex = draft.commands.indexOf(command);
+    if (currentIndex >= 0) {
+      draft.commands.splice(currentIndex, 1);
+    } else if (draft.commands.length >= 8) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "最多只能保留 8 个快捷指令。");
+      return;
+    } else {
+      draft.commands.push(command);
+    }
+
+    await this.safeAnswerCallbackQuery(callbackQueryId, await this.renderCommandPanelDraft(token, draft) ? undefined : "暂时无法更新编辑器，请稍后重试。");
+  }
+
+  private async handleCommandPanelEditSaveCallback(
+    callbackQueryId: string,
+    chatId: string,
+    messageId: number,
+    token: string
+  ): Promise<void> {
+    const store = this.store;
+    const draft = this.getCommandPanelDraft(token, chatId, messageId);
+    if (!store || !draft) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新打开编辑器。");
+      return;
+    }
+
+    if (draft.commands.length === 0) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "至少保留 1 个快捷指令。");
+      return;
+    }
+
+    const normalized = normalizeCommandPanelCommands(draft.commands);
+    store.setCommandPanelPreferences(chatId, normalized);
+    this.commandPanelDrafts.delete(token);
+    const rendered = buildCommandPanelMessage({
+      commands: this.getCommandPanelEntryViews(chatId),
+      language: this.getUiLanguage()
+    });
+    const delivered = await this.replaceBridgeOwnedMessage(chatId, draft.messageId, rendered.text, {
+      html: true,
+      replyMarkup: rendered.replyMarkup
+    });
+    await this.safeAnswerCallbackQuery(callbackQueryId, delivered ? "已保存。" : "已保存，但暂时无法刷新命令面板。");
+  }
+
+  private async handleCommandPanelEditResetCallback(
+    callbackQueryId: string,
+    chatId: string,
+    messageId: number,
+    token: string
+  ): Promise<void> {
+    const draft = this.getCommandPanelDraft(token, chatId, messageId);
+    if (!draft) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新打开编辑器。");
+      return;
+    }
+
+    draft.commands = getDefaultCommandPanelCommands();
+    draft.page = 0;
+    await this.safeAnswerCallbackQuery(callbackQueryId, await this.renderCommandPanelDraft(token, draft) ? undefined : "暂时无法更新编辑器，请稍后重试。");
+  }
+
+  private async handleCommandPanelEditCloseCallback(
+    callbackQueryId: string,
+    chatId: string,
+    messageId: number,
+    token: string
+  ): Promise<void> {
+    const draft = this.getCommandPanelDraft(token, chatId, messageId);
+    if (!draft) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新打开命令面板。");
+      return;
+    }
+
+    this.commandPanelDrafts.delete(token);
+    const rendered = buildCommandPanelMessage({
+      commands: this.getCommandPanelEntryViews(chatId),
+      language: this.getUiLanguage()
+    });
+    const delivered = await this.replaceBridgeOwnedMessage(chatId, draft.messageId, rendered.text, {
+      html: true,
+      replyMarkup: rendered.replyMarkup
+    });
+    await this.safeAnswerCallbackQuery(callbackQueryId, delivered ? undefined : "暂时无法关闭编辑器，请稍后重试。");
+  }
+
+  private async handleResultSendActionCallback(
+    callbackQueryId: string,
+    chatId: string,
+    messageId: number,
+    answerId: string,
+    kind: "file" | "image"
+  ): Promise<void> {
+    if (!this.store) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
+      return;
+    }
+
+    const view = this.resolveTerminalResultActionView(chatId, messageId, answerId);
+    if (!view) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
+      return;
+    }
+
+    const session = this.store.getSessionById(view.sessionId);
+    if (
+      !session
+      || !isSamePlatformChatRef(createPlatformChatRef(session.chatId), createPlatformChatRef(chatId))
+    ) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "这个按钮已过期，请重新操作。");
+      return;
+    }
+
+    if (session.status === "running" || this.getActiveTurnForSession(session.sessionId)) {
+      await this.safeAnswerCallbackQuery(callbackQueryId, "当前项目仍在执行，请等待完成或发送 /interrupt。");
+      return;
+    }
+
+    const capacity = this.turnCoordinator.getRunningTurnCapacity(chatId);
+    if (!capacity.allowed) {
+      await this.safeAnswerCallbackQuery(
+        callbackQueryId,
+        `当前最多只能并行运行 ${capacity.limit} 个会话，请先等待完成或停止部分任务。`
+      );
+      return;
+    }
+
+    this.store.setActiveSession(chatId, session.sessionId);
+    try {
+      await this.currentSessionCardController.syncForChat(chatId, "session_switched");
+    } catch {
+      // Ignore command-panel follow-up card sync errors.
+    }
+
+    try {
+      await this.startRealTurn(chatId, this.store.getSessionById(session.sessionId) ?? session, this.buildResultSendPrompt(kind));
+    } catch {
+      await this.safeAnswerCallbackQuery(
+        callbackQueryId,
+        kind === "image" ? "当前无法开始尝试发送图片，请稍后重试。" : "当前无法开始尝试发送文件，请稍后重试。"
+      );
+      return;
+    }
+
+    await this.safeAnswerCallbackQuery(
+      callbackQueryId,
+      kind === "image" ? "已开始尝试发送图片。" : "已开始尝试发送文件。"
+    );
+  }
+
+  private buildResultSendPrompt(kind: "file" | "image"): string {
+    if (kind === "image") {
+      return "Please send the most relevant image from your last result to the active chat using the available control-surface image sending tool. If there is no suitable image to send, reply briefly that there is no image to send.";
+    }
+
+    return "Please send the most relevant file from your last result to the active chat using the available control-surface file sending tool. If there is no suitable file to send, reply briefly that there is no file to send.";
   }
 
   private async runGuardedCommand(
@@ -3040,6 +3455,31 @@ export class BridgeService {
     }
 
     return true;
+  }
+
+  private async replaceBridgeOwnedHtmlMessageResult(
+    chatId: string,
+    messageId: number,
+    html: string,
+    replyMarkup?: TelegramInlineKeyboardMarkup
+  ): Promise<number | null> {
+    if (messageId > 0) {
+      const result = await this.safeEditHtmlMessageText(chatId, messageId, html, replyMarkup);
+      if (isTelegramEditCommitted(result)) {
+        return messageId;
+      }
+    }
+
+    const sent = await this.safeSendHtmlMessageResult(chatId, html, replyMarkup);
+    if (!sent) {
+      return null;
+    }
+
+    if (messageId > 0 && sent.message_id !== messageId) {
+      await this.safeDeleteMessageResult(chatId, messageId);
+    }
+
+    return sent.message_id;
   }
 
   private async safeAnswerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {

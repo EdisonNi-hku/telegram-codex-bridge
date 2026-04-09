@@ -1857,7 +1857,9 @@ test("long final answers send one collapsible preview and persist the rendered p
     const finalMessages = sent.filter((entry) => entry.parseMode === "HTML" && !isRuntimeStatusText(entry.text));
     assert.equal(finalMessages.length, 1);
     assert.match(finalMessages[0]?.text ?? "", /已折叠/u);
-    assert.equal(finalMessages[0]?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "展开全文");
+    assert.equal(finalMessages[0]?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "发送文件");
+    assert.equal(finalMessages[0]?.replyMarkup?.inline_keyboard?.[0]?.[1]?.text, "发送图片");
+    assert.equal(finalMessages[0]?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "展开全文");
 
     const views = store.listFinalAnswerViews("1");
     assert.equal(views.length, 1);
@@ -1879,8 +1881,10 @@ test("long final answers send one collapsible preview and persist the rendered p
     assert.equal(callbackAnswers.at(-1), undefined);
     assert.equal(edited.at(-1)?.messageId, finalMessages[0]?.messageId);
     assert.match(edited.at(-1)?.text ?? "", /第 1\/\d+ 页/u);
-    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "下一页");
-    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[1]?.text, "收起");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "发送文件");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[1]?.text, "发送图片");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "下一页");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[1]?.[1]?.text, "收起");
 
     await (service as any).handleCallback({
       id: "callback-final-next",
@@ -1896,7 +1900,8 @@ test("long final answers send one collapsible preview and persist the rendered p
 
     assert.equal(callbackAnswers.at(-1), undefined);
     assert.match(edited.at(-1)?.text ?? "", /第 2\/\d+ 页/u);
-    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "上一页");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "发送文件");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "上一页");
 
     await (service as any).handleCallback({
       id: "callback-final-close",
@@ -1912,7 +1917,8 @@ test("long final answers send one collapsible preview and persist the rendered p
 
     assert.equal(callbackAnswers.at(-1), undefined);
     assert.match(edited.at(-1)?.text ?? "", /已折叠/u);
-    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "展开全文");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "发送文件");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "展开全文");
   } finally {
     await cleanup();
   }
@@ -1976,8 +1982,10 @@ test("persisted final answer callbacks work without an active turn", async () =>
     assert.equal(callbackAnswers.at(-1), undefined);
     assert.equal(edited.at(-1)?.messageId, 1234);
     assert.equal(edited.at(-1)?.text, "Expanded page one");
-    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "下一页");
-    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[1]?.text, "收起");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "发送文件");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[1]?.text, "发送图片");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "下一页");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[1]?.[1]?.text, "收起");
 
     await (service as any).handleCallback({
       id: "callback-persisted-final-page",
@@ -1993,7 +2001,8 @@ test("persisted final answer callbacks work without an active turn", async () =>
 
     assert.equal(callbackAnswers.at(-1), undefined);
     assert.equal(edited.at(-1)?.text, "<i>第 2/2 页</i>\n\nExpanded page two");
-    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "上一页");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "发送文件");
+    assert.equal(edited.at(-1)?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "上一页");
   } finally {
     await cleanup();
   }
@@ -9364,7 +9373,7 @@ test("language command shows a picker and callback persists the global language"
     assert.equal(callbackAnswers.at(-1), "Saved.");
     assert.match(edited.at(-1)?.text ?? "", /<b>Language Picker Closed<\/b>/u);
     assert.equal(commandSyncs.at(-1)?.some((entry) => entry.command === "language"), true);
-    assert.equal(commandSyncs.at(-1)?.find((entry) => entry.command === "help")?.description, "Show available commands");
+    assert.equal(commandSyncs.at(-1)?.find((entry) => entry.command === "help")?.description, "Show full help");
   } finally {
     await cleanup();
   }

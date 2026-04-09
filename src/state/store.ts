@@ -15,6 +15,7 @@ import type {
   AuthorizedUserRow,
   BridgeReadinessState,
   ChatBindingRow,
+  CommandPanelPreferencesRow,
   CurrentSessionCardRow,
   FailureReason,
   PendingInteractionKind,
@@ -709,6 +710,18 @@ export class BridgeStateStore {
 
   setUiLanguage(language: UiLanguage): UiLanguage {
     return this.runtimeArtifacts.setUiLanguage(language);
+  }
+
+  getCommandPanelPreferences(chatId: string): CommandPanelPreferencesRow | null {
+    return this.runtimeArtifacts.getCommandPanelPreferences(chatId);
+  }
+
+  setCommandPanelPreferences(chatId: string, commands: string[]): CommandPanelPreferencesRow {
+    return this.runtimeArtifacts.setCommandPanelPreferences(chatId, commands);
+  }
+
+  deleteCommandPanelPreferences(chatId: string): void {
+    this.runtimeArtifacts.deleteCommandPanelPreferences(chatId);
   }
 
   getCurrentSessionCard(chatId: string): CurrentSessionCardRow | null {

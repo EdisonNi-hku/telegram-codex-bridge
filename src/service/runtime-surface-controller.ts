@@ -28,6 +28,7 @@ import {
   buildFinalAnswerReplyMarkup,
   buildRecentOutputEntryHtml,
   buildRecentOutputReplyMarkup,
+  buildTerminalResultSendActionRows,
   buildInspectClosedMessage,
   buildInspectText,
   buildInspectViewMessage,
@@ -3059,7 +3060,8 @@ export class RuntimeSurfaceController {
         buildFinalAnswerReplyMarkup({
           answerId,
           totalPages: view.pages.length,
-          expanded: false
+          expanded: false,
+          extraRows: buildTerminalResultSendActionRows(answerId)
         })
       );
       await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result, {
@@ -3086,7 +3088,8 @@ export class RuntimeSurfaceController {
         answerId,
         totalPages: view.pages.length,
         expanded: true,
-        currentPage: page
+        currentPage: page,
+        extraRows: buildTerminalResultSendActionRows(answerId)
       })
     );
     await this.finishPersistedFinalAnswerRender(callbackQueryId, answerId, messageId, result, {
@@ -3194,7 +3197,10 @@ export class RuntimeSurfaceController {
         chatId,
         messageId,
         buildRecentOutputEntryHtml(entryView),
-        buildRecentOutputReplyMarkup(createRecentOutputControlsView(view))
+        buildRecentOutputReplyMarkup({
+          ...createRecentOutputControlsView(view),
+          extraRows: buildTerminalResultSendActionRows(answerId)
+        })
       );
       await this.finishBridgeOwnedCallbackRender(callbackQueryId, result);
       return;
@@ -3211,10 +3217,13 @@ export class RuntimeSurfaceController {
       chatId,
       messageId,
       view.kind === "plan_result" ? this.buildPlanResultHtml(pageHtml, view.primaryActionConsumed) : pageHtml,
-      buildRecentOutputReplyMarkup(createRecentOutputControlsView(view, {
-        expanded: true,
-        currentPage: page
-      }))
+      buildRecentOutputReplyMarkup({
+        ...createRecentOutputControlsView(view, {
+          expanded: true,
+          currentPage: page
+        }),
+        extraRows: buildTerminalResultSendActionRows(answerId)
+      })
     );
     await this.finishBridgeOwnedCallbackRender(callbackQueryId, result);
   }
@@ -3437,7 +3446,10 @@ export class RuntimeSurfaceController {
       chatId,
       buildRecentOutputEntryHtml(entryView),
       latestView
-        ? buildRecentOutputReplyMarkup(createRecentOutputControlsView(latestView))
+        ? buildRecentOutputReplyMarkup({
+          ...createRecentOutputControlsView(latestView),
+          extraRows: buildTerminalResultSendActionRows(latestView.answerId)
+        })
         : undefined
     );
     if (!sent) {
