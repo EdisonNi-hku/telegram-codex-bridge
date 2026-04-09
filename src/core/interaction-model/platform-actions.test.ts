@@ -1,14 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { dispatchControlSurfaceFileAction } from "./platform-actions.js";
+import { dispatchControlSurfaceFileAction, dispatchControlSurfaceImageAction } from "./platform-actions.js";
 
 const FULL_CAPABILITIES = {
   supportsCallbacks: true,
   supportsEdits: true,
   supportsRichTextPreview: true,
   supportsLongFormPagination: true,
-  supportsUploads: true
+  supportsUploads: true,
+  canSendImage: true,
+  canSendFile: true,
+  canReceiveImage: true,
+  canReceiveFile: true,
+  canReceiveVoice: true,
+  canUseRemoteImageUrl: false
 } as const;
 
 test("dispatchControlSurfaceFileAction sends files when uploads are supported", async () => {
@@ -49,5 +55,23 @@ test("dispatchControlSurfaceFileAction blocks file delivery when uploads are una
     outcome: "failed",
     reason: "capability_blocked",
     deliveryRef: { messageId: null }
+  });
+});
+
+test("dispatchControlSurfaceImageAction sends images when supported", async () => {
+  const result = await dispatchControlSurfaceImageAction({
+    capabilities: FULL_CAPABILITIES,
+    request: {
+      chatId: "chat-1",
+      imagePath: "/tmp/preview.png",
+      caption: "preview"
+    },
+    sendImage: async () => ({ messageId: 7 })
+  });
+
+  assert.deepEqual(result, {
+    action: "send_control_surface_image",
+    outcome: "sent",
+    deliveryRef: { messageId: 7 }
   });
 });

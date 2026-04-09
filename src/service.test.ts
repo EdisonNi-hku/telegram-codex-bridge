@@ -8999,7 +8999,13 @@ test("phase6 handles send_telegram_document dynamic tool calls and still rejects
     }]);
     assert.equal(requestResults.length, 1);
     assert.equal(requestResults[0]?.id, "tool-call-1");
-    assert.match(JSON.stringify(requestResults[0]?.result ?? {}), /"success":true/u);
+    assert.deepEqual(requestResults[0]?.result, {
+      success: true,
+      contentItems: [{
+        type: "inputText",
+        text: "File sent to the active control surface (1)."
+      }]
+    });
     assert.deepEqual(requestErrors, [
       {
         id: "auth-refresh-1",
@@ -9008,6 +9014,72 @@ test("phase6 handles send_telegram_document dynamic tool calls and still rejects
       }
     ]);
     assert.match(sent.join("\n"), /ChatGPT 登录令牌刷新/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("phase6 does not retry permanent HTTP 400 file-send failures", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const attempts: Array<{ chatId: string; filePath: string; options?: any }> = [];
+  const requestResults: Array<{ id: string; result: unknown }> = [];
+
+  try {
+    authorizeNumericChatWithSession(store, "1");
+    const session = createSession(store, "1");
+    store.setActiveSession("1", session.sessionId);
+
+    (service as any).api = {
+      sendDocument: async (chatId: string, filePath: string, options?: any) => {
+        attempts.push({ chatId, filePath, options });
+        throw {
+          response: {
+            status: 400
+          }
+        };
+      },
+      editMessageText: async (_chatId: string, messageId: number, text: string, _options?: any) =>
+        createFakeTelegramMessage(messageId, text)
+    };
+
+    (service as any).appServer = {
+      isRunning: true,
+      startThread: async () => ({ thread: { id: "thread-phase6-400" } }),
+      startTurn: async () => ({ turn: { id: "turn-phase6-400", status: "inProgress" } }),
+      resumeThread: async () => ({ thread: { id: "thread-phase6-400", turns: [] } }),
+      respondToServerRequest: async (id: string, result: unknown) => {
+        requestResults.push({ id, result });
+      },
+      respondToServerRequestError: async () => {}
+    };
+
+    await (service as any).startRealTurn("1", session, "Need phase6 permanent HTTP failure surface");
+
+    await (service as any).handleAppServerServerRequest({
+      id: "tool-call-400",
+      method: "item/tool/call",
+      params: {
+        threadId: "thread-phase6-400",
+        turnId: "turn-phase6-400",
+        callId: "call-400",
+        tool: "send_telegram_document",
+        arguments: {
+          path: "/tmp/diagram.zip"
+        }
+      }
+    });
+
+    assert.equal(attempts.length, 1);
+    assert.deepEqual(requestResults, [{
+      id: "tool-call-400",
+      result: {
+        success: false,
+        contentItems: [{
+          type: "inputText",
+          text: "Failed to send the file to the active control surface. Please verify the file path and retry."
+        }]
+      }
+    }]);
   } finally {
     await cleanup();
   }

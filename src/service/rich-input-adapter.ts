@@ -4,13 +4,14 @@ import { basename, extname, join, resolve } from "node:path";
 
 import type { CodexAppServerClient, UserInput } from "../codex/app-server.js";
 import type { BridgeConfig } from "../config.js";
+import type { InboundUserMediaEvent, ResolvedMediaAsset } from "../core/interaction-model/media.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import { commandExists, runCommand } from "../process.js";
 import type { BridgeStateStore } from "../state/store.js";
 import type { TelegramApi, TelegramMessage } from "../telegram/api.js";
 import type { SessionRow } from "../types.js";
-import { normalizeAndTruncate, normalizeWhitespace, splitStructuredInputCommand } from "../util/text.js";
+import { normalizeAndTruncate, normalizeWhitespace, splitStructuredInputCommand, truncateText } from "../util/text.js";
 import { asRecord, getArray, getString } from "../util/untyped.js";
 
 const TELEGRAM_IMAGE_CACHE_DIRNAME = "telegram-images";
@@ -25,6 +26,14 @@ const VOICE_REALTIME_CHUNK_BYTES = 32_000;
 const VOICE_REALTIME_WAIT_TIMEOUT_MS = 30_000;
 const VOICE_REALTIME_POLL_INTERVAL_MS = 1_000;
 const VOICE_REALTIME_TRANSCRIPTION_PROMPT = "请逐字转写收到的语音，只返回转写文本，不要解释。";
+const ATTACHMENT_CONTENT_CHAR_LIMIT = 12_000;
+const TEXTUAL_ATTACHMENT_EXTENSIONS = new Set([
+  ".txt", ".md", ".markdown", ".json", ".jsonl", ".yaml", ".yml", ".xml", ".csv", ".ts", ".tsx", ".js", ".jsx",
+  ".mjs", ".cjs", ".py", ".sh", ".bash", ".zsh", ".log", ".ini", ".cfg", ".conf"
+]);
+const TEXTUTIL_ATTACHMENT_EXTENSIONS = new Set([
+  ".doc", ".docx", ".rtf", ".rtfd", ".odt", ".html", ".htm", ".webarchive"
+]);
 
 interface PendingRichInputComposer {
   sessionId: string;
@@ -42,6 +51,21 @@ interface VoiceProcessingTask {
   sessionId: string;
   messageId: number;
   telegramFileId: string;
+}
+
+interface RegisteredAttachment {
+  attachmentId: string;
+  sessionId: string;
+  filename: string;
+  localPath: string;
+  kind: ResolvedMediaAsset["descriptor"]["kind"];
+  sha256: string | null;
+  createdAt: string;
+}
+
+interface PendingAutoAttachState {
+  sessionId: string;
+  attachmentIds: string[];
 }
 
 export type RichInputTurnAvailability =
@@ -93,6 +117,8 @@ interface RichInputAdapterDeps {
 
 export class RichInputAdapter {
   private readonly pendingRichInputComposers = new Map<string, PendingRichInputComposer>();
+  private readonly attachmentsBySessionId = new Map<string, RegisteredAttachment[]>();
+  private readonly pendingAutoAttachByChatId = new Map<string, PendingAutoAttachState>();
   private lastCachePruneAt = 0;
   private voiceTaskQueue: Promise<void> = Promise.resolve();
   private pendingVoiceTaskCount = 0;
@@ -109,11 +135,14 @@ export class RichInputAdapter {
   }
 
   async cancelPendingRichInputComposer(chatId: string): Promise<boolean> {
-    if (!this.pendingRichInputComposers.has(chatId)) {
+    const hadComposer = this.pendingRichInputComposers.has(chatId);
+    const hadAutoAttach = this.pendingAutoAttachByChatId.has(chatId);
+    if (!hadComposer && !hadAutoAttach) {
       return false;
     }
 
     this.pendingRichInputComposers.delete(chatId);
+    this.pendingAutoAttachByChatId.delete(chatId);
     await this.deps.safeSendMessage(chatId, "已取消待发送的结构化输入。");
     return true;
   }
@@ -201,6 +230,79 @@ export class RichInputAdapter {
     }], parsed.prompt, `引用：${name}`);
   }
 
+  async handleAttach(chatId: string, args: string): Promise<void> {
+    const store = this.deps.getStore();
+    if (!store) {
+      return;
+    }
+
+    const activeSession = store.getActiveSession(chatId);
+    if (!activeSession) {
+      await this.deps.safeSendMessage(chatId, "当前没有活动会话。");
+      return;
+    }
+
+    const parsed = splitStructuredInputCommand(args);
+    if (!parsed.value) {
+      await this.deps.safeSendMessage(chatId, "用法：/attach <附件ID> :: 任务说明");
+      return;
+    }
+
+    const attachment = this.findAttachment(activeSession.sessionId, parsed.value);
+    if (!attachment) {
+      await this.deps.safeSendMessage(chatId, `找不到附件：${parsed.value}`);
+      return;
+    }
+
+    this.pendingAutoAttachByChatId.delete(chatId);
+    const attachmentInputs = await this.buildAttachmentInputs(attachment);
+    if (attachmentInputs.length === 0) {
+      await this.deps.safeSendMessage(chatId, `当前无法把附件 ${attachment.filename} 转成 Codex 可读输入。`);
+      return;
+    }
+    await this.submitOrQueueRichInput(chatId, activeSession, attachmentInputs, parsed.prompt, `附件：${attachment.filename}`);
+  }
+
+  async handleAutoAttachText(chatId: string, text: string): Promise<boolean> {
+    const store = this.deps.getStore();
+    if (!store) {
+      return false;
+    }
+
+    const pending = this.pendingAutoAttachByChatId.get(chatId);
+    if (!pending) {
+      return false;
+    }
+
+    const activeSession = store.getActiveSession(chatId);
+    if (!activeSession || activeSession.sessionId !== pending.sessionId) {
+      this.pendingAutoAttachByChatId.delete(chatId);
+      return false;
+    }
+
+    const attachments = pending.attachmentIds
+      .map((attachmentId) => this.findAttachment(activeSession.sessionId, attachmentId))
+      .filter((attachment): attachment is RegisteredAttachment => Boolean(attachment));
+    this.pendingAutoAttachByChatId.delete(chatId);
+    if (attachments.length === 0) {
+      return false;
+    }
+
+    const attachmentInputs = (await Promise.all(
+      attachments.map(async (attachment) => await this.buildAttachmentInputs(attachment))
+    )).flat();
+    if (attachmentInputs.length === 0) {
+      await this.deps.safeSendMessage(chatId, "最近附件暂时无法自动转成 Codex 可读输入，请改用支持文本提取的文件，或稍后再试。");
+      return false;
+    }
+
+    await this.submitRichInputs(chatId, activeSession, [
+      ...attachmentInputs,
+      { type: "text", text }
+    ]);
+    return true;
+  }
+
   async handleVoiceMessage(chatId: string, message: TelegramMessage): Promise<void> {
     const store = this.deps.getStore();
     const api = this.deps.getApi();
@@ -278,6 +380,53 @@ export class RichInputAdapter {
       );
     } catch {
       await this.deps.safeSendMessage(chatId, "暂时无法读取这张图片，请稍后重试。");
+    }
+  }
+
+  async handleInboundMediaEvent(chatId: string, event: InboundUserMediaEvent): Promise<void> {
+    const store = this.deps.getStore();
+    if (!store) {
+      return;
+    }
+
+    const activeSession = store.getActiveSession(chatId);
+    if (!activeSession) {
+      await this.deps.safeSendMessage(chatId, "请先发送 /new 选择项目。");
+      return;
+    }
+
+    const resolvedImages = event.media.filter((asset) => asset.status === "resolved" && asset.descriptor.kind === "image");
+    const resolvedFiles = event.media.filter((asset) => asset.status === "resolved" && asset.descriptor.kind === "file");
+    const unresolved = event.media.filter((asset) => asset.status === "unresolved");
+
+    if (resolvedFiles.length > 0) {
+      await this.sendAttachmentReceipt(chatId, activeSession.sessionId, resolvedFiles);
+    }
+
+    if (unresolved.length > 0) {
+      await this.sendUnresolvedMediaNotice(chatId, unresolved);
+    }
+
+    if (resolvedImages.length > 0) {
+      const imageInputs: UserInput[] = resolvedImages
+        .map((asset) => asset.localPath)
+        .filter((path): path is string => Boolean(path))
+        .map((path) => ({
+          type: "localImage" as const,
+          path
+        }));
+      await this.submitOrQueueRichInput(
+        chatId,
+        activeSession,
+        imageInputs,
+        event.text,
+        imageInputs.length > 1 ? `${imageInputs.length} 张图片` : "图片"
+      );
+      return;
+    }
+
+    if (event.text) {
+      await this.submitTextInput(chatId, activeSession, event.text);
     }
   }
 
@@ -442,6 +591,43 @@ export class RichInputAdapter {
       sourceKind: "voice",
       transcript
     });
+  }
+
+  private async submitTextInput(chatId: string, session: SessionRow, text: string): Promise<void> {
+    if (session.status === "running") {
+      const steerAvailability = this.deps.getBlockedTurnSteerAvailability(chatId, session);
+      if (steerAvailability.kind === "available") {
+        try {
+          const appServer = await this.deps.ensureAppServerAvailable();
+          await appServer.steerTurn({
+            threadId: steerAvailability.threadId,
+            expectedTurnId: steerAvailability.turnId,
+            input: [{ type: "text", text }]
+          });
+          await this.deps.reanchorAcceptedTurnContinuation(chatId, session.sessionId);
+        } catch (error) {
+          await this.deps.logger.warn("text turn steer failed for inbound media event", {
+            chatId,
+            sessionId: session.sessionId,
+            threadId: steerAvailability.threadId,
+            turnId: steerAvailability.turnId,
+            error: `${error}`
+          });
+          await this.deps.safeSendMessage(chatId, "Codex 服务暂时不可用，请稍后重试。");
+        }
+        return;
+      }
+
+      if (steerAvailability.kind === "interaction_pending") {
+        await this.deps.sendPendingInteractionBlockNotice(chatId);
+        return;
+      }
+
+      await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。");
+      return;
+    }
+
+    await this.deps.startTextTurn(chatId, session, text);
   }
 
   private async submitRichInputs(chatId: string, session: SessionRow, input: UserInput[]): Promise<void> {
@@ -740,6 +926,151 @@ export class RichInputAdapter {
       }
     }));
   }
+
+  private async sendAttachmentReceipt(
+    chatId: string,
+    sessionId: string,
+    assets: ResolvedMediaAsset[]
+  ): Promise<void> {
+    const registered = assets.map((asset) => this.registerAttachment(sessionId, asset));
+    this.pendingAutoAttachByChatId.set(chatId, {
+      sessionId,
+      attachmentIds: registered.map((item) => item.attachmentId)
+    });
+    const summary = registered
+      .map((item) => `- ${item.filename} (${item.attachmentId})`)
+      .join("\n");
+    await this.deps.safeSendMessage(
+      chatId,
+      registered.length === 1
+        ? `已接收文件附件：\n${summary}\n下一条消息会自动带上最近附件；也可用 /attach <附件ID> :: 任务说明。`
+        : `已接收 ${registered.length} 个文件附件：\n${summary}\n下一条消息会自动带上最近附件；也可用 /attach <附件ID> :: 任务说明。`
+    );
+  }
+
+  private registerAttachment(sessionId: string, asset: ResolvedMediaAsset): RegisteredAttachment {
+    const existing = this.attachmentsBySessionId.get(sessionId) ?? [];
+    const attachmentIdBase = asset.sha256 ? `att-${asset.sha256.slice(0, 10)}` : `att-${randomUUID().slice(0, 10)}`;
+    const duplicate = existing.find((entry) => entry.sha256 && entry.sha256 === asset.sha256);
+    if (duplicate) {
+      return duplicate;
+    }
+
+    const registered: RegisteredAttachment = {
+      attachmentId: existing.some((entry) => entry.attachmentId === attachmentIdBase)
+        ? `${attachmentIdBase}-${existing.length + 1}`
+        : attachmentIdBase,
+      sessionId,
+      filename: asset.descriptor.filename ?? basename(asset.localPath ?? "attachment.bin"),
+      localPath: asset.localPath ?? "",
+      kind: asset.descriptor.kind,
+      sha256: asset.sha256,
+      createdAt: asset.resolvedAt ?? new Date().toISOString()
+    };
+    existing.push(registered);
+    this.attachmentsBySessionId.set(sessionId, existing);
+    return registered;
+  }
+
+  private async sendUnresolvedMediaNotice(chatId: string, assets: ResolvedMediaAsset[]): Promise<void> {
+    if (
+      assets.length === 1
+      && assets[0]?.descriptor.kind === "image"
+      && assets[0].descriptor.platformRef?.platform === "telegram"
+    ) {
+      await this.deps.safeSendMessage(chatId, "暂时无法读取这张图片，请稍后重试。");
+      return;
+    }
+
+    const lines = assets.map((asset) => {
+      const name = asset.descriptor.filename ?? asset.descriptor.kind;
+      return `- ${name}: ${asset.failureReason ?? "unknown"}`;
+    }).join("\n");
+    await this.deps.safeSendMessage(chatId, `以下附件未能完成解析：\n${lines}`);
+  }
+
+  private findAttachment(sessionId: string, attachmentId: string): RegisteredAttachment | null {
+    return this.attachmentsBySessionId.get(sessionId)?.find((entry) => entry.attachmentId === attachmentId) ?? null;
+  }
+
+  private async buildAttachmentInputs(attachment: RegisteredAttachment): Promise<UserInput[]> {
+    const extracted = await this.extractAttachmentText(attachment);
+    if (!extracted) {
+      return [];
+    }
+
+    return [{
+      type: "text",
+      text: extracted
+    }];
+  }
+
+  private async extractAttachmentText(attachment: RegisteredAttachment): Promise<string | null> {
+    const extension = extname(attachment.filename).toLowerCase();
+    let content: string | null = null;
+
+    if (TEXTUAL_ATTACHMENT_EXTENSIONS.has(extension)) {
+      content = normalizeWhitespacePreservingLines(await readFile(attachment.localPath, "utf8"));
+    } else if (extension === ".pdf") {
+      content = await this.extractPdfText(attachment.localPath);
+    } else if (TEXTUTIL_ATTACHMENT_EXTENSIONS.has(extension)) {
+      content = await this.extractTextWithTextutil(attachment.localPath);
+    }
+
+    const normalized = content ? content.trim() : "";
+    if (!normalized) {
+      return null;
+    }
+
+    const truncated = truncateText(normalized, ATTACHMENT_CONTENT_CHAR_LIMIT);
+    return truncated === normalized
+      ? `以下是附件《${attachment.filename}》的提取内容：\n\n${truncated}`
+      : `以下是附件《${attachment.filename}》的提取内容（已截断）：\n\n${truncated}`;
+  }
+
+  private async extractPdfText(filePath: string): Promise<string | null> {
+    if (!await commandExists("pdftotext")) {
+      return null;
+    }
+
+    const result = await runCommand("pdftotext", [
+      "-layout",
+      "-nopgbrk",
+      filePath,
+      "-"
+    ]);
+    if (result.exitCode !== 0) {
+      return null;
+    }
+    return normalizeWhitespacePreservingLines(result.stdout);
+  }
+
+  private async extractTextWithTextutil(filePath: string): Promise<string | null> {
+    if (!await commandExists("textutil")) {
+      return null;
+    }
+
+    const result = await runCommand("textutil", [
+      "-convert",
+      "txt",
+      "-stdout",
+      filePath
+    ]);
+    if (result.exitCode !== 0) {
+      return null;
+    }
+    return normalizeWhitespacePreservingLines(result.stdout);
+  }
+
+}
+
+function normalizeWhitespacePreservingLines(text: string): string {
+  return text
+    .split(/\r?\n/gu)
+    .map((line) => line.replace(/\s+/gu, " ").trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
 }
 
 function parseMentionValue(value: string): {

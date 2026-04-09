@@ -121,6 +121,51 @@ test("feishu compat sendDocument does not fail after the file is already deliver
   }
 });
 
+test("feishu compat sendDocument surfaces missing upload scopes clearly", async () => {
+  const { api, cleanup } = await createCompat();
+  const tempFile = join(tmpdir(), `ctb-feishu-scope-${Date.now()}.txt`);
+
+  try {
+    await writeFile(tempFile, "stub", "utf8");
+    await api.ready();
+    const refs = api.refsStore;
+    const localChatId = refs.getOrCreateLocalChatId("oc_chat_1");
+    (api as any).client = {
+      im: {
+        v1: {
+          file: {
+            create: async () => {
+              throw {
+                response: {
+                  data: {
+                    code: 99991672,
+                    msg: "Access denied",
+                    error: {
+                      log_id: "log-1",
+                      permission_violations: [
+                        { subject: "im:resource:upload" },
+                        { subject: "im:resource" }
+                      ]
+                    }
+                  }
+                }
+              };
+            }
+          }
+        }
+      }
+    };
+
+    await assert.rejects(
+      api.sendDocument(`${localChatId}`, tempFile),
+      /Missing Feishu app scopes: im:resource:upload, im:resource.*publish the latest app version.*log_id=log-1/u
+    );
+  } finally {
+    await rm(tempFile, { force: true });
+    await cleanup();
+  }
+});
+
 test("feishu compat edit fallback deletes the previous remote card after replacement", async () => {
   const { api, cleanup } = await createCompat();
 

@@ -7,7 +7,10 @@ import { join } from "node:path";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import type { CodexAppServerClient } from "../codex/app-server.js";
-import type { ControlSurfaceFileResult } from "../core/interaction-model/platform-actions.js";
+import type {
+  ControlSurfaceFileResult,
+  ControlSurfaceImageResult
+} from "../core/interaction-model/platform-actions.js";
 import { TELEGRAM_PACK } from "../packs/telegram/index.js";
 import { BridgeStateStore } from "../state/store.js";
 import { TurnCoordinator } from "./turn-coordinator.js";
@@ -78,6 +81,13 @@ async function createCoordinatorContext(options: {
       fileName?: string;
     }
   ) => Promise<ControlSurfaceFileResult>;
+  sendControlSurfaceImage?: (
+    chatId: string,
+    imagePath: string,
+    options?: {
+      caption?: string;
+    }
+  ) => Promise<ControlSurfaceImageResult>;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ctb-turn-coordinator-test-"));
   const paths = createTestPaths(root);
@@ -100,6 +110,13 @@ async function createCoordinatorContext(options: {
       caption?: string;
       parseMode?: "HTML";
       fileName?: string;
+    };
+  }> = [];
+  const sentImages: Array<{
+    chatId: string;
+    imagePath: string;
+    options?: {
+      caption?: string;
     };
   }> = [];
   const sentHtmlMessages: Array<{
@@ -175,6 +192,22 @@ async function createCoordinatorContext(options: {
       return true;
     },
     platformActions: {
+      sendControlSurfaceImage: async ({ chatId, imagePath, caption }) => {
+        if (options.sendControlSurfaceImage) {
+          const sent = await options.sendControlSurfaceImage(chatId, imagePath, caption ? { caption } : undefined);
+          if (sent.outcome === "sent") {
+            sentImages.push(caption ? { chatId, imagePath, options: { caption } } : { chatId, imagePath });
+          }
+          return sent;
+        }
+
+        sentImages.push(caption ? { chatId, imagePath, options: { caption } } : { chatId, imagePath });
+        return {
+          action: "send_control_surface_image",
+          outcome: "sent",
+          deliveryRef: { messageId: nextMessageId++ }
+        };
+      },
       sendControlSurfaceFile: async ({ chatId, filePath, caption, fileName }) => {
         if (options.sendControlSurfaceFile) {
           const sent = await options.sendControlSurfaceFile(chatId, filePath, {
@@ -228,6 +261,7 @@ async function createCoordinatorContext(options: {
     syncCalls,
     safeMessages,
     sentDocuments,
+    sentImages,
     sentHtmlMessages,
     interactionResolutions,
     acceptedTurnStartReanchors,
@@ -1865,6 +1899,54 @@ test("TurnCoordinator rejects send_telegram_document when the pack blocks upload
     assert.equal(requestResults.length, 1);
     assert.match(JSON.stringify(requestResults[0]?.payload ?? {}), /"success":false/u);
     assert.match(JSON.stringify(requestResults[0]?.payload ?? {}), /does not allow control-surface file delivery/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator handles send_telegram_image tool calls by sending images and replying success", async () => {
+  const requestResults: Array<{ id: string; payload: unknown }> = [];
+  const { coordinator, store, sentImages, cleanup } = await createCoordinatorContext({
+    appServer: {
+      respondToServerRequest: async (id, payload) => {
+        requestResults.push({ id: `${id}`, payload });
+      }
+    }
+  });
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+
+    await coordinator.beginActiveTurn("chat-1", session, "thread-image", "turn-image", "inProgress");
+
+    await coordinator.handleAppServerServerRequest({
+      id: "tool-call-image",
+      method: "item/tool/call",
+      params: {
+        threadId: "thread-image",
+        turnId: "turn-image",
+        tool: "send_telegram_image",
+        arguments: {
+          path: "/tmp/preview.png",
+          caption: "preview"
+        }
+      }
+    });
+
+    assert.deepEqual(sentImages, [{
+      chatId: "chat-1",
+      imagePath: "/tmp/preview.png",
+      options: {
+        caption: "preview"
+      }
+    }]);
+    assert.equal(requestResults.length, 1);
+    assert.match(JSON.stringify(requestResults[0]?.payload ?? {}), /"success":true/u);
+    assert.match(JSON.stringify(requestResults[0]?.payload ?? {}), /Image sent to the active control surface/u);
   } finally {
     await cleanup();
   }

@@ -34,6 +34,7 @@ export type TelegramCommandHandlerKey =
   | "handleCompact"
   | "handleLocalImage"
   | "handleMention"
+  | "handleAttach"
   | "handleThread";
 
 interface LocalizedTelegramCommandEntry {
@@ -76,6 +77,7 @@ const TELEGRAM_COMMAND_ENTRIES: LocalizedTelegramCommandEntry[] = [
   { command: "compact", handler: "handleCompact", description: { zh: "压缩当前线程上下文", en: "Compact the current thread context" }, helpLines: [{ zh: "/compact 压缩当前线程上下文", en: "/compact Compact the current thread context" }] },
   { command: "local_image", handler: "handleLocalImage", description: { zh: "发送服务器本地图片输入", en: "Send a local server image input" }, helpLines: [{ zh: "/local_image <路径> :: 任务说明 发送本地图片输入", en: "/local_image <path> :: <prompt> Send a local image input" }] },
   { command: "mention", handler: "handleMention", description: { zh: "发送结构化引用输入", en: "Send a structured mention input" }, helpLines: [{ zh: "/mention <path> :: 任务说明 发送结构化引用输入", en: "/mention <path> :: <prompt> Send a structured mention input" }] },
+  { command: "attach", handler: "handleAttach", description: { zh: "引用最近接收的附件", en: "Reference a received attachment" }, helpLines: [{ zh: "/attach <附件ID> :: 任务说明 引用已接收附件；`::` 用来分隔附件ID和任务说明", en: "/attach <attachment-id> :: <prompt> Reference a received attachment; `::` separates the id from the prompt" }] },
   { command: "thread", handler: "handleThread", description: { zh: "设置线程名称或元数据", en: "Set thread name or metadata" }, helpLines: [{ zh: "/thread name <名称> 或 /thread meta branch=<分支> sha=<提交> origin=<URL> 或 /thread clean-terminals", en: "/thread name <name> or /thread meta branch=<branch> sha=<commit> origin=<url> or /thread clean-terminals" }] },
   { command: "where", handler: "sendWhere", description: { zh: "查看当前会话、项目和定位 ID", en: "Show current session and IDs" }, helpLines: [{ zh: "/where 查看当前会话、项目和定位 ID", en: "/where Show the current session, project, and IDs" }] },
   { command: "inspect", handler: "handleInspect", description: { zh: "查看当前任务详情", en: "Inspect the current task" }, helpLines: [{ zh: "/inspect 查看当前任务详情", en: "/inspect Inspect the current task" }] },

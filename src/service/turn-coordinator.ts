@@ -15,6 +15,8 @@ import {
   type PlatformActionRequestSupport
 } from "../codex/server-request-policy.js";
 import {
+  type ControlSurfaceImageRequest,
+  type ControlSurfaceImageResult,
   type ControlSurfaceFileRequest,
   type ControlSurfaceFileResult
 } from "../core/interaction-model/platform-actions.js";
@@ -188,6 +190,7 @@ interface TurnCoordinatorDeps {
   disposeRuntimeCards: (activeTurn: ActiveTurnState) => void;
   safeSendMessage: (chatId: string, text: string) => Promise<boolean>;
   platformActions: {
+    sendControlSurfaceImage: (request: ControlSurfaceImageRequest) => Promise<ControlSurfaceImageResult>;
     sendControlSurfaceFile: (request: ControlSurfaceFileRequest) => Promise<ControlSurfaceFileResult>;
   };
   dynamicToolDeclarations: BridgeDynamicToolDeclaration[];
@@ -1590,48 +1593,49 @@ export class TurnCoordinator {
     support: PlatformActionRequestSupport,
     appServer: CodexAppServerClient
   ): Promise<boolean> {
-    if (support.action !== "send_control_surface_file") {
-      return false;
-    }
-
     const activeTurn = this.findActiveTurnForRequestParams(request.params);
     const path = support.path;
     const caption = support.caption ?? undefined;
     const fileName = support.fileName ?? undefined;
+    const actionLabel = support.action;
     if (!activeTurn) {
       await appServer.respondToServerRequest(request.id, {
         success: false,
-        contentItems: [{
-          type: "text",
-          text: `No active bridge turn is available for ${support.toolName}.`
-        }]
+        contentItems: [buildDynamicToolTextContentItem(
+          `No active bridge turn is available for ${support.toolName}.`
+        )]
       });
       return true;
     }
 
     if (!path) {
-      await this.appendDebugJournal(activeTurn, "bridge/serverRequest/platformAction/send_control_surface_file", {
+      await this.appendDebugJournal(activeTurn, `bridge/serverRequest/platformAction/${actionLabel}`, {
         requestId: serializeServerRequestId(request.id),
         tool: support.toolName,
         reason: "missing_path"
       });
       await appServer.respondToServerRequest(request.id, {
         success: false,
-        contentItems: [{
-          type: "text",
-          text: `${support.toolName} requires a non-empty \`path\` argument.`
-        }]
+        contentItems: [buildDynamicToolTextContentItem(
+          `${support.toolName} requires a non-empty \`path\` argument.`
+        )]
       });
       return true;
     }
 
-    const sent = await this.deps.platformActions.sendControlSurfaceFile({
-      chatId: activeTurn.chatId,
-      filePath: path,
-      ...(caption ? { caption } : {}),
-      ...(fileName ? { fileName } : {})
-    });
-    await this.appendDebugJournal(activeTurn, "bridge/serverRequest/platformAction/send_control_surface_file", {
+    const sent = support.action === "send_control_surface_image"
+      ? await this.deps.platformActions.sendControlSurfaceImage({
+        chatId: activeTurn.chatId,
+        imagePath: path,
+        ...(caption ? { caption } : {})
+      })
+      : await this.deps.platformActions.sendControlSurfaceFile({
+        chatId: activeTurn.chatId,
+        filePath: path,
+        ...(caption ? { caption } : {}),
+        ...(fileName ? { fileName } : {})
+      });
+    await this.appendDebugJournal(activeTurn, `bridge/serverRequest/platformAction/${actionLabel}`, {
       requestId: serializeServerRequestId(request.id),
       tool: support.toolName,
       path,
@@ -1642,17 +1646,32 @@ export class TurnCoordinator {
     });
     await appServer.respondToServerRequest(request.id, {
       success: sent.outcome === "sent",
-      contentItems: [{
-        type: "text",
-        text: sent.outcome === "sent"
-          ? `File sent to the active control surface (${activeTurn.chatId}).`
+      contentItems: [buildDynamicToolTextContentItem(
+        sent.outcome === "sent"
+          ? support.action === "send_control_surface_image"
+            ? `Image sent to the active control surface (${activeTurn.chatId}).`
+            : `File sent to the active control surface (${activeTurn.chatId}).`
           : sent.reason === "capability_blocked"
-            ? "The current platform pack does not allow control-surface file delivery."
-            : "Failed to send the file to the active control surface. Please verify the file path and retry."
-      }]
+            ? support.action === "send_control_surface_image"
+              ? "The current platform pack does not allow control-surface image delivery."
+              : "The current platform pack does not allow control-surface file delivery."
+            : support.action === "send_control_surface_image"
+              ? "Failed to send the image to the active control surface. Please verify the image path and retry."
+              : "Failed to send the file to the active control surface. Please verify the file path and retry."
+      )]
     });
     return true;
   }
+}
+
+function buildDynamicToolTextContentItem(text: string): {
+  type: "inputText";
+  text: string;
+} {
+  return {
+    type: "inputText",
+    text
+  };
 }
 
 function isMissingRemoteThreadError(error: unknown): boolean {

@@ -4,6 +4,7 @@ import { basename, dirname } from "node:path";
 import type { PerformanceRecorder } from "../perf/recorder.js";
 import type { PerformanceTransport } from "../perf/types.js";
 import { commandExists, runCommand, type CommandResult } from "../process.js";
+import type { BridgeInboundMedia } from "../service/media-ingress.js";
 
 export interface TelegramUser {
   id: number;
@@ -38,6 +39,13 @@ export interface TelegramFile {
   file_size?: number;
 }
 
+export interface TelegramDocument {
+  file_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+}
+
 export interface TelegramMessage {
   message_id: number;
   from?: TelegramUser;
@@ -46,7 +54,9 @@ export interface TelegramMessage {
   text?: string;
   caption?: string;
   photo?: TelegramPhotoSize[];
+  document?: TelegramDocument;
   voice?: TelegramVoice;
+  bridgeMedia?: BridgeInboundMedia[];
 }
 
 export interface TelegramCallbackQuery {

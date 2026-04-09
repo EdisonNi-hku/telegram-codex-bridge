@@ -5,6 +5,7 @@ import type { ReadinessSnapshot } from "../../types.js";
 import {
   applyFeishuSetupObservation,
   applyFeishuSetupToSnapshot,
+  FEISHU_SETUP_CHECKLIST,
   resetFeishuSetupCycle
 } from "./setup.js";
 
@@ -72,4 +73,8 @@ test("resetFeishuSetupCycle clears previous Feishu observations", () => {
   assert.equal(reset.details.packMetadata?.feishuLastTextIngressAt, null);
   assert.equal(reset.details.packMetadata?.feishuLastInteractiveCardSentAt, null);
   assert.equal(reset.details.packMetadata?.feishuLastCardCallbackAt, null);
+});
+
+test("feishu setup checklist includes upload scopes for file sending", () => {
+  assert.ok(FEISHU_SETUP_CHECKLIST.includes("grant im:resource:upload or im:resource for file and image upload"));
 });

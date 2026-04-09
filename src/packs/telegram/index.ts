@@ -31,6 +31,18 @@ const TELEGRAM_DYNAMIC_TOOLS = [{
     },
     required: ["path"]
   }
+}, {
+  toolName: "send_telegram_image",
+  action: "send_control_surface_image",
+  description: "Send a local server image to the active control surface.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      path: { type: "string" },
+      caption: { type: "string" }
+    },
+    required: ["path"]
+  }
 }] as const;
 
 async function validateTelegramToken(token: string, baseUrl: string): Promise<{
@@ -98,7 +110,12 @@ function buildPackHealthReport(options: {
     issues,
     metadata: {
       telegramBotUsername: options.username ?? null,
-      telegramBotId: options.botId ?? null
+      telegramBotId: options.botId ?? null,
+      mediaCanSendImage: TELEGRAM_PACK.capabilities.canSendImage,
+      mediaCanSendFile: TELEGRAM_PACK.capabilities.canSendFile,
+      mediaCanReceiveImage: TELEGRAM_PACK.capabilities.canReceiveImage,
+      mediaCanReceiveFile: TELEGRAM_PACK.capabilities.canReceiveFile,
+      mediaCanReceiveVoice: TELEGRAM_PACK.capabilities.canReceiveVoice
     }
   };
 }

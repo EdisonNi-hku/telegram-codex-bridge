@@ -31,6 +31,17 @@ test("buildThreadStartParams requests full-access sandbox", () => {
         },
         required: ["path"]
       }
+    }, {
+      name: "send_telegram_image",
+      description: "Send a local server image to the active control surface.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          caption: { type: "string" }
+        },
+        required: ["path"]
+      }
     }]
   });
 });

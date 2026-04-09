@@ -18,6 +18,7 @@ import {
   type InteractionResolutionSource,
   type PendingInteractionTerminalState
 } from "./service/interaction-broker.js";
+import { MediaIngressService } from "./service/media-ingress.js";
 import { RichInputAdapter } from "./service/rich-input-adapter.js";
 import { ProjectBrowserCoordinator } from "./service/project-browser-coordinator.js";
 import { RuntimeNoticeBroadcaster } from "./service/runtime-notice-broadcaster.js";
@@ -35,7 +36,10 @@ import {
   formatVisibleRuntimeState,
   selectStatusProgressText
 } from "./core/workflow/runtime-workflow.js";
-import { dispatchControlSurfaceFileAction } from "./core/interaction-model/platform-actions.js";
+import {
+  dispatchControlSurfaceFileAction,
+  dispatchControlSurfaceImageAction
+} from "./core/interaction-model/platform-actions.js";
 import {
   createPlatformChatRef,
   isSamePlatformChatRef
@@ -194,6 +198,7 @@ export class BridgeService {
   private readonly runtimeCardTraceLoggers: Record<RuntimeCardMessageState["surface"], Logger>;
   private readonly codexCommandCoordinator: CodexCommandCoordinator;
   private readonly interactionBroker: InteractionBroker;
+  private readonly mediaIngressService: MediaIngressService;
   private readonly richInputAdapter: RichInputAdapter;
   private readonly projectBrowserCoordinator: ProjectBrowserCoordinator;
   private readonly runtimeNoticeBroadcaster: RuntimeNoticeBroadcaster;
@@ -403,6 +408,16 @@ export class BridgeService {
         this.runtimeSurfaceController.disposeRuntimeCards(activeTurn as ActiveTurnState),
       safeSendMessage: async (chatId, text) => this.safeSendMessage(chatId, text),
       platformActions: {
+        sendControlSurfaceImage: async (request) => await dispatchControlSurfaceImageAction({
+          capabilities: platformCapabilities,
+          request,
+          sendImage: async ({ chatId, imagePath, caption }) => {
+            const sent = await this.safeSendPhotoResult(chatId, imagePath, {
+              ...(caption ? { caption } : {})
+            });
+            return sent ? { messageId: sent.message_id } : null;
+          }
+        }),
         sendControlSurfaceFile: async (request) => await dispatchControlSurfaceFileAction({
           capabilities: platformCapabilities,
           request,
@@ -425,6 +440,13 @@ export class BridgeService {
         this.safeSendHtmlMessageResult(chatId, html, replyMarkup),
       handleGlobalRuntimeNotice: async (notification) => this.runtimeNoticeBroadcaster.broadcast(notification),
       handleThreadArchiveNotification: async (classified) => this.threadArchiveReconciler.handleNotification(classified)
+    });
+    this.mediaIngressService = new MediaIngressService({
+      logger: this.loggerAdapter,
+      paths: {
+        cacheDir: this.paths.cacheDir
+      },
+      getApi: () => this.api as never
     });
     this.richInputAdapter = new RichInputAdapter({
       getStore: () => this.store,
@@ -798,14 +820,18 @@ export class BridgeService {
       return;
     }
 
-    if (Array.isArray(message.photo) && message.photo.length > 0) {
-      await this.richInputAdapter.handlePhotoMessage(chatId, message);
+    const inboundMediaEvent = await this.mediaIngressService.resolveMessageMedia(message, this.config.activePack);
+    if (inboundMediaEvent) {
+      await this.richInputAdapter.handleInboundMediaEvent(chatId, inboundMediaEvent);
       return;
     }
 
     const command = parseCommand(text);
 
     if (!command) {
+      if (await this.richInputAdapter.handleAutoAttachText(chatId, text)) {
+        return;
+      }
       await this.handleNormalText(chatId, text);
       return;
     }
@@ -1577,6 +1603,11 @@ export class BridgeService {
           await this.handleMention(chatId, args);
         });
       },
+      handleAttach: async () => {
+        await this.runGuardedCommand(chatId, "附件引用暂时不可用，请稍后重试。", async () => {
+          await this.handleAttach(chatId, args);
+        });
+      },
       handleThread: async () => {
         await this.runGuardedCommand(chatId, "当前无法更新线程设置，请稍后重试。", async () => {
           await this.handleThreadCommand(chatId, args);
@@ -1906,6 +1937,10 @@ export class BridgeService {
 
   private async handleMention(chatId: string, args: string): Promise<void> {
     await this.richInputAdapter.handleMention(chatId, args);
+  }
+
+  private async handleAttach(chatId: string, args: string): Promise<void> {
+    await this.richInputAdapter.handleAttach(chatId, args);
   }
 
   private async handleThreadCommand(chatId: string, args: string): Promise<void> {
@@ -3287,11 +3322,23 @@ function getTelegramSendRetryDelayMs(error: unknown, attempt: number): number | 
     return retryAfterMs <= TELEGRAM_SEND_MAX_RETRY_AFTER_MS ? retryAfterMs : null;
   }
 
+  const httpStatus = getGenericHttpResponseStatus(error);
+  if (httpStatus !== null && httpStatus >= 400 && httpStatus < 500) {
+    return null;
+  }
+
   if (error instanceof TelegramApiError) {
     return null;
   }
 
   return TELEGRAM_SEND_RETRY_DELAYS_MS[attempt] ?? null;
+}
+
+function getGenericHttpResponseStatus(error: unknown): number | null {
+  const errorRecord = asRecord(error);
+  const responseRecord = asRecord(errorRecord?.response);
+  const status = getNumber(responseRecord, "status");
+  return typeof status === "number" ? status : null;
 }
 
 function defaultSleep(delayMs: number): Promise<void> {

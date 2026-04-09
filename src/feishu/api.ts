@@ -1,5 +1,6 @@
 import { createReadStream } from "node:fs";
-import { basename, extname } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { basename, dirname, extname } from "node:path";
 
 import * as Lark from "@larksuiteoapi/node-sdk";
 
@@ -104,6 +105,13 @@ interface FeishuObservationRecorder {
   }): void;
 }
 
+export interface FeishuApiErrorDetails {
+  code: number | null;
+  msg: string | null;
+  logId: string | null;
+  permissionViolations: string[];
+}
+
 function formatFeishuApiError(
   action: string,
   response: {
@@ -124,6 +132,68 @@ function formatFeishuApiError(
   }
 
   return `${action}${codeText}: ${detail}`;
+}
+
+function asObjectRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object"
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function getNestedRecord(record: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  return asObjectRecord(record[key]);
+}
+
+function getNestedString(record: Record<string, unknown>, key: string): string | null {
+  return typeof record[key] === "string" ? record[key] as string : null;
+}
+
+function getNestedNumber(record: Record<string, unknown>, key: string): number | null {
+  return typeof record[key] === "number" ? record[key] as number : null;
+}
+
+export function extractFeishuSdkErrorDetails(error: unknown): FeishuApiErrorDetails | null {
+  const errorRecord = asObjectRecord(error);
+  const responseRecord = errorRecord ? getNestedRecord(errorRecord, "response") : null;
+  const dataRecord = responseRecord ? getNestedRecord(responseRecord, "data") : null;
+  if (!dataRecord) {
+    return null;
+  }
+
+  const code = getNestedNumber(dataRecord, "code");
+  const msg = getNestedString(dataRecord, "msg");
+  const errorDetails = getNestedRecord(dataRecord, "error");
+  const logId = errorDetails ? getNestedString(errorDetails, "log_id") : null;
+  const violations = Array.isArray(errorDetails?.permission_violations)
+    ? errorDetails.permission_violations
+      .map((entry) => asObjectRecord(entry))
+      .map((entry) => entry ? getNestedString(entry, "subject") : null)
+      .filter((value): value is string => Boolean(value))
+    : [];
+
+  return {
+    code,
+    msg,
+    logId,
+    permissionViolations: violations
+  };
+}
+
+function formatFeishuSdkError(action: string, error: unknown): string | null {
+  const details = extractFeishuSdkErrorDetails(error);
+  if (!details) {
+    return null;
+  }
+
+  const base = formatFeishuApiError(action, {
+    ...(details.code === null ? {} : { code: details.code }),
+    ...(details.msg === null ? {} : { msg: details.msg })
+  });
+  if (details.code === 99991672 && details.permissionViolations.length > 0) {
+    return `${base}. Missing Feishu app scopes: ${details.permissionViolations.join(", ")}. Grant one of the required upload scopes in the Feishu app and publish the latest app version.${details.logId ? ` log_id=${details.logId}` : ""}`;
+  }
+
+  return details.logId ? `${base}. log_id=${details.logId}` : base;
 }
 
 function detectFeishuFileType(filePath: string): "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream" {
@@ -276,45 +346,49 @@ export class FeishuTelegramApiCompat {
       parseMode?: "HTML";
     }
   ): Promise<TelegramMessage> {
-    await this.refs.ready();
-    const remoteChatId = this.requireRemoteChatId(chatId);
-    const image = await this.client.im.v1.image.create({
-      data: {
-        image_type: "message",
-        image: createReadStream(photoPath)
-      }
-    });
-    const imageKey = image?.image_key;
-    if (!imageKey) {
-      throw new Error("Feishu image upload failed");
-    }
-    const response = await this.client.im.v1.message.create({
-      params: {
-        receive_id_type: "chat_id"
-      },
-      data: {
-        receive_id: remoteChatId,
-        msg_type: "image",
-        content: JSON.stringify({
-          image_key: imageKey
-        })
-      }
-    });
-    const remoteMessageId = response.data?.message_id;
-    if (!remoteMessageId) {
-      throw new Error(formatFeishuApiError("Feishu send image failed", response));
-    }
-    const localMessageId = this.refs.recordRemoteMessage(remoteMessageId, remoteChatId);
-    if (options?.caption) {
-      await this.trySendSupplementaryCaption(chatId, options.caption, {
-        ...(options.parseMode ? { parseMode: options.parseMode } : {})
+    try {
+      await this.refs.ready();
+      const remoteChatId = this.requireRemoteChatId(chatId);
+      const image = await this.client.im.v1.image.create({
+        data: {
+          image_type: "message",
+          image: createReadStream(photoPath)
+        }
       });
+      const imageKey = image?.image_key;
+      if (!imageKey) {
+        throw new Error("Feishu image upload failed");
+      }
+      const response = await this.client.im.v1.message.create({
+        params: {
+          receive_id_type: "chat_id"
+        },
+        data: {
+          receive_id: remoteChatId,
+          msg_type: "image",
+          content: JSON.stringify({
+            image_key: imageKey
+          })
+        }
+      });
+      const remoteMessageId = response.data?.message_id;
+      if (!remoteMessageId) {
+        throw new Error(formatFeishuApiError("Feishu send image failed", response));
+      }
+      const localMessageId = this.refs.recordRemoteMessage(remoteMessageId, remoteChatId);
+      if (options?.caption) {
+        await this.trySendSupplementaryCaption(chatId, options.caption, {
+          ...(options.parseMode ? { parseMode: options.parseMode } : {})
+        });
+      }
+      return buildTelegramLikeMessage({
+        localMessageId,
+        localChatId: Number.parseInt(chatId, 10),
+        ...(options?.caption ? { caption: options.caption } : {})
+      });
+    } catch (error) {
+      throw new Error(formatFeishuSdkError("Feishu send image failed", error) ?? `${error}`);
     }
-    return buildTelegramLikeMessage({
-      localMessageId,
-      localChatId: Number.parseInt(chatId, 10),
-      ...(options?.caption ? { caption: options.caption } : {})
-    });
   }
 
   async sendDocument(
@@ -326,46 +400,50 @@ export class FeishuTelegramApiCompat {
       fileName?: string;
     }
   ): Promise<TelegramMessage> {
-    await this.refs.ready();
-    const remoteChatId = this.requireRemoteChatId(chatId);
-    const uploaded = await this.client.im.v1.file.create({
-      data: {
-        file_type: detectFeishuFileType(filePath),
-        file_name: options?.fileName ?? basename(filePath),
-        file: createReadStream(filePath)
-      }
-    });
-    const fileKey = uploaded?.file_key;
-    if (!fileKey) {
-      throw new Error("Feishu file upload failed");
-    }
-    const response = await this.client.im.v1.message.create({
-      params: {
-        receive_id_type: "chat_id"
-      },
-      data: {
-        receive_id: remoteChatId,
-        msg_type: "file",
-        content: JSON.stringify({
-          file_key: fileKey
-        })
-      }
-    });
-    const remoteMessageId = response.data?.message_id;
-    if (!remoteMessageId) {
-      throw new Error(formatFeishuApiError("Feishu send file failed", response));
-    }
-    const localMessageId = this.refs.recordRemoteMessage(remoteMessageId, remoteChatId);
-    if (options?.caption) {
-      await this.trySendSupplementaryCaption(chatId, options.caption, {
-        ...(options.parseMode ? { parseMode: options.parseMode } : {})
+    try {
+      await this.refs.ready();
+      const remoteChatId = this.requireRemoteChatId(chatId);
+      const uploaded = await this.client.im.v1.file.create({
+        data: {
+          file_type: detectFeishuFileType(filePath),
+          file_name: options?.fileName ?? basename(filePath),
+          file: createReadStream(filePath)
+        }
       });
+      const fileKey = uploaded?.file_key;
+      if (!fileKey) {
+        throw new Error("Feishu file upload failed");
+      }
+      const response = await this.client.im.v1.message.create({
+        params: {
+          receive_id_type: "chat_id"
+        },
+        data: {
+          receive_id: remoteChatId,
+          msg_type: "file",
+          content: JSON.stringify({
+            file_key: fileKey
+          })
+        }
+      });
+      const remoteMessageId = response.data?.message_id;
+      if (!remoteMessageId) {
+        throw new Error(formatFeishuApiError("Feishu send file failed", response));
+      }
+      const localMessageId = this.refs.recordRemoteMessage(remoteMessageId, remoteChatId);
+      if (options?.caption) {
+        await this.trySendSupplementaryCaption(chatId, options.caption, {
+          ...(options.parseMode ? { parseMode: options.parseMode } : {})
+        });
+      }
+      return buildTelegramLikeMessage({
+        localMessageId,
+        localChatId: Number.parseInt(chatId, 10),
+        ...(options?.caption ? { caption: options.caption } : {})
+      });
+    } catch (error) {
+      throw new Error(formatFeishuSdkError("Feishu send file failed", error) ?? `${error}`);
     }
-    return buildTelegramLikeMessage({
-      localMessageId,
-      localChatId: Number.parseInt(chatId, 10),
-      ...(options?.caption ? { caption: options.caption } : {})
-    });
   }
 
   async editMessageText(
@@ -477,6 +555,31 @@ export class FeishuTelegramApiCompat {
 
   async getFile(_fileId: string): Promise<TelegramFile> {
     throw new Error("Feishu media ingress is not implemented by the Telegram compatibility adapter");
+  }
+
+  async downloadMessageResource(request: {
+    messageId: string;
+    resourceId: string;
+    resourceType: string;
+    destinationPath: string;
+  }): Promise<string | null> {
+    await mkdir(dirname(request.destinationPath), { recursive: true });
+
+    try {
+      const resource = await this.client.im.v1.messageResource.get({
+        path: {
+          message_id: request.messageId,
+          file_key: request.resourceId
+        },
+        params: {
+          type: request.resourceType
+        }
+      });
+      await resource.writeFile(request.destinationPath);
+      return request.destinationPath;
+    } catch (error) {
+      throw new Error(formatFeishuSdkError("Feishu download message resource failed", error) ?? `${error}`);
+    }
   }
 
   private requireRemoteChatId(localChatId: string): string {

@@ -8,7 +8,13 @@ const FULL_CAPABILITIES = {
   supportsEdits: true,
   supportsRichTextPreview: true,
   supportsLongFormPagination: true,
-  supportsUploads: true
+  supportsUploads: true,
+  canSendImage: true,
+  canSendFile: true,
+  canReceiveImage: true,
+  canReceiveFile: true,
+  canReceiveVoice: true,
+  canUseRemoteImageUrl: false
 } as const;
 
 test("dispatchHtmlSurface returns edited for runtime surfaces when edit succeeds", async () => {

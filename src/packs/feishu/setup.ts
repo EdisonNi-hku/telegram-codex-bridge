@@ -4,6 +4,7 @@ import type { PackHealthCheck, PackHealthReport } from "../contract.js";
 export const FEISHU_SETUP_CHECKLIST = [
   "enable bot ability in the Feishu app",
   "grant im:message.p2p_msg:readonly",
+  "grant im:resource:upload or im:resource for file and image upload",
   "enable long connection",
   "subscribe to im.message.receive_v1",
   "enable card.action.trigger",

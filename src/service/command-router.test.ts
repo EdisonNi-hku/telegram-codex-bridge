@@ -38,6 +38,7 @@ function createHandlers(calls: string[]) {
     handleCompact: async () => { calls.push("handleCompact"); },
     handleLocalImage: async () => { calls.push("handleLocalImage"); },
     handleMention: async () => { calls.push("handleMention"); },
+    handleAttach: async () => { calls.push("handleAttach"); },
     handleThread: async () => { calls.push("handleThread"); },
     sendUnsupported: async () => { calls.push("sendUnsupported"); }
   };

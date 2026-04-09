@@ -160,13 +160,8 @@ export class FeishuTelegramPollerCompat {
       content: string;
     };
   }): Promise<TelegramUpdate | null> {
-    if (event.message.message_type !== "text") {
-      return null;
-    }
-
     const remoteOpenId = event.sender.sender_id?.open_id;
-    const text = parseFeishuTextContent(event.message.content);
-    if (!remoteOpenId || !text) {
+    if (!remoteOpenId) {
       return null;
     }
 
@@ -174,20 +169,45 @@ export class FeishuTelegramPollerCompat {
     const localUserId = refs.getOrCreateLocalUserId(remoteOpenId);
     const localChatId = refs.getOrCreateLocalChatId(event.message.chat_id);
     const localMessageId = refs.recordRemoteMessage(event.message.message_id, event.message.chat_id);
-    const message: TelegramMessage = {
+    const messageBase: TelegramMessage = {
       message_id: localMessageId,
       from: this.buildTelegramUser(localUserId, remoteOpenId),
       chat: {
         id: localChatId,
         type: "private"
       },
-      date: Math.floor(Number.parseInt(event.message.create_time, 10) / 1000),
-      text
+      date: Math.floor(Number.parseInt(event.message.create_time, 10) / 1000)
     };
+
+    if (event.message.message_type === "text") {
+      const text = parseFeishuTextContent(event.message.content);
+      if (!text) {
+        return null;
+      }
+
+      return {
+        update_id: this.nextUpdateId++,
+        message: {
+          ...messageBase,
+          text
+        }
+      };
+    }
+
+    const bridgeMedia = parseFeishuMediaContent(event.message.message_type, event.message.content, {
+      messageId: event.message.message_id,
+      chatId: event.message.chat_id
+    });
+    if (bridgeMedia.length === 0) {
+      return null;
+    }
 
     return {
       update_id: this.nextUpdateId++,
-      message
+      message: {
+        ...messageBase,
+        bridgeMedia
+      }
     };
   }
 
@@ -314,4 +334,51 @@ export class FeishuTelegramPollerCompat {
     this.wsClient = wsClient;
     this.eventDispatcher = eventDispatcher;
   }
+}
+
+function parseFeishuMediaContent(
+  messageType: string,
+  content: string,
+  refs: {
+    messageId: string;
+    chatId: string;
+  }
+): NonNullable<TelegramMessage["bridgeMedia"]> {
+  try {
+    const parsed = JSON.parse(content) as {
+      image_key?: string;
+      file_key?: string;
+      file_name?: string;
+    };
+    if (messageType === "image" && typeof parsed.image_key === "string" && parsed.image_key.trim()) {
+      return [{
+        kind: "image",
+        resourceId: parsed.image_key,
+        platformRef: {
+          platform: "feishu",
+          conversationId: refs.chatId,
+          messageId: refs.messageId,
+          resourceType: "image"
+        }
+      }];
+    }
+
+    if (messageType === "file" && typeof parsed.file_key === "string" && parsed.file_key.trim()) {
+      return [{
+        kind: "file",
+        resourceId: parsed.file_key,
+        ...(typeof parsed.file_name === "string" && parsed.file_name.trim() ? { fileName: parsed.file_name } : {}),
+        platformRef: {
+          platform: "feishu",
+          conversationId: refs.chatId,
+          messageId: refs.messageId,
+          resourceType: "file"
+        }
+      }];
+    }
+  } catch {
+    return [];
+  }
+
+  return [];
 }

@@ -16,6 +16,17 @@ test("telegram pack keeps the dynamic tool allowlist minimal", () => {
       },
       required: ["path"]
     }
+  }, {
+    name: "send_telegram_image",
+    description: "Send a local server image to the active control surface.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        caption: { type: "string" }
+      },
+      required: ["path"]
+    }
   }]);
 });
 
@@ -55,7 +66,7 @@ test("telegram pack interpreter classifies allowlisted platform actions separate
       kind: "unsupported",
       errorCode: -32601,
       errorMessage: "Dynamic tool call is not supported by the active bridge pack: custom_platform_action",
-      userMessage: "Codex 发起了动态工具调用（custom_platform_action），但当前 bridge pack 仅声明了这些 dynamic tools：send_telegram_document。",
+      userMessage: "Codex 发起了动态工具调用（custom_platform_action），但当前 bridge pack 仅声明了这些 dynamic tools：send_telegram_document, send_telegram_image。",
       logDetail: "tool=custom_platform_action"
     }
   );

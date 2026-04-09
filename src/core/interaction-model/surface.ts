@@ -4,6 +4,12 @@ export interface PlatformCapabilitySnapshot {
   supportsRichTextPreview: boolean;
   supportsLongFormPagination: boolean;
   supportsUploads: boolean;
+  canSendImage: boolean;
+  canSendFile: boolean;
+  canReceiveImage: boolean;
+  canReceiveFile: boolean;
+  canReceiveVoice: boolean;
+  canUseRemoteImageUrl: boolean;
 }
 
 export type PlatformSurfaceIntent =

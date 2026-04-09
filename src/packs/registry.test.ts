@@ -12,9 +12,10 @@ test("telegram pack exposes the phase 3 pack contract surface", () => {
   assert.equal(pack.ingress.ownsMediaIngress, true);
   assert.equal(pack.egress.kind, "bot_api");
   assert.equal(pack.capabilities.supportsUploads, true);
+  assert.equal(pack.capabilities.canReceiveFile, true);
   assert.deepEqual(
     pack.platformActions.getDynamicToolDeclarations().map((tool) => tool.name),
-    ["send_telegram_document"]
+    ["send_telegram_document", "send_telegram_image"]
   );
 });
 
@@ -64,9 +65,10 @@ test("feishu pack exposes the phase 4 pack contract surface", () => {
   assert.equal(pack.ingress.ownsMediaIngress, false);
   assert.equal(pack.egress.kind, "bot_api");
   assert.equal(pack.capabilities.supportsUploads, true);
+  assert.equal(pack.capabilities.canReceiveImage, true);
   assert.deepEqual(
     pack.platformActions.getDynamicToolDeclarations().map((tool) => tool.name),
-    ["send_feishu_file"]
+    ["send_feishu_file", "send_feishu_image"]
   );
 });
 

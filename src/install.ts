@@ -1046,6 +1046,7 @@ export async function installBridge(
 }
 
 export async function getStatus(paths: BridgePaths, deps: InstallDependencies = {}): Promise<string> {
+  const readinessProbe = deps.probeReadiness ?? probeReadiness;
   const detectManager = deps.detectServiceManager ?? detectServiceManager;
   const run = deps.runCommand ?? runCommand;
   const manifest = await readInstallManifest(paths);
@@ -1098,7 +1099,27 @@ export async function getStatus(paths: BridgePaths, deps: InstallDependencies = 
         warn: async () => {},
         error: async () => {}
       });
-      snapshot = store.getReadinessSnapshot();
+      if (config) {
+        try {
+          const result = await readinessProbe({
+            config,
+            store,
+            paths,
+            logger: {
+              info: async () => {},
+              warn: async () => {},
+              error: async () => {}
+            },
+            keepAppServer: false,
+            persist: false
+          });
+          snapshot = result.snapshot;
+        } catch {
+          snapshot = store.getReadinessSnapshot();
+        }
+      } else {
+        snapshot = store.getReadinessSnapshot();
+      }
       pendingNotices = countPendingRuntimeNotices(store);
       const binding = store.listChatBindings(config?.activePack)[0];
       const activeSession = binding?.activeSessionId ? store.getSessionById(binding.activeSessionId) : null;

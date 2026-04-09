@@ -1357,6 +1357,18 @@ test("getStatus renders the expanded readiness summary fields", async () => {
 
     const output = await getStatus(paths, {
       detectServiceManager: async () => "none",
+      probeReadiness: async () => ({
+        snapshot: createReadinessSnapshot({
+          details: {
+            issues: ["service manager warning: no supported service manager found"],
+            voiceInputEnabled: true,
+            voiceOpenaiConfigured: true,
+            voiceFfmpegAvailable: true,
+            voiceRealtimeSupported: false
+          }
+        }),
+        appServer: null
+      }),
       runCommand: async () => ({
         exitCode: 1,
         stdout: "",

@@ -1,9 +1,16 @@
+import { createReadStream } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import * as Lark from "@larksuiteoapi/node-sdk";
+
 import {
   createDynamicToolDeclarations,
   interpretDynamicToolRequest,
   interpretSharedServerRequest
 } from "../../codex/server-request-policy.js";
-import { FeishuTelegramApiCompat } from "../../feishu/api.js";
+import { extractFeishuSdkErrorDetails, FeishuTelegramApiCompat, resolveFeishuSdkDomain } from "../../feishu/api.js";
 import { FeishuTelegramPollerCompat } from "../../feishu/poller.js";
 import { BridgeService } from "../../service.js";
 import type { BridgePackDefinition, PackHealthReport } from "../contract.js";
@@ -14,6 +21,8 @@ import {
   type FeishuPackConfig
 } from "./config.js";
 import { buildFeishuSetupHealth } from "./setup.js";
+
+const FEISHU_FILE_UPLOAD_CHECK_ID = "feishu_file_upload_scopes";
 
 const FEISHU_DYNAMIC_TOOLS = [{
   toolName: "send_feishu_file",
@@ -28,6 +37,18 @@ const FEISHU_DYNAMIC_TOOLS = [{
     },
     required: ["path"]
   }
+}, {
+  toolName: "send_feishu_image",
+  action: "send_control_surface_image",
+  description: "Send a local server image to the active Feishu control surface.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      path: { type: "string" },
+      caption: { type: "string" }
+    },
+    required: ["path"]
+  }
 }] as const;
 
 const FEISHU_SURFACE_CAPABILITY_SNAPSHOT = {
@@ -35,7 +56,13 @@ const FEISHU_SURFACE_CAPABILITY_SNAPSHOT = {
   supportsEdits: true,
   supportsRichTextPreview: true,
   supportsLongFormPagination: true,
-  supportsUploads: true
+  supportsUploads: true,
+  canSendImage: true,
+  canSendFile: true,
+  canReceiveImage: true,
+  canReceiveFile: true,
+  canReceiveVoice: false,
+  canUseRemoteImageUrl: false
 } as const;
 
 async function validateFeishuTenantToken(config: FeishuPackConfig): Promise<{
@@ -74,12 +101,85 @@ async function validateFeishuTenantToken(config: FeishuPackConfig): Promise<{
   }
 }
 
+export interface FeishuUploadScopeValidation {
+  ok: boolean;
+  summary: string;
+  errorCode: string | null;
+  errorMessage: string | null;
+  missingScopes: string[];
+}
+
+export async function validateFeishuUploadScopes(
+  config: FeishuPackConfig,
+  deps?: {
+    probeUpload?: (filePath: string, fileName: string) => Promise<void>;
+  }
+): Promise<FeishuUploadScopeValidation> {
+  const tempRoot = await mkdtemp(join(tmpdir(), "ctb-feishu-upload-scope-"));
+  const probeFileName = "ctb-feishu-upload-scope-probe.txt";
+  const probeFilePath = join(tempRoot, probeFileName);
+  await writeFile(probeFilePath, "scope probe\n", "utf8");
+
+  try {
+    if (deps?.probeUpload) {
+      await deps.probeUpload(probeFilePath, probeFileName);
+    } else {
+      const client = new Lark.Client({
+        appId: config.appId,
+        appSecret: config.appSecret,
+        domain: resolveFeishuSdkDomain(config.apiBaseUrl)
+      });
+      await client.im.v1.file.create({
+        data: {
+          file_type: "stream",
+          file_name: probeFileName,
+          file: createReadStream(probeFilePath)
+        }
+      });
+    }
+
+    return {
+      ok: true,
+      summary: "feishu file upload scopes validated",
+      errorCode: null,
+      errorMessage: null,
+      missingScopes: []
+    };
+  } catch (error) {
+    const details = extractFeishuSdkErrorDetails(error);
+    const code = details?.code === null || details?.code === undefined ? null : `${details.code}`;
+    const missingScopes = details?.permissionViolations ?? [];
+    if (details?.code === 99991672 && missingScopes.length > 0) {
+      return {
+        ok: false,
+        summary: `feishu file upload is blocked; missing app scopes ${missingScopes.join(", ")}`,
+        errorCode: code,
+        errorMessage: details.msg,
+        missingScopes
+      };
+    }
+
+    return {
+      ok: false,
+      summary: code
+        ? `feishu file upload probe failed with code ${code}; ${details?.msg ?? `${error}`}`
+        : `feishu file upload probe failed; ${details?.msg ?? `${error}`}`,
+      errorCode: code,
+      errorMessage: details?.msg ?? `${error}`,
+      missingScopes
+    };
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
 function buildPackHealthReport(options: {
   appId: string;
   authorized: boolean;
   tokenValid: boolean;
   missingCredentials: string[];
   tokenIssue?: string;
+  uploadScopeValidation?: FeishuUploadScopeValidation | null;
 }): PackHealthReport {
   const credentialsCheck = {
     id: "feishu_credentials",
@@ -108,7 +208,16 @@ function buildPackHealthReport(options: {
     blocking: true,
     source: "automatic" as const
   };
-  const checks = [credentialsCheck, tokenCheck, bindingCheck];
+  const uploadScopeCheck = options.uploadScopeValidation
+    ? {
+      id: FEISHU_FILE_UPLOAD_CHECK_ID,
+      ok: options.uploadScopeValidation.ok,
+      summary: options.uploadScopeValidation.summary,
+      blocking: false,
+      source: "automatic" as const
+    }
+    : null;
+  const checks = [credentialsCheck, tokenCheck, bindingCheck, ...(uploadScopeCheck ? [uploadScopeCheck] : [])];
 
   return {
     state: !credentialsCheck.ok || !tokenCheck.ok
@@ -119,7 +228,15 @@ function buildPackHealthReport(options: {
     checks,
     issues: checks.filter((check) => !check.ok).map((check) => check.summary),
     metadata: {
-      feishuAppId: options.appId || null
+      feishuAppId: options.appId || null,
+      feishuFileUploadErrorCode: options.uploadScopeValidation?.errorCode ?? null,
+      feishuFileUploadError: options.uploadScopeValidation?.errorMessage ?? null,
+      feishuMissingUploadScopes: options.uploadScopeValidation?.missingScopes.join(", ") || null,
+      mediaCanSendImage: FEISHU_PACK.capabilities.canSendImage,
+      mediaCanSendFile: FEISHU_PACK.capabilities.canSendFile,
+      mediaCanReceiveImage: FEISHU_PACK.capabilities.canReceiveImage,
+      mediaCanReceiveFile: FEISHU_PACK.capabilities.canReceiveFile,
+      mediaCanReceiveVoice: FEISHU_PACK.capabilities.canReceiveVoice
     },
     setupState: "incomplete"
   };
@@ -198,13 +315,24 @@ export const FEISHU_PACK: BridgePackDefinition<FeishuPackConfig> = {
           issue: validation.issue ?? "feishu tenant token validation failed"
         });
       }
+      const uploadScopeValidation = validation.ok
+        ? await validateFeishuUploadScopes(feishuConfig)
+        : null;
+      if (uploadScopeValidation && !uploadScopeValidation.ok) {
+        await logger.warn("feishu upload scope check failed", {
+          issue: uploadScopeValidation.summary,
+          errorCode: uploadScopeValidation.errorCode,
+          missingScopes: uploadScopeValidation.missingScopes
+        });
+      }
 
       const report = buildPackHealthReport({
         appId: feishuConfig.appId,
         authorized: FEISHU_PACK.authBinding.isBound(store),
         tokenValid: validation.ok,
         missingCredentials,
-        ...(validation.issue ? { tokenIssue: validation.issue } : {})
+        ...(validation.issue ? { tokenIssue: validation.issue } : {}),
+        uploadScopeValidation
       });
 
       const setupHealth = buildFeishuSetupHealth({

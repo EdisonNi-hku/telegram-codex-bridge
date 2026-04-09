@@ -15,7 +15,13 @@ export const TELEGRAM_SURFACE_CAPABILITY_SNAPSHOT: PlatformCapabilitySnapshot = 
   supportsEdits: true,
   supportsRichTextPreview: true,
   supportsLongFormPagination: true,
-  supportsUploads: true
+  supportsUploads: true,
+  canSendImage: true,
+  canSendFile: true,
+  canReceiveImage: true,
+  canReceiveFile: true,
+  canReceiveVoice: true,
+  canUseRemoteImageUrl: false
 };
 
 export async function executeTelegramHtmlSurfaceOperation(options: {
