@@ -70,12 +70,13 @@ Read the smallest matching leaf doc.
 | v1 scope, trust model, out-of-scope boundary | `docs/product/v1-scope.md` |
 | high-level product router before choosing a narrow Telegram doc | `docs/product/chat-and-project-flow.md` |
 | authorization, project discovery, project picker, `/browse`, session switching, archive, unarchive, rename, pin | `docs/product/auth-and-project-flow.md` |
-| Codex-backed Telegram commands, structured inputs, `/model`, `/skills`, `/plugins`, `/apps`, `/mcp`, `/account`, `/review`, `/fork`, `/rollback`, `/compact`, `/thread`, `/local_image`, `/mention` | `docs/product/codex-command-reference.md` |
+| Codex-backed Telegram commands, structured inputs, `/model`, `/skills`, `/plugins`, `/apps`, `/mcp`, `/account`, `/review`, `/fork`, `/rollback`, `/compact`, `/thread`, `/local_image`, `/mention`, `/attach` | `docs/product/codex-command-reference.md` |
 | `/where`, `/inspect`, `/interrupt`, `/status`, runtime hubs/cards, blocked-turn continuation, final-answer delivery | `docs/product/runtime-and-delivery.md` |
 | Telegram callback payload families, encoding rules, stale callback handling | `docs/product/callback-contract.md` |
 | runtime lifecycle, SQLite state, recovery, concurrency, degraded behavior | `docs/architecture/runtime-and-state.md` |
 | code-derived ownership map for `src/` | `docs/architecture/current-code-organization.md` |
 | current Codex app-server adoption, supported request families, notification reduction, approvals, and rejected server requests | `docs/architecture/codex-app-server-adoption.md` |
+| current pack boundary, active pack selection, Telegram vs Feishu pack ownership, or platform capability routing | `docs/architecture/platform-pack-boundary.md` |
 | install flow, config keys, paths, services, update, diagnostics | `docs/operations/install-and-admin.md` |
 | exact current versions, module counts, size snapshot, other high-drift facts | `docs/generated/current-snapshot.md` |
 | authoritative Codex app-server protocol reference | `docs/research/codex-app-server-authoritative-reference.md` |
@@ -108,6 +109,7 @@ Typical examples:
 - product doc -> `src/telegram/commands.ts` for registry truth
 - runtime doc -> `src/service/runtime-surface-controller.ts` or `src/telegram/ui-runtime.ts`
 - session/project doc -> `src/service/session-project-coordinator.ts` or `src/service/project-browser-coordinator.ts`
+- pack-boundary doc -> `src/packs/contract.ts`, `src/packs/registry.ts`, or one narrow file under `src/packs/<pack>/`
 - operations doc -> `src/install.ts`, `src/readiness.ts`, `src/config.ts`, or `src/paths.ts`
 - future Core direction doc -> current code only after you already understand that the doc is future intent, not current truth
 

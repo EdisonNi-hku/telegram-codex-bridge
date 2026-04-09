@@ -23,7 +23,7 @@ Current intended behavior for Telegram commands that adapt stable Codex control-
 This file covers:
 - model, skills, plugins, apps, MCP, and account commands
 - review, fork, rollback, compact, and thread metadata commands
-- structured rich inputs such as skill, local image, and mention
+- structured rich inputs such as skill, local image, mention, and attach
 
 When implementation detail matters, verify against:
 - `src/service/codex-command-coordinator.ts`
@@ -38,19 +38,6 @@ General command contract:
 - every command returns a compact user-facing response
 - structured Telegram command replies render field labels in bold via Telegram HTML
 - plain one-line prompts and simple lists may stay plain text when they do not expose label-value fields
-
-### `/hub`
-
-Behavior:
-- re-surfaces the current live runtime hub to the bottom of the chat
-- if multiple sessions are still running, the refreshed hub keeps focus on the current active session
-- if no session is currently running, reply with `当前没有运行中的会话。`
-- if actionable interaction cards are still pending, do not move the hub below them and reply with `当前有待处理的交互，请先完成当前操作。`
-
-Rules:
-- `/hub` is only a runtime-surface pull-up command; it is not a second `/status` or `/inspect`
-- a successful `/hub` refresh does not send an extra confirmation message beyond the refreshed runtime hub itself
-- once a user successfully uses `/hub`, the bridge treats the command as learned and stops adding `/hub` reminder copy for that chat
 
 ### `/plan`
 
@@ -215,3 +202,15 @@ Behavior:
 - sends a real `mention` input to Codex
 - `name | path` sets the visible mention label explicitly
 - if the prompt is omitted, queue the mention and use the next normal text message as the task prompt
+
+### `/attach <attachment_id> :: <prompt>`
+
+Behavior:
+- resolves a previously received file attachment from the current session
+- extracts Codex-readable text from supported attachment types and submits it as structured input
+- if the prompt is omitted, queue the attachment-derived input and use the next normal text message as the task prompt
+
+Rules:
+- attachments are session-scoped; an attachment id from another session is treated as missing
+- when the bridge receives one or more file attachments, the next normal text message automatically carries the most recent attachments unless the user cancels or sends `/attach` explicitly
+- unsupported or unreadable attachments return a compact Telegram error instead of sending a raw file blob into Codex

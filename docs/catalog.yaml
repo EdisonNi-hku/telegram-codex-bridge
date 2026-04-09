@@ -49,7 +49,7 @@ documents:
     role: domain
     layer: 2
     parent: docs/INDEX.md
-    summary: router for the current runtime shape, state model, and verified code ownership map
+    summary: router for the current runtime shape, state model, verified code ownership map, pack boundary, and app-server adoption boundary
   - path: docs/operations/README.md
     role: domain
     layer: 2
@@ -89,12 +89,17 @@ documents:
     role: leaf
     layer: 3
     parent: docs/architecture/README.md
-    summary: verified owner map for the current src tree after the 2026-03-23 Core seam landed
+    summary: verified owner map for the current src tree after the Core seam and pack boundary landed
   - path: docs/architecture/codex-app-server-adoption.md
     role: leaf
     layer: 3
     parent: docs/architecture/README.md
     summary: current bridge-owned Codex app-server adoption boundary, including lifecycle, request families, server requests, and notification reduction
+  - path: docs/architecture/platform-pack-boundary.md
+    role: leaf
+    layer: 3
+    parent: docs/architecture/README.md
+    summary: current pack boundary for active-pack selection, runtime factory ownership, platform capabilities, and Telegram vs Feishu split
   - path: docs/product/v1-scope.md
     role: leaf
     layer: 3
@@ -125,6 +130,16 @@ documents:
     layer: 3
     parent: docs/product/README.md
     summary: current callback namespace families, encoding rules, and stale-click contract for bridge-owned Telegram UI
+  - path: docs/operations/install-and-admin.md
+    role: leaf
+    layer: 3
+    parent: docs/operations/README.md
+    summary: current install, config, service-management, pack selection, update, and diagnostics contract for operators
+  - path: docs/generated/current-snapshot.md
+    role: leaf
+    layer: 2
+    parent: docs/INDEX.md
+    summary: high-drift snapshot for current package version, source-tree size, and locally verifiable tooling facts
   - path: docs/research/codex-app-server-authoritative-reference.md
     role: leaf
     layer: 3

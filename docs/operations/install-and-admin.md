@@ -1,3 +1,28 @@
+<!-- docmeta
+role: leaf
+layer: 3
+parent: docs/operations/README.md
+children: []
+summary: current install, config, service-management, pack selection, update, and diagnostics contract for operators
+read_when:
+  - the request is about install flow, config keys, service management, update, or diagnostics
+  - the request is about active-pack selection, operator commands, or bundled skill installation
+skip_when:
+  - the request is only about current Telegram UX
+  - the request is about future repository direction instead of current admin behavior
+source_of_truth:
+  - docs/operations/install-and-admin.md
+  - src/cli.ts
+  - src/install.ts
+  - src/config.ts
+  - src/readiness.ts
+  - src/paths.ts
+  - src/packs/catalog.ts
+  - src/packs/registry.ts
+  - scripts
+  - pack-manifest.json
+-->
+
 # Install And Admin Operations
 
 ## Runtime And Tooling Floor
@@ -11,7 +36,11 @@ Package manager and build scripts:
 Actual admin and runtime surface:
 - `ctb ...` is the operator command surface
 - `ctb service run` is the long-lived service entrypoint used by `systemd --user`, `launchd`, Windows Task Scheduler, or another supervisor
-- `ctb install-skill` installs the bundled Codex skill into `${CODEX_HOME:-~/.codex}/skills/telegram-codex-linker`
+- `ctb install-skill` installs the bundled Codex skill that matches the active pack, or the explicitly requested `--pack <name>`
+
+Current pack rule:
+- `BRIDGE_PACK` defaults to `telegram`
+- current install, readiness, and skill-install flows are pack-aware even though the default shipped product truth remains Telegram-first
 
 Node requirement:
 - Node `>=24.0.0`
@@ -23,11 +52,15 @@ Voice-input backend rule:
 ## Config Keys
 
 Supported config keys in `bridge.env`:
+- `BRIDGE_PACK`
 - `TELEGRAM_BOT_TOKEN`
 - `CODEX_BIN`
 - `TELEGRAM_API_BASE_URL`
 - `TELEGRAM_POLL_TIMEOUT_SECONDS`
 - `TELEGRAM_POLL_INTERVAL_MS`
+- `FEISHU_APP_ID`
+- `FEISHU_APP_SECRET`
+- `FEISHU_API_BASE_URL`
 - `PROJECT_SCAN_ROOTS`
 - `VOICE_INPUT_ENABLED`
 - `VOICE_OPENAI_API_KEY`
@@ -36,6 +69,16 @@ Supported config keys in `bridge.env`:
 - `PERF_MONITOR_ENABLED`
 - `PERF_MONITOR_SAMPLE_INTERVAL_MS`
 - `PERF_MONITOR_RETENTION_DAYS`
+- `APP_SERVER_GUARD_ENABLED`
+- `APP_SERVER_GUARD_SAMPLE_INTERVAL_MS`
+- `APP_SERVER_GUARD_MCP_WORKER_THRESHOLD`
+- `APP_SERVER_GUARD_CONSECUTIVE_WINDOWS`
+- `APP_SERVER_GUARD_COOLDOWN_MS`
+
+Current pack-specific env meaning:
+- Telegram pack reads `TELEGRAM_*`
+- Feishu pack reads `FEISHU_*`
+- shared runtime options stay outside pack-specific namespaces
 
 `PROJECT_SCAN_ROOTS` rules:
 - path-delimited root list written into `bridge.env`
@@ -136,8 +179,8 @@ Reason:
 ## Local Management Commands
 
 Supported subcommands:
-- `ctb install --telegram-token <token> [--codex-bin <bin>] [--project-scan-roots <path1:path2:...>] [--voice-input <true|false>] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>] [--perf-monitor-enabled <true|false>] [--perf-monitor-sample-interval-ms <ms>] [--perf-monitor-retention-days <days>]`
-- `ctb install-skill`
+- `ctb install [--pack <name>] [--pack-option key=value] [--telegram-token <token>] [--codex-bin <bin>] [--project-scan-roots <path1:path2:...>] [--voice-input <true|false>] [--voice-openai-api-key <key>] [--voice-openai-model <model>] [--voice-ffmpeg-bin <bin>] [--perf-monitor-enabled <true|false>] [--perf-monitor-sample-interval-ms <ms>] [--perf-monitor-retention-days <days>] [--app-server-guard-enabled <true|false>] [--app-server-guard-sample-interval-ms <ms>] [--app-server-guard-mcp-worker-threshold <n>] [--app-server-guard-consecutive-windows <n>] [--app-server-guard-cooldown-ms <ms>]`
+- `ctb install-skill [--pack <name>]`
 - `ctb perf report [--window <5m|1h|24h|7d>]`
 - `ctb status`
 - `ctb restart`
@@ -179,15 +222,20 @@ Then in Codex:
 Use $telegram-codex-linker to set up my Telegram bridge.
 ```
 
+Pack-aware variants:
+- `install-skill-from-github.sh --pack feishu` installs the Feishu setup skill instead of the default Telegram one
+- `install-from-github.sh --pack <name>` forwards the selected pack into `ctb install`
+- repeated `--pack-option key=value` entries are forwarded into the active pack's install codec
+
 Reason:
 - install the skill once
 - let the skill take over bridge install, repair, token collection, authorization, and verification
-- interrupt the user only for unavoidable external actions such as providing a Telegram bot token or messaging the bot once
+- interrupt the user only for unavoidable external actions such as providing platform credentials or messaging the bot once
 
 Bridge install from GitHub:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InDreamer/telegram-codex-bridge/master/scripts/install-from-github.sh | bash -s -- --telegram-token "<BOT_TOKEN>" --project-scan-roots "$HOME/projects:$HOME/work"
+curl -fsSL https://raw.githubusercontent.com/InDreamer/telegram-codex-bridge/master/scripts/install-from-github.sh | bash -s -- --pack telegram --telegram-token "<BOT_TOKEN>" --project-scan-roots "$HOME/projects:$HOME/work"
 ```
 
 Windows bridge install from GitHub:
@@ -209,16 +257,16 @@ Notes:
 - the Windows PowerShell bridge install shortcut downloads a ZIP archive, expands it with `Expand-Archive`, runs `npm install`, runs `npm run build`, and then runs `node dist/cli.js install`
 - Node `22` is intentionally not a supported operator baseline even if some local runs appear to work
 - GitHub archive installs persist source metadata in the install manifest so later `ctb update` can redownload the same repo/ref instead of depending on a retained temp directory
-- the skill install shortcut copies `skills/telegram-codex-linker` into `${CODEX_HOME:-~/.codex}/skills/`
+- the skill install shortcut resolves the skill through `pack-manifest.json` and copies the active pack's bundle into `${CODEX_HOME:-~/.codex}/skills/`
 - both scripts accept `--ref <name>` plus `--ref-type branch|tag`; default is `master`
-- the bridge install shortcut also accepts `--project-scan-roots <path1:path2:...>` and forwards it into `ctb install`
+- the bridge install shortcut also accepts `--pack <name>`, repeated `--pack-option key=value`, and `--project-scan-roots <path1:path2:...>` and forwards them into `ctb install`
 - the Windows PowerShell bridge install shortcut accepts `-ProjectScanRoots "<path1;path2;...>"`
 - after skill install, restart Codex so the new skill is discovered
 
 Authorization intent:
-- `ctb authorize pending` lists pending Telegram candidates by default
+- `ctb authorize pending` lists pending candidates for the active pack by default
 - `ctb authorize pending --latest`, `--select <index>`, or `--user-id <id>` confirms one pending candidate
-- `--show-expired` includes expired candidates in the listing, but expired rows still need fresh Telegram contact before confirmation
+- `--show-expired` includes expired candidates in the listing, but expired rows still need fresh platform contact before confirmation
 - `ctb authorize clear` clears the active binding and returns the bridge to `awaiting_authorization`
 
 Operational note:
@@ -296,7 +344,7 @@ Systemd audit note:
 `ctb doctor` behavior:
 - reruns the readiness probe
 - persists the latest readiness snapshot
-- resyncs Telegram commands when the configured bot token is valid
+- resyncs the active pack control surface when the current pack health says that surface is safe to sync
 - uses the same centralized readiness/preflight matrix as install and service startup
 - hard-fails for unsupported Node or Codex capability floors instead of entering a degraded run loop
 - includes doctor-only archive drift diagnostics based on local sessions versus remote `thread/list` membership
@@ -352,7 +400,7 @@ State-store safety rule:
 Operational effect:
 - state, database, and logs remain in place
 - the reinstall path rewrites the local release files and the active service definition
-- the reinstall path reruns readiness checks and Telegram command sync
+- the reinstall path reruns readiness checks and active-pack control-surface sync
 - Windows GitHub archive updates prefer `curl` for download when available and fall back to PowerShell download only when `curl` is unavailable
 - when `systemd --user` or `launchd` is managing the bridge, the reinstall path reloads or restarts that managed service automatically
 - when no supported local service manager exists, the operator must restart the external supervisor or rerun `ctb service run`
@@ -369,9 +417,9 @@ Operational effect:
 
 ## Operational Failure Notes
 
-`telegram_token_invalid`:
+`pack_unhealthy`:
 - installer should fail fast
-- readiness becomes `telegram_token_invalid`
+- readiness becomes `pack_unhealthy`
 - the service must not enter the normal run loop
 
 `codex_not_authenticated`:

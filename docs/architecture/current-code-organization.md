@@ -3,7 +3,7 @@ role: leaf
 layer: 3
 parent: docs/architecture/README.md
 children: []
-summary: verified owner map for the current src tree after the 2026-03-23 Core seam landed
+summary: verified owner map for the current src tree after the Core seam and pack boundary landed
 read_when:
   - the request needs the current implementation map before opening source files
   - the request is about where ownership lives after the first internal Core abstraction wave
@@ -16,19 +16,22 @@ source_of_truth:
 
 # Current Code Organization
 
-Verified against the current `src/` tree on 2026-03-23.
+Verified against the current `src/` tree on 2026-04-09.
 
 Use this file to choose the right owner before opening code.
 This is a code-derived map of what exists today, not a roadmap.
+For the narrower current pack boundary, read `docs/architecture/platform-pack-boundary.md`.
 
-## 2026-03-23 Seam Summary
+## Current Shape Summary
 
-The important change from today's abstraction wave is simple:
+The important current boundary is:
 
 - `src/core/` now owns the first internal multi-platform seam.
 - `src/service/` adapts store rows, activity state, and app-server events into that seam.
-- `src/telegram/ui-*.ts` renders Telegram-specific presentation.
-- persistence, install/admin, and the shipped product surface are still intentionally Telegram-first.
+- `src/packs/` now owns active-pack selection, pack health checks, dynamic tool declarations, and runtime factories.
+- `src/telegram/ui-*.ts` still renders the primary shipped Telegram presentation.
+- `src/feishu/` plus `src/packs/feishu/` provide the current Feishu compatibility layer and setup-health boundary.
+- persistence, install/admin, and the shipped product surface are still intentionally Telegram-first unless a task is explicitly about pack internals.
 
 That means the repo now has a reusable internal boundary.
 It does not yet have a full platform-neutral product core.
@@ -36,6 +39,7 @@ It does not yet have a full platform-neutral product core.
 ## Start Here By Question
 
 - current Core semantics: one narrow file under `src/core/domain/`, `src/core/interaction-model/`, or `src/core/workflow/`
+- pack contract, active-pack selection, or Telegram vs Feishu ownership: `docs/architecture/platform-pack-boundary.md`
 - runtime startup and shell wiring: `src/service.ts`
 - session or project flow: `src/service/session-project-coordinator.ts`
 - project browsing: `src/service/project-browser-coordinator.ts`
@@ -57,9 +61,15 @@ It does not yet have a full platform-neutral product core.
   - `domain/` for bridge-owned terms and persisted-record contracts
   - `interaction-model/` for semantic runtime, interaction, and terminal view contracts
   - `workflow/` for bridge-owned reduction helpers that do not import Telegram types
+- `src/packs/` holds the current pack boundary:
+  - `contract.ts` for the pack interface
+  - `catalog.ts` for supported-pack metadata and install-time config codecs
+  - `registry.ts` for active-pack lookup
+  - `telegram/` and `feishu/` for pack-specific health checks, runtime factories, and control-surface declarations
 - `src/service.ts` is still the bridge shell. It owns bootstrap, readiness and store wiring, authorization gating, Telegram ingress, top-level command and callback routing, app-server lifecycle wiring, and safe Telegram send/edit helpers.
 - `src/service/` holds the extracted runtime-domain owners.
 - `src/telegram/ui.ts` is only a barrel. Real Telegram UI logic lives in `src/telegram/ui-*.ts`.
+- `src/feishu/` holds the current Feishu Bot/OpenAPI compatibility adapters that let the shared shell reuse Telegram-shaped update handling.
 - `src/state/store.ts` stays the public SQLite facade while `src/state/store-*.ts` holds the internals.
 - `src/install.ts` is still the main operations hotspot.
 
@@ -72,7 +82,7 @@ These are the narrow owners worth reading before broad shell code:
 - `session-project-coordinator.ts` - project picker, manual path flow, session switching, rename, pin, archive and unarchive, `/status`, `/where`, and session plan-mode toggling
 - `project-browser-coordinator.ts` - `/browse`, directory navigation, text preview pagination, image preview handoff, and root-path confinement
 - `codex-command-coordinator.ts` - model, reasoning effort, skills, plugins, apps, MCP, account, review, fork, rollback, compact, and thread metadata commands
-- `rich-input-adapter.ts` - `/skill`, `/local_image`, `/mention`, queued structured inputs, Telegram photo adaptation, and voice-input orchestration
+- `rich-input-adapter.ts` - `/skill`, `/local_image`, `/mention`, `/attach`, queued structured inputs, Telegram photo adaptation, attachment extraction, and voice-input orchestration
 - `interaction-broker.ts` - bridge-owned interaction cards, pending-interaction persistence, resolution, expiry, and failure cleanup
 - `runtime-surface-controller.ts` - runtime hubs, status and error cards, inspect rendering, runtime-field selection, rollback picker, and runtime-surface update policy
 - `turn-coordinator.ts` - active-turn ownership, turn start and resume, blocked-turn continuation, interrupt, notification consumption, terminal cleanup, final-answer delivery, and history-backed recovery

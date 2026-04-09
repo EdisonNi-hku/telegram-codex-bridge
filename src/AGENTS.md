@@ -56,6 +56,7 @@ Then return here and choose a narrow file.
 | current Core interaction semantics | `src/core/interaction-model/interaction.ts` |
 | current Core runtime or terminal semantic view contracts | `src/core/interaction-model/runtime.ts` or `src/core/interaction-model/terminal.ts` |
 | current Core workflow reduction for interaction, runtime, or terminal delivery | `src/core/workflow/interaction-workflow.ts`, `src/core/workflow/runtime-workflow.ts`, or `src/core/workflow/terminal-workflow.ts` |
+| pack contract, active-pack selection, or per-pack runtime responsibilities | `src/packs/contract.ts`, `src/packs/registry.ts`, `src/packs/catalog.ts`, or one narrow file under `src/packs/telegram/` / `src/packs/feishu/` |
 | Telegram command registry and help-surface truth | `src/telegram/commands.ts` |
 | Telegram polling ingress | `src/telegram/poller.ts` |
 | Telegram Bot API wrapper | `src/telegram/api.ts` |
@@ -66,7 +67,7 @@ Then return here and choose a narrow file.
 | filesystem project discovery | `src/project/discovery.ts` |
 | Codex-backed command execution and per-turn orchestration | `src/service/codex-command-coordinator.ts` |
 | turn lifecycle, finalization, turn-level glue | `src/service/turn-coordinator.ts` |
-| rich input adaptation for photos, voice, and structured local inputs | `src/service/rich-input-adapter.ts` |
+| rich input adaptation for photos, voice, attachments, and structured local inputs | `src/service/rich-input-adapter.ts` |
 | bridge-owned approval or questionnaire flow | `src/service/interaction-broker.ts` |
 | runtime cards, inspect/status/runtime surfaces, live progress | `src/service/runtime-surface-controller.ts` |
 | runtime notices and broadcast behavior | `src/service/runtime-notice-broadcaster.ts` |

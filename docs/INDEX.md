@@ -6,6 +6,7 @@ children:
   - docs/product/README.md
   - docs/architecture/README.md
   - docs/operations/README.md
+  - docs/generated/current-snapshot.md
   - docs/research/README.md
   - docs/future/README.md
   - docs/plans/README.md

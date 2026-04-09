@@ -30,6 +30,7 @@ If you want the canonical router, open `docs/INDEX.md`.
 
 - Current Telegram product boundary: `docs/product/v1-scope.md`
 - Current runtime shape or ownership map: `docs/architecture/README.md`
+- Current pack boundary, active-pack behavior, or platform capability split: `docs/architecture/platform-pack-boundary.md`
 - Install, config, service, update, diagnostics: `docs/operations/install-and-admin.md`
 - Exact Codex app-server capability or payload shape: `docs/research/README.md`
 - Future multi-platform Core direction: `docs/future/multi-platform-core-prd.md`

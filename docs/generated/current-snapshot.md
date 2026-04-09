@@ -1,6 +1,24 @@
+<!-- docmeta
+role: leaf
+layer: 2
+parent: docs/INDEX.md
+children: []
+summary: high-drift snapshot for current package version, source-tree size, and locally verifiable tooling facts
+read_when:
+  - the request needs exact current counts, version baselines, or other fast-drifting facts
+  - a narrative doc would otherwise need unstable implementation numbers
+skip_when:
+  - the request is about behavior, control flow, or product boundaries
+source_of_truth:
+  - docs/generated/current-snapshot.md
+  - package.json
+  - pack-manifest.json
+  - src
+-->
+
 # Current Snapshot
 
-Updated: 2026-03-22
+Updated: 2026-04-09
 
 This file is the home for high-drift facts that change more often than the narrative docs should.
 Use it for version baselines, repo-size snapshots, and similar volatile counts.
@@ -10,8 +28,8 @@ Do **not** use it as a behavior spec.
 
 - package version: `0.1.0`
 - required Node engine from `package.json`: `>=24.0.0`
-- supported Node lines in CI: `24`, `25`
-- live `codex --version`: `codex-cli 0.116.0`
+- current supported packs from `pack-manifest.json`: `telegram`, `feishu`
+- live `codex --version`: `codex-cli 0.118.0`
 - live `codex app-server --help` confirms:
   - `--listen stdio://` default transport
   - `--listen ws://IP:PORT` available
@@ -20,29 +38,29 @@ Do **not** use it as a behavior spec.
 
 ## Current Repo Size Snapshot
 
-Measured against the current `src/` tree on 2026-03-22.
+Measured against the current `src/` tree on 2026-04-09.
 
-- production TypeScript: `59` files, `32,429` lines
-- test TypeScript: `31` files, `25,383` lines
+- production TypeScript: `103` files, `43,572` lines
+- test TypeScript: `55` files, `33,510` lines
 
 Largest current non-test modules:
-- `src/service/runtime-surface-controller.ts` — `3362`
-- `src/service.ts` — `3112`
-- `src/telegram/ui-runtime.ts` — `2198`
-- `src/service/interaction-broker.ts` — `1572`
-- `src/activity/tracker.ts` — `1548`
-- `src/service/turn-coordinator.ts` — `1510`
-- `src/install.ts` — `1350`
-- `src/service/codex-command-coordinator.ts` — `1257`
-- `src/codex/app-server.ts` — `1018`
-- `src/service/session-project-coordinator.ts` — `987`
+- `src/service.ts` — `4097`
+- `src/service/runtime-surface-controller.ts` — `3726`
+- `src/telegram/ui-runtime.ts` — `2280`
+- `src/service/turn-coordinator.ts` — `1705`
+- `src/state/store-open.ts` — `1704`
+- `src/activity/tracker.ts` — `1599`
+- `src/install.ts` — `1516`
+- `src/service/codex-command-coordinator.ts` — `1289`
+- `src/service/interaction-broker.ts` — `1246`
+- `src/service/rich-input-adapter.ts` — `1127`
 
 Largest current test modules:
-- `src/service.test.ts` — `8968`
-- `src/service/runtime-surface-controller.test.ts` — `3094`
-- `src/telegram/ui.test.ts` — `1715`
-- `src/service/turn-coordinator.test.ts` — `1653`
-- `src/state/store.test.ts` — `1539`
+- `src/service.test.ts` — `9687`
+- `src/service/runtime-surface-controller.test.ts` — `3398`
+- `src/state/store.test.ts` — `2883`
+- `src/service/turn-coordinator.test.ts` — `2030`
+- `src/telegram/ui.test.ts` — `1885`
 
 ## Refresh Hints
 

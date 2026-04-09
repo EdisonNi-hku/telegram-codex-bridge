@@ -47,7 +47,7 @@ Use for:
 - `/plan`, `/model`, `/skills`, `/skill`
 - `/plugins`, `/plugin`, `/apps`, `/mcp`, `/account`
 - `/review`, `/fork`, `/rollback`, `/compact`
-- `/thread`, `/local_image`, and `/mention`
+- `/thread`, `/local_image`, `/mention`, and `/attach`
 
 ### Runtime surfaces, inspect, status, and final-answer delivery
 Read:

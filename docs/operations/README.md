@@ -2,7 +2,8 @@
 role: domain
 layer: 2
 parent: docs/INDEX.md
-children: []
+children:
+  - docs/operations/install-and-admin.md
 summary: router for install, configuration, service management, update, and diagnostics docs
 read_when:
   - the request is about install flow, config, service management, update, or diagnostics
