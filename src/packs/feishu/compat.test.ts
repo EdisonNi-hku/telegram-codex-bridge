@@ -197,3 +197,117 @@ test("feishu compat translates known interactive card access errors into operato
     await cleanup();
   }
 });
+
+test("feishu compat maps button style to card button type", async () => {
+  const { api, cleanup } = await createCompat();
+
+  try {
+    await api.ready();
+    const refs = api.refsStore;
+    const localChatId = refs.getOrCreateLocalChatId("oc_chat_1");
+    let interactiveContent = "";
+    (api as any).client = {
+      im: {
+        v1: {
+          message: {
+            create: async ({ data }: { data: { content: string } }) => {
+              interactiveContent = data.content;
+              return {
+                data: {
+                  message_id: "om_new"
+                }
+              };
+            }
+          }
+        }
+      }
+    };
+
+    await api.sendMessage(`${localChatId}`, "hello", {
+      replyMarkup: {
+        inline_keyboard: [[
+          {
+            text: "1",
+            callback_data: "v6:hb:s:token:1:1",
+            style: "default"
+          },
+          {
+            text: "2",
+            callback_data: "v6:hb:s:token:1:2",
+            style: "primary"
+          }
+        ]]
+      }
+    });
+
+    const card = JSON.parse(interactiveContent) as {
+      elements: Array<{
+        tag: string;
+        actions?: Array<{
+          type?: string;
+        }>;
+      }>;
+    };
+    const actions = card.elements.find((element) => element.tag === "action")?.actions ?? [];
+    assert.equal(actions[0]?.type, "default");
+    assert.equal(actions[1]?.type, "primary");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("feishu compat does not force the first button to primary when style is omitted", async () => {
+  const { api, cleanup } = await createCompat();
+
+  try {
+    await api.ready();
+    const refs = api.refsStore;
+    const localChatId = refs.getOrCreateLocalChatId("oc_chat_1");
+    let interactiveContent = "";
+    (api as any).client = {
+      im: {
+        v1: {
+          message: {
+            create: async ({ data }: { data: { content: string } }) => {
+              interactiveContent = data.content;
+              return {
+                data: {
+                  message_id: "om_new"
+                }
+              };
+            }
+          }
+        }
+      }
+    };
+
+    await api.sendMessage(`${localChatId}`, "hello", {
+      replyMarkup: {
+        inline_keyboard: [[
+          {
+            text: "First",
+            callback_data: "v1:first"
+          },
+          {
+            text: "Second",
+            callback_data: "v1:second"
+          }
+        ]]
+      }
+    });
+
+    const card = JSON.parse(interactiveContent) as {
+      elements: Array<{
+        tag: string;
+        actions?: Array<{
+          type?: string;
+        }>;
+      }>;
+    };
+    const actions = card.elements.find((element) => element.tag === "action")?.actions ?? [];
+    assert.equal(actions[0]?.type, "default");
+    assert.equal(actions[1]?.type, "default");
+  } finally {
+    await cleanup();
+  }
+});

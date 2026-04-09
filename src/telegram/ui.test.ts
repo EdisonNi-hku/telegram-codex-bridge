@@ -698,6 +698,13 @@ test("buildRuntimeHubReplyMarkup renders a fixed five-slot selector row without 
   });
 
   assert.deepEqual(replyMarkup.inline_keyboard[0]?.map((button) => button.text), ["1", "2", "·", "4", "·"]);
+  assert.deepEqual(replyMarkup.inline_keyboard[0]?.map((button) => button.style), [
+    "default",
+    "primary",
+    "default",
+    "default",
+    "default"
+  ]);
   assert.deepEqual(replyMarkup.inline_keyboard[1]?.map((button) => button.text), ["计划清单", "Agent：1 个运行中"]);
   assert.deepEqual(parseCallbackData(replyMarkup.inline_keyboard[0]?.[1]?.callback_data ?? ""), {
     kind: "hub_select",

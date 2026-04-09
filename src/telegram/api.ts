@@ -59,6 +59,7 @@ export interface TelegramCallbackQuery {
 export interface TelegramInlineKeyboardButton {
   text: string;
   callback_data: string;
+  style?: "default" | "primary";
 }
 
 export interface TelegramInlineKeyboardMarkup {

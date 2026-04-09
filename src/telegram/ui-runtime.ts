@@ -27,7 +27,7 @@ import type {
 } from "../core/interaction-model/runtime.js";
 import { truncateText } from "../util/text.js";
 import { BLOCKED_PROGRESS_APPROVAL, BLOCKED_PROGRESS_USER_INPUT } from "../util/blocked-progress.js";
-import type { TelegramInlineKeyboardMarkup } from "./api.js";
+import type { TelegramInlineKeyboardButton, TelegramInlineKeyboardMarkup } from "./api.js";
 import {
   encodeAgentCollapseCallback,
   encodeAgentExpandCallback,
@@ -673,21 +673,33 @@ export function buildRuntimeHubReplyMarkup(options: {
       slotSessionIds.push(null);
     }
 
-    rows.push(slotSessionIds.map((sessionId, index) => ({
-      text: sessionId ? String(index + 1) : "·",
-      callback_data: encodeHubSelectCallback(options.token, options.callbackVersion, index + 1)
-    })));
+    rows.push(slotSessionIds.map((sessionId, index) => {
+      const style: TelegramInlineKeyboardButton["style"] = sessionId && sessionId === options.focusedSessionId
+        ? "primary"
+        : "default";
+      return {
+        text: sessionId ? String(index + 1) : "·",
+        callback_data: encodeHubSelectCallback(options.token, options.callbackVersion, index + 1),
+        style
+      };
+    }));
   } else {
     const sessions = options.sessions ?? [];
     if (sessions.length > 1) {
-      const sessionButtons = sessions.map((session, index) => ({
-        text: session.isFocused
-          ? `${language === "en" ? "Viewing" : "查看中"} · ${truncateText(session.sessionName, 18)}`
-          : session.isActiveInputTarget
-            ? `${language === "en" ? "Current" : "当前"} · ${truncateText(session.sessionName, 18)}`
-            : truncateText(session.sessionName, 18),
-        callback_data: encodeHubSelectCallback(options.token, options.callbackVersion, index)
-      }));
+      const sessionButtons = sessions.map((session, index) => {
+        const style: TelegramInlineKeyboardButton["style"] = session.sessionId === options.focusedSessionId
+          ? "primary"
+          : "default";
+        return {
+          text: session.isFocused
+            ? `${language === "en" ? "Viewing" : "查看中"} · ${truncateText(session.sessionName, 18)}`
+            : session.isActiveInputTarget
+              ? `${language === "en" ? "Current" : "当前"} · ${truncateText(session.sessionName, 18)}`
+              : truncateText(session.sessionName, 18),
+          callback_data: encodeHubSelectCallback(options.token, options.callbackVersion, index),
+          style
+        };
+      });
       rows.push(...chunkButtons(sessionButtons, 2));
     }
   }

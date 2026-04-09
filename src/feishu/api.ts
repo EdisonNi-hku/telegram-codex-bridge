@@ -70,9 +70,9 @@ function buildInteractiveCard(
     elements.push({
       tag: "action",
       layout: row.length >= 3 ? "trisection" : row.length === 2 ? "bisected" : "flow",
-      actions: row.map((button, index) => ({
+      actions: row.map((button) => ({
         tag: "button",
-        type: index === 0 ? "primary" : "default",
+        type: button.style ?? "default",
         text: {
           tag: "plain_text",
           content: button.text
