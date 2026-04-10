@@ -1,8 +1,10 @@
+import { basename, relative, sep } from "node:path";
+
 import type { BridgeConfig } from "../config.js";
 import type { BridgeCommandActionView } from "../core/interaction-model/bridge-actions.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
-import { buildProjectPicker, refreshProjectPicker, validateManualProjectPath } from "../project/discovery.js";
+import { buildProjectPicker, validateManualProjectPath } from "../project/discovery.js";
 import {
   isTelegramDeleteCommitted,
   isTelegramEditCommitted,
@@ -16,6 +18,7 @@ import {
   buildManualPathConfirmMessage,
   buildManualPathPrompt,
   buildNoNewProjectsMessage,
+  buildProjectBrowseRootPickerMessage,
   buildProjectAliasClearedText,
   buildProjectAliasRenamedText,
   buildProjectPickerMessage,
@@ -40,6 +43,8 @@ import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 
 interface PickerState {
   picker: ProjectPickerResult;
+  browseRoots: string[];
+  inBrowseRootPicker: boolean;
   awaitingManualProjectPath: boolean;
   resolved: boolean;
   interactiveMessageId: number | null;
@@ -117,6 +122,7 @@ interface SessionProjectCoordinatorDeps {
   syncCurrentSessionCard: (chatId: string, reason: string) => Promise<void>;
   handleSessionArchived: (chatId: string, sessionId: string, reason: string) => Promise<void>;
   handleSessionUnarchived: (chatId: string, sessionId: string, reason: string) => Promise<void>;
+  openPreSessionBrowse: (chatId: string, sourceMessageId: number, rootPath: string) => Promise<boolean>;
 }
 
 function isStaleRemoteThreadArchiveError(error: unknown): boolean {
@@ -168,7 +174,7 @@ export class SessionProjectCoordinator {
       return true;
     }
 
-    if (this.pickerStates.get(chatId)?.awaitingManualProjectPath) {
+    if (this.pickerStates.get(chatId)?.awaitingManualProjectPath || this.pickerStates.get(chatId)?.inBrowseRootPicker) {
       await this.returnToProjectPicker(chatId);
       return true;
     }
@@ -185,6 +191,8 @@ export class SessionProjectCoordinator {
     const picker = await buildProjectPicker(this.deps.paths.homeDir, this.deps.config.projectScanRoots, store);
     const pickerState: PickerState = {
       picker,
+      browseRoots: this.resolveBrowseRoots(),
+      inBrowseRootPicker: false,
       awaitingManualProjectPath: false,
       resolved: false,
       interactiveMessageId: this.pickerStates.get(chatId)?.interactiveMessageId ?? null
@@ -240,50 +248,85 @@ export class SessionProjectCoordinator {
   }
 
   async handleScanMore(chatId: string, messageId: number): Promise<void> {
-    const store = this.deps.getStore();
-    if (!store) {
+    const pickerState = await this.requireActivePickerState(chatId, messageId);
+    if (!pickerState) {
       return;
     }
+    const noNewProjects = buildNoNewProjectsMessage();
+    await this.recreateInteractivePickerMessage(chatId, pickerState, {
+      text: noNewProjects.text,
+      replyMarkup: noNewProjects.replyMarkup
+    });
+  }
 
+  async openBrowseRootPicker(chatId: string, messageId: number): Promise<void> {
     const pickerState = await this.requireActivePickerState(chatId, messageId);
     if (!pickerState) {
       return;
     }
 
-    await this.deps.safeEditMessageText(chatId, messageId, "正在扫描本地项目，请稍候…");
-    const previousKeys = new Set([...pickerState.picker.projectMap.keys()]);
-    const refreshed = await refreshProjectPicker(
-      this.deps.paths.homeDir,
-      this.deps.config.projectScanRoots,
-      store,
-      previousKeys
-    );
-
-    if (!refreshed.hasNewResults) {
-      const noNewProjects = buildNoNewProjectsMessage();
-      await this.recreateInteractivePickerMessage(chatId, pickerState, {
-        text: noNewProjects.text,
-        replyMarkup: noNewProjects.replyMarkup
-      });
-      this.pickerStates.set(chatId, {
-        picker: refreshed.picker,
-        awaitingManualProjectPath: false,
-        resolved: false,
-        interactiveMessageId: pickerState.interactiveMessageId
-      });
+    const roots = pickerState.browseRoots;
+    if (roots.length === 0) {
+      await this.deps.safeSendMessage(chatId, "当前没有可浏览的根目录。");
       return;
     }
 
-    const rendered = buildProjectPickerMessage(refreshed.picker);
-    await this.recreateInteractivePickerMessage(chatId, pickerState, {
+    if (roots.length === 1) {
+      pickerState.resolved = true;
+      this.pickerStates.delete(chatId);
+      await this.deps.openPreSessionBrowse(chatId, messageId, roots[0]!);
+      return;
+    }
+
+    pickerState.inBrowseRootPicker = true;
+    pickerState.awaitingManualProjectPath = false;
+    const rendered = buildProjectBrowseRootPickerMessage({
+      roots: roots.map((path, index) => ({
+        index,
+        label: this.renderBrowseRootLabel(path),
+        pathLabel: this.renderPathLabel(path)
+      }))
+    });
+    await this.replaceInteractivePickerMessage(chatId, pickerState, {
       text: rendered.text,
       replyMarkup: rendered.replyMarkup
     });
-    this.pickerStates.set(chatId, {
-      picker: refreshed.picker,
-      awaitingManualProjectPath: false,
-      resolved: false,
-      interactiveMessageId: pickerState.interactiveMessageId
+  }
+
+  async handleBrowseRootPick(chatId: string, messageId: number, rootIndex: number): Promise<void> {
+    const pickerState = await this.requireActivePickerState(chatId, messageId);
+    if (!pickerState) {
+      return;
+    }
+
+    if (!pickerState.inBrowseRootPicker) {
+      await this.deps.safeSendMessage(chatId, "这个按钮已过期，请重新操作。");
+      return;
+    }
+
+    const rootPath = pickerState.browseRoots[rootIndex];
+    if (!rootPath) {
+      await this.deps.safeSendMessage(chatId, "这个按钮已过期，请重新操作。");
+      return;
+    }
+
+    pickerState.resolved = true;
+    this.pickerStates.delete(chatId);
+    await this.deps.openPreSessionBrowse(chatId, messageId, rootPath);
+  }
+
+  async backFromBrowseRootPicker(chatId: string, messageId: number): Promise<void> {
+    const pickerState = await this.requireActivePickerState(chatId, messageId);
+    if (!pickerState) {
+      return;
+    }
+
+    pickerState.inBrowseRootPicker = false;
+    pickerState.awaitingManualProjectPath = false;
+    const rendered = buildProjectPickerMessage(pickerState.picker);
+    await this.replaceInteractivePickerMessage(chatId, pickerState, {
+      text: rendered.text,
+      replyMarkup: rendered.replyMarkup
     });
   }
 
@@ -382,6 +425,7 @@ export class SessionProjectCoordinator {
       return;
     }
 
+    pickerState.inBrowseRootPicker = false;
     pickerState.awaitingManualProjectPath = false;
     const rendered = buildProjectPickerMessage(pickerState.picker);
     await this.recreateInteractivePickerMessage(chatId, pickerState, {
@@ -976,6 +1020,30 @@ export class SessionProjectCoordinator {
       ? "当前任务不受影响，下次任务开始时生效。"
       : "下次任务开始时生效。";
     await this.deps.safeSendMessage(chatId, `已为会话「${activeSession.displayName}」${verb} Plan mode。${suffix}`);
+  }
+
+  private resolveBrowseRoots(): string[] {
+    if (this.deps.config.projectScanRoots.length > 0) {
+      return this.deps.config.projectScanRoots;
+    }
+    return [this.deps.paths.homeDir];
+  }
+
+  private renderPathLabel(path: string): string {
+    if (path === this.deps.paths.homeDir) {
+      return "~";
+    }
+    if (path.startsWith(`${this.deps.paths.homeDir}${sep}`)) {
+      return `~/${relative(this.deps.paths.homeDir, path).split(sep).join("/")}`;
+    }
+    return path.split(sep).join("/");
+  }
+
+  private renderBrowseRootLabel(path: string): string {
+    if (path === this.deps.paths.homeDir) {
+      return "Home";
+    }
+    return basename(path) || path;
   }
 
   private async requireActivePickerState(chatId: string, messageId: number): Promise<PickerState | null> {

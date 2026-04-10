@@ -95,6 +95,7 @@ async function createCoordinatorContext() {
   const sentPhotos: Array<{ chatId: string; photoPath: string; caption?: string; parseMode?: "HTML" }> = [];
   const callbackAnswers: Array<string | undefined> = [];
   const deletedMessages: number[] = [];
+  const currentSessionCardCalls: Array<{ chatId: string; reason: string }> = [];
   let nextMessageId = 1000;
 
   const coordinator = new ProjectBrowserCoordinator({
@@ -136,7 +137,10 @@ async function createCoordinatorContext() {
       });
       return true;
     },
-    getUiLanguage: () => "zh"
+    getUiLanguage: () => "zh",
+    syncCurrentSessionCard: async (chatId, reason) => {
+      currentSessionCardCalls.push({ chatId, reason });
+    }
   });
 
   return {
@@ -150,6 +154,7 @@ async function createCoordinatorContext() {
     sentPhotos,
     callbackAnswers,
     deletedMessages,
+    currentSessionCardCalls,
     cleanup: async () => {
       store.close();
       await rm(root, { recursive: true, force: true });
@@ -351,6 +356,39 @@ test("browse keeps symlink entries non-navigable", async () => {
     });
 
     assert.equal(context.callbackAnswers.at(-1), "Phase 1 暂不支持浏览符号链接。");
+  } finally {
+    await context.cleanup();
+  }
+});
+
+test("pre-session browse can create a session from the current directory with confirmation", async () => {
+  const context = await createCoordinatorContext();
+  try {
+    authorizeChat(context.store, "chat-1");
+    const rootPath = join(context.root, "workspace");
+    await mkdir(rootPath, { recursive: true });
+    await mkdir(join(rootPath, "repo-a"), { recursive: true });
+
+    const opened = await context.coordinator.openPreSessionBrowse("chat-1", 77, rootPath);
+    assert.equal(opened, true);
+    assert.deepEqual(context.deletedMessages, [77]);
+
+    const token = getOnlyBrowseToken(context.coordinator);
+    await context.coordinator.handleBrowseCallback("cb-use-current", "chat-1", 1000, {
+      kind: "browse_use_current_dir",
+      token
+    });
+    assert.match(context.editedHtml.at(-1)?.html ?? "", /确认新建会话/u);
+
+    await context.coordinator.handleBrowseCallback("cb-confirm-create", "chat-1", 1000, {
+      kind: "browse_use_current_dir_confirm",
+      token
+    });
+
+    assert.equal(context.store.getActiveSession("chat-1")?.projectPath, rootPath);
+    assert.deepEqual(context.deletedMessages, [77, 1000]);
+    assert.match(context.sentHtml.at(-1)?.html ?? "", /<b>已新建会话<\/b>/u);
+    assert.deepEqual(context.currentSessionCardCalls, [{ chatId: "chat-1", reason: "session_created" }]);
   } finally {
     await context.cleanup();
   }

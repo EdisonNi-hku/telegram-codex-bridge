@@ -44,6 +44,15 @@ function createHandlers(calls: Call[]) {
     handleScanMore: async () => {
       calls.push({ name: "handleScanMore", args: [] });
     },
+    openBrowseRootPicker: async () => {
+      calls.push({ name: "openBrowseRootPicker", args: [] });
+    },
+    handleBrowseRootPick: async (rootIndex: number) => {
+      calls.push({ name: "handleBrowseRootPick", args: [rootIndex] });
+    },
+    backFromBrowseRootPicker: async () => {
+      calls.push({ name: "backFromBrowseRootPicker", args: [] });
+    },
     enterManualPathMode: async () => {
       calls.push({ name: "enterManualPathMode", args: [] });
     },
@@ -63,6 +72,9 @@ function createHandlers(calls: Call[]) {
         | { kind: "browse_refresh" }
         | { kind: "browse_back" }
         | { kind: "browse_close" }
+        | { kind: "browse_use_current_dir" }
+        | { kind: "browse_use_current_dir_confirm" }
+        | { kind: "browse_use_current_dir_cancel" }
       >
     ) => {
       calls.push({ name: "handleBrowseAction", args: [parsed] });
@@ -212,6 +224,27 @@ test("project picker and rename callbacks acknowledge before delegating", async 
       ]
     },
     {
+      parsed: { kind: "new_browse_open" },
+      expected: [
+        { name: "answer", args: [undefined] },
+        { name: "openBrowseRootPicker", args: [] }
+      ]
+    },
+    {
+      parsed: { kind: "new_browse_root", rootIndex: 1 },
+      expected: [
+        { name: "answer", args: [undefined] },
+        { name: "handleBrowseRootPick", args: [1] }
+      ]
+    },
+    {
+      parsed: { kind: "new_browse_back" },
+      expected: [
+        { name: "answer", args: [undefined] },
+        { name: "backFromBrowseRootPicker", args: [] }
+      ]
+    },
+    {
       parsed: { kind: "path_manual" },
       expected: [
         { name: "answer", args: [undefined] },
@@ -242,6 +275,24 @@ test("project picker and rename callbacks acknowledge before delegating", async 
       parsed: { kind: "browse_close", token: "tok" },
       expected: [
         { name: "handleBrowseAction", args: [{ kind: "browse_close", token: "tok" }] }
+      ]
+    },
+    {
+      parsed: { kind: "browse_use_current_dir", token: "tok" },
+      expected: [
+        { name: "handleBrowseAction", args: [{ kind: "browse_use_current_dir", token: "tok" }] }
+      ]
+    },
+    {
+      parsed: { kind: "browse_use_current_dir_confirm", token: "tok" },
+      expected: [
+        { name: "handleBrowseAction", args: [{ kind: "browse_use_current_dir_confirm", token: "tok" }] }
+      ]
+    },
+    {
+      parsed: { kind: "browse_use_current_dir_cancel", token: "tok" },
+      expected: [
+        { name: "handleBrowseAction", args: [{ kind: "browse_use_current_dir_cancel", token: "tok" }] }
       ]
     },
     {

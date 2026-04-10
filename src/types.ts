@@ -427,7 +427,7 @@ export interface ProjectCandidate {
 }
 
 export interface ProjectPickerGroup {
-  key: "pinned" | "recent" | "discovered";
+  key: "pinned" | "recent";
   title: string;
   candidates: ProjectCandidate[];
 }

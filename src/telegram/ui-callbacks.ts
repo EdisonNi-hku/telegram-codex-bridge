@@ -12,6 +12,9 @@ export type ParsedCallbackData =
   | { kind: "commands_edit_close"; token: string }
   | { kind: "pick"; projectKey: string }
   | { kind: "scan_more" }
+  | { kind: "new_browse_open" }
+  | { kind: "new_browse_back" }
+  | { kind: "new_browse_root"; rootIndex: number }
   | { kind: "path_manual" }
   | { kind: "path_back" }
   | { kind: "path_confirm"; projectKey: string }
@@ -22,6 +25,9 @@ export type ParsedCallbackData =
   | { kind: "browse_refresh"; token: string }
   | { kind: "browse_back"; token: string }
   | { kind: "browse_close"; token: string }
+  | { kind: "browse_use_current_dir"; token: string }
+  | { kind: "browse_use_current_dir_confirm"; token: string }
+  | { kind: "browse_use_current_dir_cancel"; token: string }
   | { kind: "rename_session"; sessionId: string }
   | { kind: "rename_project"; sessionId: string }
   | { kind: "rename_project_clear"; sessionId: string }
@@ -181,6 +187,18 @@ export function encodeScanMoreCallback(): string {
   return "v1:scan:more";
 }
 
+export function encodeNewBrowseOpenCallback(): string {
+  return "v1:new:browse";
+}
+
+export function encodeNewBrowseBackCallback(): string {
+  return "v1:new:browse:back";
+}
+
+export function encodeNewBrowseRootCallback(rootIndex: number): string {
+  return ensureTelegramCallbackDataLimit(`v1:new:browse:root:${encodeInteractionIndex(rootIndex)}`);
+}
+
 export function encodePathManualCallback(): string {
   return "v1:path:manual";
 }
@@ -219,6 +237,18 @@ export function encodeBrowseBackCallback(token: string): string {
 
 export function encodeBrowseCloseCallback(token: string): string {
   return ensureTelegramCallbackDataLimit(`v5:br:c:${token}`);
+}
+
+export function encodeBrowseUseCurrentDirCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v5:br:n:${token}`);
+}
+
+export function encodeBrowseUseCurrentDirConfirmCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v5:br:y:${token}`);
+}
+
+export function encodeBrowseUseCurrentDirCancelCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v5:br:k:${token}`);
 }
 
 export function encodeRenameSessionCallback(sessionId: string): string {
@@ -565,6 +595,18 @@ export function parseCallbackData(data: string): ParsedCallbackData | null {
       return { kind: "browse_close", token: parts[3] };
     }
 
+    if (parts[2] === "n" && parts[3]) {
+      return { kind: "browse_use_current_dir", token: parts[3] };
+    }
+
+    if (parts[2] === "y" && parts[3]) {
+      return { kind: "browse_use_current_dir_confirm", token: parts[3] };
+    }
+
+    if (parts[2] === "k" && parts[3]) {
+      return { kind: "browse_use_current_dir_cancel", token: parts[3] };
+    }
+
     return null;
   }
 
@@ -859,6 +901,21 @@ export function parseCallbackData(data: string): ParsedCallbackData | null {
 
   if (parts[1] === "scan" && parts[2] === "more") {
     return { kind: "scan_more" };
+  }
+
+  if (parts[1] === "new" && parts[2] === "browse" && !parts[3]) {
+    return { kind: "new_browse_open" };
+  }
+
+  if (parts[1] === "new" && parts[2] === "browse" && parts[3] === "back") {
+    return { kind: "new_browse_back" };
+  }
+
+  if (parts[1] === "new" && parts[2] === "browse" && parts[3] === "root" && parts[4]) {
+    const rootIndex = decodeInteractionIndex(parts[4]);
+    if (rootIndex !== null) {
+      return { kind: "new_browse_root", rootIndex };
+    }
   }
 
   if (parts[1] === "path" && parts[2] === "manual") {

@@ -7,6 +7,9 @@ import {
   encodeBrowsePageCallback,
   encodeBrowseRefreshCallback,
   encodeBrowseRootCallback,
+  encodeBrowseUseCurrentDirCallback,
+  encodeBrowseUseCurrentDirCancelCallback,
+  encodeBrowseUseCurrentDirConfirmCallback,
   encodeBrowseUpCallback
 } from "./ui-callbacks.js";
 import { escapeHtml, formatHtmlField, formatHtmlHeading } from "./ui-shared.js";
@@ -34,6 +37,7 @@ function browserCopy(language: UiLanguage) {
         up: "Up",
         backToRoot: "Project Root",
         refresh: "Refresh",
+        useCurrentDirectory: "Use Current Directory",
         close: "Close",
         previewTitle: "File Preview",
         file: "File:",
@@ -62,6 +66,7 @@ function browserCopy(language: UiLanguage) {
         up: "上一级",
         backToRoot: "回到项目根",
         refresh: "刷新",
+        useCurrentDirectory: "在当前目录新建会话",
         close: "关闭",
         previewTitle: "文件预览",
         file: "文件：",
@@ -102,6 +107,7 @@ export function buildProjectBrowserDirectoryMessage(options: {
   totalPages: number;
   entries: ProjectBrowserDirectoryEntryView[];
   canGoUp: boolean;
+  allowUseCurrentDirectory?: boolean;
 }): {
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
@@ -139,6 +145,10 @@ export function buildProjectBrowserDirectoryMessage(options: {
     rows.push([{ text: copy.backToRoot, callback_data: encodeBrowseRootCallback(options.token) }]);
   }
 
+  if (options.allowUseCurrentDirectory) {
+    rows.push([{ text: copy.useCurrentDirectory, callback_data: encodeBrowseUseCurrentDirCallback(options.token) }]);
+  }
+
   rows.push([
     { text: copy.refresh, callback_data: encodeBrowseRefreshCallback(options.token) },
     { text: copy.close, callback_data: encodeBrowseCloseCallback(options.token) }
@@ -164,6 +174,30 @@ export function buildProjectBrowserDirectoryMessage(options: {
   return {
     text: lines.join("\n"),
     replyMarkup: { inline_keyboard: rows }
+  };
+}
+
+export function buildProjectBrowserUseCurrentDirectoryConfirmMessage(options: {
+  token: string;
+  projectName: string;
+  directoryPath: string;
+}): {
+  text: string;
+  replyMarkup: TelegramInlineKeyboardMarkup;
+} {
+  return {
+    text: [
+      formatHtmlHeading("确认新建会话"),
+      formatHtmlField("目录：", options.directoryPath),
+      formatHtmlField("显示名：", options.projectName),
+      "要在这个目录新建会话吗？"
+    ].join("\n"),
+    replyMarkup: {
+      inline_keyboard: [
+        [{ text: "确认新建会话", callback_data: encodeBrowseUseCurrentDirConfirmCallback(options.token) }],
+        [{ text: "返回目录", callback_data: encodeBrowseUseCurrentDirCancelCallback(options.token) }]
+      ]
+    }
   };
 }
 

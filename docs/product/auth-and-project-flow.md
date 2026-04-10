@@ -71,35 +71,23 @@ Rebinding flow:
 
 ## Project Discovery Rules
 
-Scan root source:
+`/new` is browse-first.
+
+Root boundary source:
 - read `PROJECT_SCAN_ROOTS` from `bridge.env`
-- when configured, scan only those roots in the configured order
-- when empty or unset, scan the user's `HOME` as one bounded root
+- when configured, treat those paths as allowed browse roots
+- when empty or unset, use the user's `HOME` as one browse root
 - install and repair flows should persist preferred roots; runtime fallback does not rewrite config
 
-A directory is a candidate project if it contains at least one of:
-- `.git/`
-- `package.json`
-- `pyproject.toml`
-- `Cargo.toml`
-- `go.mod`
-- `.jj/`
-
-Exclude:
-- hidden directories unless explicitly pinned
-- common dependency and build directories such as `node_modules`, `.venv`, `venv`, `dist`, `build`, `target`, `.next`, and `.turbo`
-
-Scan limits:
-- max depth: 3
-- max candidates: 200
-- max scan time: 3 seconds per `/new`
+`/new` recommendations are history-based:
+- pinned projects
+- recent projects with existing session history
 
 Ordering signals:
 - `+100` pinned project
 - `+80` last successful project
 - `+60` most recently used project
 - `+40` existing session history
-- `+20` discovered by scan and still exists
 - `-50` path missing or inaccessible
 
 Tie-breakers:
@@ -109,20 +97,17 @@ Tie-breakers:
 
 `/new` output rules:
 - `/new` only selects a project and creates a new session
-- group visible candidates into `已收藏`, `最近使用`, and `本地发现`
+- group visible candidates into `已收藏` and `最近使用`
 - show at most 5 visible projects total
-- when no pinned projects consume that shared budget, prefer up to 3 `最近使用` entries and 2 `本地发现` entries
+- when no pinned projects consume that shared budget, prefer up to 3 `最近使用` entries
 - each visible project shows display name plus path hint
 - paths under `HOME` render as `~/...`; other paths render as absolute paths
 - the same project path appears at most once; if it matches multiple sources, show it in the highest-priority group and expose the others as tags
 - project buttons use compact numeric labels in the same order as the visible grouped list
-- always show `扫描本地项目` and `手动输入路径`
+- always show `浏览目录` and `手动输入路径`
 
 Degradation:
-- partial scan results are acceptable
-- scan timeout does not fail `/new`
-- if every configured scan root is unavailable, show a degraded notice and fall back to historical results when available
-- if no candidates remain, show fallback actions and `未找到可用项目，请扫描本地项目或手动输入路径。`
+- if no candidates remain, show fallback actions and `还没有最近项目，请浏览目录或手动输入路径。`
 
 ## Telegram Command Contract
 
@@ -180,7 +165,7 @@ Shows the project picker:
 - title `选择要新建会话的项目`
 - grouped project list
 - compact numeric project buttons in the same order as the visible grouped list
-- fallback buttons
+- fallback buttons (`浏览目录`, `手动输入路径`)
 
 Rules:
 - selecting a project always creates a new session
@@ -189,6 +174,8 @@ Rules:
 - a newly created idle session does not appear in the runtime hub until it starts its first real running turn
 - `/new` always recreates the picker as a fresh bridge-owned message at the bottom of chat
 - the bridge keeps at most one valid project picker per chat; any older picker becomes stale
+- when `PROJECT_SCAN_ROOTS` has multiple roots, `/new -> 浏览目录` first shows a root picker before opening the browser
+- pre-session browse keeps root confinement and can create a session from the currently viewed directory after explicit confirmation
 
 ### `/browse`
 
@@ -209,16 +196,12 @@ Rules:
 - `/browse` does not expose arbitrary server paths; it is limited to the current active project's root tree
 - `/browse` can be used while a turn is running because it does not mutate the project or start a Codex turn
 
-### `扫描本地项目`
+### `扫描本地项目` (legacy callback compatibility)
 
 Behavior:
-- retire the previous valid picker or no-results surface and send a fresh bridge-owned surface
-- show `正在扫描本地项目，请稍候…`
-- after scanning, keep a single refreshed picker or no-results surface visible; do not leave older picker cards behind
-
-If no new results are found:
-- show `没有发现新的本地项目。`
-- include `手动输入路径` and `返回项目列表`
+- this button path is retired from `/new` and kept only as stale-callback compatibility
+- stale `扫描本地项目` callbacks return a deprecation surface
+- the deprecation surface offers `浏览目录`, `手动输入路径`, and `返回项目列表`
 
 ### `手动输入路径`
 

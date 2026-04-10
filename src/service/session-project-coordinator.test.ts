@@ -129,7 +129,8 @@ async function createCoordinatorContext() {
     },
     handleSessionUnarchived: async (chatId, sessionId, reason) => {
       unarchiveHookCalls.push({ chatId, sessionId, reason });
-    }
+    },
+    openPreSessionBrowse: async () => true
   });
 
   return {
@@ -239,7 +240,13 @@ test("handleNew deletes the previous picker and sends a fresh picker message", a
 
   try {
     authorizeChat(store, "chat-1");
-    await createDiscoveredProject(paths.homeDir, "picker-project");
+    const projectPath = join(paths.homeDir, "Repo", "picker-project");
+    await mkdir(projectPath, { recursive: true });
+    store.createSession({
+      chatId: "chat-1",
+      projectName: "picker-project",
+      projectPath
+    });
 
     await coordinator.handleNew("chat-1");
     const firstPickerMessageId = sentMessages[0]?.messageId;
@@ -305,9 +312,15 @@ test("stale picker message ids expire after a newer picker is sent", async () =>
 
   try {
     authorizeChat(store, "chat-1");
-    await createDiscoveredProject(paths.homeDir, "picker-project");
+    const projectPath = join(paths.homeDir, "Repo", "picker-project");
 
     await coordinator.handleNew("chat-1");
+    (coordinator as any).pickerStates.get("chat-1")?.picker.projectMap.set("project-1", {
+      projectKey: "project-1",
+      projectName: "picker-project",
+      projectPath,
+      displayName: "picker-project"
+    });
     const firstPickerMessageId = sentMessages[0]?.messageId;
     const firstProjectKey = [...((coordinator as any).pickerStates.get("chat-1")?.picker.projectMap.keys() ?? [])][0];
     assert.ok(firstPickerMessageId);
@@ -431,7 +444,8 @@ test("handleArchive keeps using the original store after remote archive mirrorin
         currentSessionCardCalls.push({ chatId, reason });
       },
       handleSessionArchived: async () => {},
-      handleSessionUnarchived: async () => {}
+      handleSessionUnarchived: async () => {},
+      openPreSessionBrowse: async () => true
     });
 
     await coordinator.handleArchive("chat-1");

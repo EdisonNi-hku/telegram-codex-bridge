@@ -14,6 +14,9 @@ export interface BridgeCallbackRouterHandlers {
   handleCommandPanelEditClose(token: string): Promise<void>;
   handleProjectPick(projectKey: string): Promise<void>;
   handleScanMore(): Promise<void>;
+  openBrowseRootPicker(): Promise<void>;
+  handleBrowseRootPick(rootIndex: number): Promise<void>;
+  backFromBrowseRootPicker(): Promise<void>;
   enterManualPathMode(): Promise<void>;
   returnToProjectPicker(): Promise<void>;
   confirmManualProject(projectKey: string): Promise<void>;
@@ -26,6 +29,9 @@ export interface BridgeCallbackRouterHandlers {
     | { kind: "browse_refresh" }
     | { kind: "browse_back" }
     | { kind: "browse_close" }
+    | { kind: "browse_use_current_dir" }
+    | { kind: "browse_use_current_dir_confirm" }
+    | { kind: "browse_use_current_dir_cancel" }
   >): Promise<void>;
   beginSessionRename(sessionId: string): Promise<void>;
   beginProjectRename(sessionId: string): Promise<void>;
@@ -104,6 +110,18 @@ export async function routeBridgeCallback(
       await handlers.answer();
       await handlers.handleScanMore();
       return;
+    case "new_browse_open":
+      await handlers.answer();
+      await handlers.openBrowseRootPicker();
+      return;
+    case "new_browse_root":
+      await handlers.answer();
+      await handlers.handleBrowseRootPick(parsed.rootIndex);
+      return;
+    case "new_browse_back":
+      await handlers.answer();
+      await handlers.backFromBrowseRootPicker();
+      return;
     case "path_manual":
       await handlers.answer();
       await handlers.enterManualPathMode();
@@ -123,6 +141,9 @@ export async function routeBridgeCallback(
     case "browse_refresh":
     case "browse_back":
     case "browse_close":
+    case "browse_use_current_dir":
+    case "browse_use_current_dir_confirm":
+    case "browse_use_current_dir_cancel":
       await handlers.handleBrowseAction(parsed);
       return;
     case "rename_session":

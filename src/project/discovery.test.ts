@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
@@ -74,90 +74,58 @@ async function createDiscoveryContext(): Promise<{
   };
 }
 
-async function writeMarker(path: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, "{}\n", "utf8");
-}
-
-test("buildProjectPicker scans configured roots only", async () => {
+test("buildProjectPicker returns empty guidance without scan-driven groups", async () => {
   const { root, store, cleanup } = await createDiscoveryContext();
-  const configuredRoot = join(root, "projects");
-  const expectedProjectPath = join(configuredRoot, "alpha");
-  const ignoredProjectPath = join(root, "other", "beta");
 
   try {
-    await Promise.all([
-      mkdir(join(expectedProjectPath, ".git"), { recursive: true }),
-      writeMarker(join(ignoredProjectPath, "package.json"))
-    ]);
-
-    const picker = await buildProjectPicker(root, [configuredRoot], store);
-    const projectPaths = [...picker.projectMap.values()].map((candidate) => candidate.projectPath);
-
-    assert.deepEqual(projectPaths, [expectedProjectPath]);
-    assert.equal([...picker.projectMap.values()][0]?.pathLabel, "~/projects/alpha");
-  } finally {
-    await cleanup();
-  }
-});
-
-test("buildProjectPicker falls back to HOME when PROJECT_SCAN_ROOTS is unset", async () => {
-  const { root, store, cleanup } = await createDiscoveryContext();
-  const expectedProjectPath = join(root, "projects", "alpha");
-
-  try {
-    await writeMarker(join(expectedProjectPath, "package.json"));
-
     const picker = await buildProjectPicker(root, [], store);
-
-    assert.equal(
-      [...picker.projectMap.values()].some((candidate) => candidate.projectPath === expectedProjectPath),
-      true
-    );
+    assert.equal(picker.groups.length, 0);
+    assert.equal(picker.emptyText, "还没有最近项目，请浏览目录或手动输入路径。");
+    assert.deepEqual(picker.noticeLines, []);
+    assert.equal(picker.partial, false);
+    assert.equal(picker.allRootsFailed, false);
   } finally {
     await cleanup();
   }
 });
 
-test("buildProjectPicker shows a generic degraded notice when every scan root fails", async () => {
+test("buildProjectPicker keeps the /new picker to pinned and recent groups only", async () => {
   const { root, store, cleanup } = await createDiscoveryContext();
+  const recentNames = ["recent-a", "recent-b", "recent-c", "recent-d", "recent-e", "recent-f"];
 
   try {
-    const picker = await buildProjectPicker(root, [join(root, "missing-root")], store);
-
-    assert.deepEqual(picker.noticeLines, ["扫描根目录当前不可用，以下结果可能主要来自历史记录。"]);
-  } finally {
-    await cleanup();
-  }
-});
-
-test("buildProjectPicker keeps the /new picker to three recent and two discovered projects", async () => {
-  const { root, store, cleanup } = await createDiscoveryContext();
-  const configuredRoot = join(root, "projects");
-  const recentNames = ["recent-a", "recent-b", "recent-c", "recent-d"];
-  const discoveredNames = ["discovered-a", "discovered-b", "discovered-c"];
-
-  try {
-    for (const name of [...recentNames, ...discoveredNames]) {
-      await writeMarker(join(configuredRoot, name, "package.json"));
-    }
-
+    await mkdir(join(root, "projects"), { recursive: true });
     for (const name of recentNames) {
+      const projectPath = join(root, "projects", name);
+      await mkdir(projectPath, { recursive: true });
       store.createSession({
         chatId: "chat-1",
         projectName: name,
-        projectPath: join(configuredRoot, name)
+        projectPath
       });
     }
 
-    const picker = await buildProjectPicker(root, [configuredRoot], store);
-    const recentGroup = picker.groups.find((group) => group.key === "recent");
-    const discoveredGroup = picker.groups.find((group) => group.key === "discovered");
+    store.pinProject({
+      projectPath: join(root, "projects", "recent-e"),
+      projectName: "recent-e",
+      sessionId: null
+    });
+    store.pinProject({
+      projectPath: join(root, "projects", "recent-f"),
+      projectName: "recent-f",
+      sessionId: null
+    });
 
+    const picker = await buildProjectPicker(root, [], store);
+    const recentGroup = picker.groups.find((group) => group.key === "recent");
+    const pinnedGroup = picker.groups.find((group) => group.key === "pinned");
+
+    assert.equal(picker.groups.some((group) => group.key === "pinned"), true);
+    assert.equal(picker.groups.some((group) => (group as any).key === "discovered"), false);
+    assert.equal(pinnedGroup?.candidates.length, 2);
     assert.equal(recentGroup?.candidates.length, 3);
-    assert.equal(discoveredGroup?.candidates.length, 2);
     assert.equal(picker.groups.flatMap((group) => group.candidates).length, 5);
-    assert.equal(picker.projectMap.size, recentNames.length + discoveredNames.length);
+    assert.equal(picker.projectMap.size, recentNames.length);
   } finally {
     await cleanup();
   }

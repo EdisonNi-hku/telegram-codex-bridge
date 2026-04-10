@@ -5678,7 +5678,7 @@ test("manual path flow replaces stale picker cards when edits fail", async () =>
   }
 });
 
-test("scan more no-results flow replaces stale cards and returns to the picker cleanly", async () => {
+test("legacy scan-more callback returns the deprecation surface and can return to the picker", async () => {
   const { service, store, cleanup } = await createServiceContext();
   const sent: Array<{ messageId: number; text: string; parseMode?: string; replyMarkup?: any }> = [];
   const deleted: number[] = [];
@@ -5686,10 +5686,6 @@ test("scan more no-results flow replaces stale cards and returns to the picker c
 
   try {
     authorizeChat(store, "chat-1");
-    const projectPath = join(paths.homeDir, "Repo", "scan-existing-project");
-    await mkdir(projectPath, { recursive: true });
-    await writeFile(join(projectPath, "package.json"), "{}\n", "utf8");
-
     (service as any).api = {
       sendMessage: async (_chatId: string, text: string, options?: any) => {
         const message = createFakeTelegramMessage(1100 + sent.length, text);
@@ -5709,23 +5705,12 @@ test("scan more no-results flow replaces stale cards and returns to the picker c
     const pickerMessageId = sent[0]!.messageId;
 
     await (service as any).handleScanMore("chat-1", pickerMessageId);
-    assert.equal(sent[1]?.text, "没有发现新的本地项目。");
+    assert.equal(sent[1]?.text, "这个入口已下线。请使用浏览目录或手动输入路径。");
     assert.deepEqual(deleted, [pickerMessageId]);
 
     await (service as any).returnToProjectPicker("chat-1", sent[1]!.messageId);
     assert.match(sent[2]?.text ?? "", /选择要新建会话的项目/u);
     assert.deepEqual(deleted, [pickerMessageId, sent[1]!.messageId]);
-
-    const pickCallback = sent[2]?.replyMarkup?.inline_keyboard?.[0]?.[0]?.callback_data;
-    const parsedPick = typeof pickCallback === "string" ? parseCallbackData(pickCallback) : null;
-    assert.equal(parsedPick?.kind, "pick");
-
-    await (service as any).handleProjectPick("chat-1", sent[2]!.messageId, parsedPick!.projectKey);
-
-    assert.deepEqual(deleted, [pickerMessageId, sent[1]!.messageId, sent[2]!.messageId]);
-    assert.equal(sent[3]?.parseMode, "HTML");
-    assert.match(sent[3]?.text ?? "", /<b>已新建会话<\/b>/u);
-    assert.equal(store.getActiveSession("chat-1")?.projectPath, projectPath);
   } finally {
     await cleanup();
   }
@@ -7786,7 +7771,7 @@ test("blocked turns do not queue rich input prompts while an interaction card is
   }
 });
 
-test("model command opens a paginated picker and supports two-step model plus reasoning selection", async () => {
+test("model command keeps small model lists on one page and supports two-step model plus reasoning selection", async () => {
   const { service, store, cleanup } = await createServiceContext();
   const sent: Array<{ text: string; options?: any }> = [];
   const edited: Array<{ messageId: number; text: string; options?: any }> = [];
@@ -7907,6 +7892,7 @@ test("model command opens a paginated picker and supports two-step model plus re
     assert.match(sent[0]?.text ?? "", /选择模型/u);
     assert.match(sent[0]?.text ?? "", /当前配置：gpt-5 \+ 中/u);
     assert.match(sent[0]?.text ?? "", /当前生效：gpt-5 \+ 中/u);
+    assert.match(sent[0]?.text ?? "", /第 1\/1 页/u);
     assert.equal(sent[0]?.options?.replyMarkup?.inline_keyboard?.length, 8);
     assert.equal(sent[0]?.options?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "GPT-5 [已配置/生效]");
     assert.equal(sent[0]?.options?.replyMarkup?.inline_keyboard?.[6]?.[0]?.text, "GPT-4.1 nano");
@@ -7957,6 +7943,51 @@ test("model command opens a paginated picker and supports two-step model plus re
       model: "o3",
       effort: "xhigh"
     }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("legacy result-send callbacks answer with a deprecation hint instead of attempting artifact discovery", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const callbackAnswers: string[] = [];
+
+  try {
+    authorizeNumericChatWithSession(store, "1");
+
+    (service as any).api = {
+      answerCallbackQuery: async (_callbackQueryId: string, text?: string) => {
+        callbackAnswers.push(text ?? "");
+      }
+    };
+
+    await (service as any).handleCallback({
+      id: "cb-legacy-send-file",
+      from: { id: 1, is_bot: false, first_name: "Tester" },
+      message: {
+        message_id: 1401,
+        chat: { id: 1, type: "private" },
+        date: 0,
+        text: "旧结果卡"
+      },
+      data: "v8:rs:f:answer-legacy"
+    });
+    await (service as any).handleCallback({
+      id: "cb-legacy-send-image",
+      from: { id: 1, is_bot: false, first_name: "Tester" },
+      message: {
+        message_id: 1402,
+        chat: { id: 1, type: "private" },
+        date: 0,
+        text: "旧结果卡"
+      },
+      data: "v8:rs:i:answer-legacy"
+    });
+
+    assert.deepEqual(callbackAnswers, [
+      "这个入口已下线。请直接告诉 Codex 发送文件。",
+      "这个入口已下线。请直接告诉 Codex 发送图片。"
+    ]);
   } finally {
     await cleanup();
   }

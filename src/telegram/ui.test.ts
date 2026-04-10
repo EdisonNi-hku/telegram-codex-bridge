@@ -477,8 +477,8 @@ test("session management replies render explicit session and project context", (
 test("buildProjectPickerMessage renders grouped candidates with path hints", () => {
   const rendered = buildProjectPickerMessage({
     title: "选择要新建会话的项目",
-    emptyText: null,
-    noticeLines: ["本地扫描结果可能不完整。"],
+    emptyText: "还没有最近项目，请浏览目录或手动输入路径。",
+    noticeLines: [],
     groups: [
       {
         key: "pinned",
@@ -493,22 +493,7 @@ test("buildProjectPickerMessage renders grouped candidates with path hints", () 
             isRecent: true,
             pinned: true,
             hasExistingSession: true,
-            fromScan: true
-          })
-        ]
-      },
-      {
-        key: "discovered",
-        title: "本地发现",
-        candidates: [
-          createProjectCandidate({
-            projectKey: "project-2",
-            projectName: "Project Two",
-            displayName: "Project Two",
-            pathLabel: "workspace/project-two",
-            group: "discovered",
-            isRecent: false,
-            fromScan: true
+            fromScan: false
           })
         ]
       }
@@ -525,28 +510,19 @@ test("buildProjectPickerMessage renders grouped candidates with path hints", () 
         isRecent: true,
         pinned: true,
         hasExistingSession: true,
-        fromScan: true
-      })],
-      ["project-2", createProjectCandidate({
-        projectKey: "project-2",
-        projectName: "Project Two",
-        displayName: "Project Two",
-        pathLabel: "workspace/project-two",
-        group: "discovered",
-        isRecent: false,
-        fromScan: true
+        fromScan: false
       })]
     ])
   });
 
   assert.match(rendered.text, /^选择要新建会话的项目/um);
+  assert.match(rendered.text, /还没有最近项目，请浏览目录或手动输入路径。/u);
   assert.match(rendered.text, /已收藏/u);
   assert.match(rendered.text, /1\. Alias One/u);
   assert.match(rendered.text, /Repo\/team\/project-one/u);
-  assert.match(rendered.text, /最近 · 本地发现 · 有历史会话/u);
-  assert.match(rendered.text, /本地发现/u);
-  assert.deepEqual(rendered.replyMarkup.inline_keyboard[0]?.map((button) => button.text), ["1", "2"]);
-  assert.equal(rendered.replyMarkup.inline_keyboard.at(-1)?.[0]?.text, "扫描本地项目");
+  assert.match(rendered.text, /最近 · 有历史会话/u);
+  assert.deepEqual(rendered.replyMarkup.inline_keyboard[0]?.map((button) => button.text), ["1"]);
+  assert.equal(rendered.replyMarkup.inline_keyboard.at(-1)?.[0]?.text, "浏览目录");
 });
 
 test("project browser directory message renders entries and browse callbacks", () => {
@@ -1541,6 +1517,16 @@ test("parseCallbackData understands compact and legacy v3 interaction callbacks"
     kind: "rename_project_clear",
     sessionId: "session-1"
   });
+  assert.deepEqual(parseCallbackData("v1:new:browse"), {
+    kind: "new_browse_open"
+  });
+  assert.deepEqual(parseCallbackData("v1:new:browse:root:2"), {
+    kind: "new_browse_root",
+    rootIndex: 2
+  });
+  assert.deepEqual(parseCallbackData("v1:new:browse:back"), {
+    kind: "new_browse_back"
+  });
   assert.deepEqual(parseCallbackData("v5:st:i:session-1"), {
     kind: "status_inspect",
     sessionId: "session-1"
@@ -1577,6 +1563,18 @@ test("parseCallbackData understands compact and legacy v3 interaction callbacks"
   });
   assert.deepEqual(parseCallbackData("v5:br:c:tok123"), {
     kind: "browse_close",
+    token: "tok123"
+  });
+  assert.deepEqual(parseCallbackData("v5:br:n:tok123"), {
+    kind: "browse_use_current_dir",
+    token: "tok123"
+  });
+  assert.deepEqual(parseCallbackData("v5:br:y:tok123"), {
+    kind: "browse_use_current_dir_confirm",
+    token: "tok123"
+  });
+  assert.deepEqual(parseCallbackData("v5:br:k:tok123"), {
+    kind: "browse_use_current_dir_cancel",
     token: "tok123"
   });
   assert.deepEqual(parseCallbackData("v7:rr:o:answer-1"), {

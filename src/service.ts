@@ -341,7 +341,9 @@ export class BridgeService {
       handleSessionArchived: async (chatId, sessionId, reason) =>
         this.runtimeSurfaceController.handleSessionArchived(chatId, sessionId, reason),
       handleSessionUnarchived: async (chatId, sessionId, reason) =>
-        this.runtimeSurfaceController.handleSessionUnarchived(chatId, sessionId, reason)
+        this.runtimeSurfaceController.handleSessionUnarchived(chatId, sessionId, reason),
+      openPreSessionBrowse: async (chatId, sourceMessageId, rootPath) =>
+        this.projectBrowserCoordinator.openPreSessionBrowse(chatId, sourceMessageId, rootPath)
     });
     this.projectBrowserCoordinator = new ProjectBrowserCoordinator({
       getStore: () => this.store,
@@ -353,7 +355,8 @@ export class BridgeService {
       safeDeleteMessage: async (chatId, messageId) => this.safeDeleteMessageResult(chatId, messageId),
       safeAnswerCallbackQuery: async (callbackQueryId, text) => this.safeAnswerCallbackQuery(callbackQueryId, text),
       safeSendPhoto: async (chatId, photoPath, options) => this.safeSendPhoto(chatId, photoPath, options),
-      getUiLanguage: () => this.getUiLanguage()
+      getUiLanguage: () => this.getUiLanguage(),
+      syncCurrentSessionCard: async (chatId, reason) => this.currentSessionCardController.syncForChat(chatId, reason)
     });
     this.runtimeSurfaceController = new RuntimeSurfaceController({
       logger: this.logger,
@@ -965,6 +968,9 @@ export class BridgeService {
       ),
       handleProjectPick: async (projectKey) => this.handleProjectPick(chatId, message.message_id, projectKey),
       handleScanMore: async () => this.handleScanMore(chatId, message.message_id),
+      openBrowseRootPicker: async () => this.openBrowseRootPicker(chatId, message.message_id),
+      handleBrowseRootPick: async (rootIndex) => this.handleBrowseRootPick(chatId, message.message_id, rootIndex),
+      backFromBrowseRootPicker: async () => this.backFromBrowseRootPicker(chatId, message.message_id),
       enterManualPathMode: async () => this.enterManualPathMode(chatId, message.message_id),
       returnToProjectPicker: async () => this.returnToProjectPicker(chatId, message.message_id),
       confirmManualProject: async (projectKey) => this.confirmManualProject(chatId, message.message_id, projectKey),
@@ -1203,6 +1209,9 @@ export class BridgeService {
       | { kind: "browse_refresh" }
       | { kind: "browse_back" }
       | { kind: "browse_close" }
+      | { kind: "browse_use_current_dir" }
+      | { kind: "browse_use_current_dir_confirm" }
+      | { kind: "browse_use_current_dir_cancel" }
     >
   ): Promise<void> {
     await this.projectBrowserCoordinator.handleBrowseCallback(callbackQueryId, chatId, messageId, parsed);
@@ -2156,6 +2165,18 @@ export class BridgeService {
 
   private async handleScanMore(chatId: string, messageId: number): Promise<void> {
     await this.sessionProjectCoordinator.handleScanMore(chatId, messageId);
+  }
+
+  private async openBrowseRootPicker(chatId: string, messageId: number): Promise<void> {
+    await this.sessionProjectCoordinator.openBrowseRootPicker(chatId, messageId);
+  }
+
+  private async handleBrowseRootPick(chatId: string, messageId: number, rootIndex: number): Promise<void> {
+    await this.sessionProjectCoordinator.handleBrowseRootPick(chatId, messageId, rootIndex);
+  }
+
+  private async backFromBrowseRootPicker(chatId: string, messageId: number): Promise<void> {
+    await this.sessionProjectCoordinator.backFromBrowseRootPicker(chatId, messageId);
   }
 
   private async enterManualPathMode(chatId: string, messageId: number): Promise<void> {

@@ -9,6 +9,9 @@ import type {
 import { truncateText } from "../util/text.js";
 import type { TelegramInlineKeyboardMarkup } from "./api.js";
 import {
+  encodeNewBrowseBackCallback,
+  encodeNewBrowseOpenCallback,
+  encodeNewBrowseRootCallback,
   encodeModelCloseCallback,
   encodeModelDefaultCallback,
   encodeModelEffortCallback,
@@ -20,8 +23,7 @@ import {
   encodePickCallback,
   encodeRenameProjectCallback,
   encodeRenameProjectClearCallback,
-  encodeRenameSessionCallback,
-  encodeScanMoreCallback
+  encodeRenameSessionCallback
 } from "./ui-callbacks.js";
 import {
   chunkButtons,
@@ -72,7 +74,7 @@ export function buildProjectPickerMessage(picker: ProjectPickerResult): {
 
   rows.push(...chunkButtons(candidateButtons, 5));
   rows.push([
-    { text: "扫描本地项目", callback_data: encodeScanMoreCallback() },
+    { text: "浏览目录", callback_data: encodeNewBrowseOpenCallback() },
     { text: "手动输入路径", callback_data: encodePathManualCallback() }
   ]);
 
@@ -96,6 +98,31 @@ export function buildProjectPickerMessage(picker: ProjectPickerResult): {
       }
       itemIndex += 1;
     }
+  }
+
+  return {
+    text: lines.join("\n"),
+    replyMarkup: { inline_keyboard: rows }
+  };
+}
+
+export function buildProjectBrowseRootPickerMessage(options: {
+  roots: Array<{ index: number; label: string; pathLabel: string }>;
+}): {
+  text: string;
+  replyMarkup: TelegramInlineKeyboardMarkup;
+} {
+  const rows: TelegramInlineKeyboardMarkup["inline_keyboard"] = options.roots.map((root) => [{
+    text: `${root.index + 1}`,
+    callback_data: encodeNewBrowseRootCallback(root.index)
+  }]);
+  rows.push([{ text: "返回项目列表", callback_data: encodeNewBrowseBackCallback() }]);
+
+  const lines = ["选择要浏览的根目录"];
+  for (const root of options.roots) {
+    lines.push("");
+    lines.push(`${root.index + 1}. ${root.label}`);
+    lines.push(`   ${root.pathLabel}`);
   }
 
   return {
@@ -140,9 +167,10 @@ export function buildNoNewProjectsMessage(): {
   replyMarkup: TelegramInlineKeyboardMarkup;
 } {
   return {
-    text: "没有发现新的本地项目。",
+    text: "这个入口已下线。请使用浏览目录或手动输入路径。",
     replyMarkup: {
       inline_keyboard: [
+        [{ text: "浏览目录", callback_data: encodeNewBrowseOpenCallback() }],
         [{ text: "手动输入路径", callback_data: encodePathManualCallback() }],
         [{ text: "返回项目列表", callback_data: encodePathBackCallback() }]
       ]
