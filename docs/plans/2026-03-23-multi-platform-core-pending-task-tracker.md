@@ -17,16 +17,23 @@ source_of_truth:
 
 # Multi-Platform Core Pending Task Tracker
 
-Status: Active post-Phase-1 backlog
+Status: Historical post-Phase-1 backlog baseline
 Phase 1 merged to `master` on 2026-03-23 in commit `02a3774`
 
 Use this file to keep "Core started" from turning into the bullshit claim that "multi-platform is solved."
-It is the active lock on what Phase 1 intentionally did not do.
+This file records what Phase 1 intentionally deferred at closeout time.
+It is no longer the current-truth status page for decoupling progress.
+
+For current implementation status, use:
+
+- `docs/architecture/platform-decoupling-status.md`
+- `docs/architecture/platform-pack-boundary.md`
+- `docs/architecture/current-code-organization.md`
+- `docs/plans/2026-04-08-multi-platform-core-and-feishu-implementation-plan.md`
 
 ## Current Starting Point
 
-Phase 1 is complete.
-The repo now has:
+At the end of Phase 1, the repo had:
 
 - `src/core/domain/`
 - `src/core/interaction-model/`
@@ -37,7 +44,7 @@ The repo now has:
   - auth/session rows now expose neutral aliases in types and store APIs
   - SQLite schema `v18` adds neutral binding columns for authorized user, pending authorization, chat binding, and session ownership
 
-The repo does not yet have:
+At that handoff point, the repo did not yet have:
 
 - a capability layer
 - a presentation layer split
@@ -61,7 +68,10 @@ Recommended order after Phase 1:
 
 Change that order only with a narrower approved plan.
 
-## Pending Items
+Some of those deferred items have materially landed since this tracker was written.
+Read the remaining sections as the original deferred buckets from 2026-03-23, not as current implementation truth.
+
+## Original Pending Items At Phase-1 Closeout
 
 ### MP-01: Neutralize persistence and delivery identifiers
 

@@ -73,6 +73,7 @@ Read the smallest matching leaf doc.
 | Codex-backed Telegram commands, structured inputs, `/model`, `/skills`, `/plugins`, `/apps`, `/mcp`, `/account`, `/review`, `/fork`, `/rollback`, `/compact`, `/thread`, `/local_image`, `/mention`, `/attach` | `docs/product/codex-command-reference.md` |
 | `/where`, `/inspect`, `/interrupt`, `/status`, runtime hubs/cards, blocked-turn continuation, final-answer delivery | `docs/product/runtime-and-delivery.md` |
 | Telegram callback payload families, encoding rules, stale callback handling | `docs/product/callback-contract.md` |
+| current bridge-versus-platform decoupling progress, what has landed, or what is still Telegram-shaped | `docs/architecture/platform-decoupling-status.md` |
 | runtime lifecycle, SQLite state, recovery, concurrency, degraded behavior | `docs/architecture/runtime-and-state.md` |
 | code-derived ownership map for `src/` | `docs/architecture/current-code-organization.md` |
 | current Codex app-server adoption, supported request families, notification reduction, approvals, and rejected server requests | `docs/architecture/codex-app-server-adoption.md` |

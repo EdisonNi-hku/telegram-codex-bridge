@@ -647,7 +647,9 @@ export class ProjectBrowserCoordinator {
     page: number
   ): Promise<{ text: string; replyMarkup: TelegramInlineKeyboardMarkup } | null> {
     const language = this.deps.getUiLanguage();
-    const entries = await this.readDirectoryEntries(state.projectRoot, directoryPath);
+    const entries = await this.readDirectoryEntries(state.projectRoot, directoryPath, {
+      hideDotEntries: state.mode === "pre_session"
+    });
     if (!entries) {
       return null;
     }
@@ -751,7 +753,8 @@ export class ProjectBrowserCoordinator {
 
   private async readDirectoryEntries(
     projectRoot: string,
-    directoryPath: string
+    directoryPath: string,
+    options?: { hideDotEntries?: boolean }
   ): Promise<BrowserDirectoryEntryState[] | null> {
     if (!isPathWithinRoot(projectRoot, directoryPath)) {
       return null;
@@ -765,6 +768,9 @@ export class ProjectBrowserCoordinator {
 
       const entries = await readdir(directoryPath, { withFileTypes: true });
       const results = await Promise.all(entries.map(async (entry) => {
+        if (options?.hideDotEntries && entry.name.startsWith(".")) {
+          return null;
+        }
         const absolutePath = resolve(directoryPath, entry.name);
         if (!isPathWithinRoot(projectRoot, absolutePath)) {
           return null;

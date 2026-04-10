@@ -32,7 +32,7 @@ Open one domain, then one leaf, then stop.
 ## Current Truth
 
 - `docs/product/README.md` - current Telegram-first product behavior, scope, commands, and callback UX.
-- `docs/architecture/README.md` - current runtime shape, state model, and code ownership.
+- `docs/architecture/README.md` - current runtime shape, bridge-versus-platform decoupling status, state model, and code ownership.
 - `docs/operations/README.md` - install, config, service, update, and diagnostics.
 - `docs/generated/current-snapshot.md` - exact version baselines and other high-drift facts.
 

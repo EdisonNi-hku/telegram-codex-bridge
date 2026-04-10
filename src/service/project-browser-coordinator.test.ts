@@ -393,3 +393,22 @@ test("pre-session browse can create a session from the current directory with co
     await context.cleanup();
   }
 });
+
+test("pre-session browse hides dot-prefixed entries", async () => {
+  const context = await createCoordinatorContext();
+  try {
+    authorizeChat(context.store, "chat-1");
+    const rootPath = join(context.root, "workspace");
+    await mkdir(rootPath, { recursive: true });
+    await mkdir(join(rootPath, ".codex"), { recursive: true });
+    await mkdir(join(rootPath, "OpenClaw"), { recursive: true });
+
+    const opened = await context.coordinator.openPreSessionBrowse("chat-1", 88, rootPath);
+    assert.equal(opened, true);
+    const initial = context.sentHtml[0]?.html ?? "";
+    assert.match(initial, /OpenClaw/u);
+    assert.doesNotMatch(initial, /\.codex/u);
+  } finally {
+    await context.cleanup();
+  }
+});

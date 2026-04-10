@@ -36,7 +36,7 @@ It is planning context, not current product truth.
 - `2026-03-30-platform-binding-boundary-design.md` - current boundary note for separating platform principal, surface target, and bridge session ownership.
 - `2026-03-30-platform-surface-adapter-and-capability-prep.md` - current predesign note for the next platform-surface adapter and capability slice.
 - `2026-03-23-multi-platform-core-phase-1-implementation-plan.md` - what the first abstraction wave landed, how it was scoped, and why it stopped where it did.
-- `2026-03-23-multi-platform-core-pending-task-tracker.md` - the active backlog for what Phase 1 intentionally left for later.
+- `2026-03-23-multi-platform-core-pending-task-tracker.md` - the original Phase-1 deferred-work baseline; use it as historical sequencing context, not as the current status page.
 
 ## Other Useful Plan Files
 

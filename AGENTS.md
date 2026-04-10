@@ -81,6 +81,7 @@ Do not treat protocol capability as proof that Telegram UX already exposes it.
 | Codex-backed Telegram commands, rich inputs, `/review`, `/rollback`, `/compact`, `/model`, `/skills`, `/plugins`, `/apps`, `/mcp`, `/account` | `docs/AGENTS.md` | `docs/product/codex-command-reference.md` |
 | runtime cards, `/where`, `/inspect`, `/interrupt`, `/status`, final-answer delivery | `docs/AGENTS.md` | `docs/product/runtime-and-delivery.md` |
 | callback payload families and stale/duplicate callback handling | `docs/AGENTS.md` | `docs/product/callback-contract.md` |
+| current bridge-versus-platform decoupling progress, what has landed, or what is still Telegram-shaped | `docs/AGENTS.md` | `docs/architecture/platform-decoupling-status.md` |
 | runtime lifecycle, SQLite state, recovery, degraded behavior | `docs/AGENTS.md` | `docs/architecture/runtime-and-state.md` |
 | current Codex app-server adoption, supported request families, approvals, notification reduction, or rejected server requests | `docs/AGENTS.md` | `docs/architecture/codex-app-server-adoption.md` |
 | current pack boundary, active pack selection, platform capabilities, or Telegram/Feishu pack ownership | `docs/AGENTS.md` | `docs/architecture/platform-pack-boundary.md` |

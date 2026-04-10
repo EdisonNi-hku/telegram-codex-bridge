@@ -10,8 +10,6 @@ import {
   encodeRecentOutputCloseCallback,
   encodeRecentOutputOpenCallback,
   encodeRecentOutputPageCallback,
-  encodeResultSendFileCallback,
-  encodeResultSendImageCallback,
   encodePlanResultCloseCallback,
   encodePlanResultOpenCallback,
   encodePlanResultPageCallback
@@ -186,13 +184,6 @@ export function buildFinalAnswerReplyMarkup(
 export function buildPlanResultActionRows(answerId: string): Array<Array<{ text: string; callback_data: string }>> {
   return [[
     { text: "实施这个计划", callback_data: encodePlanImplementCallback(answerId) }
-  ]];
-}
-
-export function buildTerminalResultSendActionRows(answerId: string): Array<Array<{ text: string; callback_data: string }>> {
-  return [[
-    { text: "发送文件", callback_data: encodeResultSendFileCallback(answerId) },
-    { text: "发送图片", callback_data: encodeResultSendImageCallback(answerId) }
   ]];
 }
 
