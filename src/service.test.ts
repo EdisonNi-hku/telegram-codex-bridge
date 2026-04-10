@@ -4174,6 +4174,77 @@ test("runtime errors create a separate error card without polluting the status c
   }
 });
 
+test("successful completion clears stale runtime error cards", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const sent: Array<{ messageId: number; text: string; parseMode?: string }> = [];
+  const edited: Array<{ messageId: number; text: string }> = [];
+  const deleted: number[] = [];
+  let nextMessageId = 330;
+
+  try {
+    const session = authorizeChatWithSession(store, "chat-1");
+
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        const messageId = nextMessageId++;
+        sent.push({ messageId, text, parseMode: options?.parseMode });
+        return createFakeTelegramMessage(messageId, text);
+      },
+      editMessageText: async (_chatId: string, messageId: number, text: string, _options?: any) => {
+        edited.push({ messageId, text });
+        return createFakeTelegramMessage(messageId, text);
+      },
+      deleteMessage: async (_chatId: string, messageId: number) => {
+        deleted.push(messageId);
+        return true;
+      }
+    };
+
+    installRunningAppServer(service, "thread-3b", "turn-3b");
+
+    await withMockedNow("2026-03-10T10:05:00.000Z", async () => {
+      await (service as any).startRealTurn("chat-1", session, "Do the work");
+    });
+    await withMockedNow("2026-03-10T10:05:03.000Z", async () => {
+      await (service as any).handleAppServerNotification("turn/started", {
+        threadId: "thread-3b",
+        turnId: "turn-3b"
+      });
+    });
+    await withMockedNow("2026-03-10T10:05:06.000Z", async () => {
+      await (service as any).handleAppServerNotification("error", {
+        threadId: "thread-3b",
+        turnId: "turn-3b",
+        message: "tool crashed"
+      });
+    });
+
+    const errorMessageId = sent.find((entry) => entry.text.startsWith("<b>Error</b>"))?.messageId ?? 0;
+    assert.ok(errorMessageId > 0);
+
+    await withMockedNow("2026-03-10T10:05:09.000Z", async () => {
+      await (service as any).handleAppServerNotification("codex/event/task_complete", {
+        threadId: "thread-3b",
+        turnId: "turn-3b",
+        msg: { last_agent_message: "All done." }
+      });
+      await (service as any).handleAppServerNotification("turn/completed", {
+        threadId: "thread-3b",
+        turn: { id: "turn-3b", status: "completed" }
+      });
+    });
+
+    assert.ok(deleted.includes(errorMessageId));
+    const statusTexts = [
+      ...sent.filter((entry) => isRuntimeStatusText(entry.text)).map((entry) => entry.text),
+      ...edited.map((entry) => entry.text)
+    ];
+    assert.ok(statusTexts.some((text) => /(状态|State): (Completed|已完成)/u.test(text)));
+  } finally {
+    await cleanup();
+  }
+});
+
 test("runtime card rate limits keep the same message and retry later without replacement spam", async () => {
   const { service, store, cleanup } = await createServiceContext();
   const sent: Array<{ chatId: string; messageId: number; text: string }> = [];

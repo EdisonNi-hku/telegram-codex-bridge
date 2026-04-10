@@ -76,7 +76,9 @@ import { dispatchHtmlSurface } from "./surface-dispatcher.js";
 const INSPECT_PLAIN_TEXT_FALLBACK_LIMIT = 3500;
 const FAILED_EDIT_RETRY_MS = 5000;
 const FAILED_HUB_DELETE_RETRY_MS = 5000;
+const FAILED_RUNTIME_CARD_DELETE_RETRY_MS = 5000;
 const MAX_RETAINED_HUB_DELETE_FAILURES = 3;
+const MAX_RUNTIME_CARD_DELETE_RETRY_DELAY_MS = 300_000;
 const MAX_LIVE_RUNTIME_HUBS = 3;
 const RUNTIME_HUB_SLOT_COUNT = 5;
 const RUNTIME_HUB_TEXT_SOFT_LIMIT = 3200;
@@ -188,6 +190,13 @@ interface RetainedHubMessage {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
+interface RetainedRuntimeCardDelete {
+  chatId: string;
+  messageId: number;
+  failureCount: number;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
 interface RuntimeHubChatState {
   liveHubs: Map<number, RuntimeHubState>;
   recoveryHub: RuntimeHubState | null;
@@ -282,6 +291,7 @@ export class RuntimeSurfaceController {
   private readonly turnHubAutoRefreshStates = new Map<string, TurnHubAutoRefreshState>();
   private readonly learnedHubCommandChats = new Set<string>();
   private readonly recentOutputMessageIds = new Map<string, number>();
+  private readonly retainedRuntimeCardDeletes = new Map<string, RetainedRuntimeCardDelete>();
 
   constructor(private readonly deps: RuntimeSurfaceControllerDeps) {}
 
@@ -718,6 +728,118 @@ export class RuntimeSurfaceController {
       retryDelayMs: FAILED_HUB_DELETE_RETRY_MS,
       failureCount: 1
     });
+  }
+
+  private getRetainedRuntimeCardDeleteKey(chatId: string, messageId: number): string {
+    return `${chatId}:${messageId}`;
+  }
+
+  private clearRetainedRuntimeCardDeleteTimer(retained: RetainedRuntimeCardDelete): void {
+    if (!retained.timer) {
+      return;
+    }
+
+    clearTimeout(retained.timer);
+    retained.timer = null;
+  }
+
+  private removeRetainedRuntimeCardDelete(chatId: string, messageId: number): void {
+    const key = this.getRetainedRuntimeCardDeleteKey(chatId, messageId);
+    const retained = this.retainedRuntimeCardDeletes.get(key);
+    if (!retained) {
+      return;
+    }
+
+    this.clearRetainedRuntimeCardDeleteTimer(retained);
+    this.retainedRuntimeCardDeletes.delete(key);
+  }
+
+  private scheduleRetainedRuntimeCardDeleteRetry(
+    retained: RetainedRuntimeCardDelete,
+    delayMs = FAILED_RUNTIME_CARD_DELETE_RETRY_MS
+  ): void {
+    this.clearRetainedRuntimeCardDeleteTimer(retained);
+    retained.timer = setTimeout(() => {
+      retained.timer = null;
+      void this.retryRetainedRuntimeCardDelete(retained.chatId, retained.messageId);
+    }, delayMs);
+    retained.timer.unref?.();
+  }
+
+  private retainRuntimeCardDelete(
+    chatId: string,
+    messageId: number,
+    options?: {
+      retryDelayMs?: number;
+      failureCount?: number;
+    }
+  ): void {
+    if (messageId <= 0) {
+      return;
+    }
+
+    const key = this.getRetainedRuntimeCardDeleteKey(chatId, messageId);
+    const existing = this.retainedRuntimeCardDeletes.get(key);
+    if (existing) {
+      if (options?.failureCount !== undefined) {
+        existing.failureCount = options.failureCount;
+      }
+      this.scheduleRetainedRuntimeCardDeleteRetry(existing, options?.retryDelayMs);
+      return;
+    }
+
+    const retained: RetainedRuntimeCardDelete = {
+      chatId,
+      messageId,
+      failureCount: options?.failureCount ?? 0,
+      timer: null
+    };
+    this.retainedRuntimeCardDeletes.set(key, retained);
+    this.scheduleRetainedRuntimeCardDeleteRetry(retained, options?.retryDelayMs);
+  }
+
+  private getRuntimeCardDeleteRetryDelay(failureCount: number): number {
+    return Math.min(
+      FAILED_RUNTIME_CARD_DELETE_RETRY_MS * (2 ** Math.max(0, failureCount - 1)),
+      MAX_RUNTIME_CARD_DELETE_RETRY_DELAY_MS
+    );
+  }
+
+  private async retryRetainedRuntimeCardDelete(chatId: string, messageId: number): Promise<void> {
+    const key = this.getRetainedRuntimeCardDeleteKey(chatId, messageId);
+    const retained = this.retainedRuntimeCardDeletes.get(key);
+    if (!retained) {
+      return;
+    }
+
+    const deleted = await this.deps.safeDeleteMessage(chatId, messageId);
+    const current = this.retainedRuntimeCardDeletes.get(key);
+    if (!current) {
+      return;
+    }
+
+    if (isTelegramDeleteCommitted(deleted)) {
+      this.removeRetainedRuntimeCardDelete(chatId, messageId);
+      return;
+    }
+
+    if (deleted.outcome === "rate_limited") {
+      this.scheduleRetainedRuntimeCardDeleteRetry(current, deleted.retryAfterMs);
+      return;
+    }
+
+    current.failureCount += 1;
+    const retryDelayMs = this.getRuntimeCardDeleteRetryDelay(current.failureCount);
+    if (current.failureCount === 1 || current.failureCount % 10 === 0) {
+      await this.deps.logger.warn("runtime card delete deferred", {
+        chatId,
+        messageId,
+        failureCount: current.failureCount,
+        retryDelayMs
+      });
+    }
+
+    this.scheduleRetainedRuntimeCardDeleteRetry(current, retryDelayMs);
   }
 
   private getLiveHubState(chatId: string, messageId: number): RuntimeHubState | null {
@@ -2385,6 +2507,17 @@ export class RuntimeSurfaceController {
     const shouldScheduleStartAutoRefresh = previousStatus === null && nextStatus.turnStatus === "running";
     const shouldScheduleRecoveryAutoRefresh = previousStatus?.turnStatus === "blocked"
       && nextStatus.turnStatus === "running";
+    const shouldClearRecoveredErrorCards = previousStatus?.turnStatus === "blocked"
+      && nextStatus.turnStatus === "running";
+    const shouldClearCompletedErrorCards = previousStatus?.turnStatus !== "completed"
+      && nextStatus.turnStatus === "completed";
+
+    if (activeTurn.errorCards.length > 0 && (shouldClearRecoveredErrorCards || shouldClearCompletedErrorCards)) {
+      await this.clearStaleErrorCards(
+        activeTurn,
+        shouldClearCompletedErrorCards ? "turn_completed" : "turn_recovered"
+      );
+    }
 
     if (statusChanged) {
       await this.refreshLiveRuntimeHubs(activeTurn.chatId, options.reason, activeTurn.sessionId, undefined, {
@@ -2820,6 +2953,62 @@ export class RuntimeSurfaceController {
     await queuedOperation;
   }
 
+  private async clearStaleErrorCards(
+    activeTurn: RuntimeSurfaceActiveTurn,
+    reason: "turn_completed" | "turn_recovered"
+  ): Promise<void> {
+    await this.runRuntimeCardOperation(activeTurn, async () => {
+      const staleErrorCards = activeTurn.errorCards.splice(0);
+      for (const errorCard of staleErrorCards) {
+        this.clearRuntimeCardTimer(errorCard);
+        errorCard.pendingText = null;
+        errorCard.pendingReplyMarkup = null;
+        errorCard.pendingReason = null;
+        await this.logRuntimeCardEvent(activeTurn, errorCard, "cleanup_requested", {
+          reason,
+          card: summarizeRuntimeCardSurface(errorCard)
+        });
+
+        const messageId = errorCard.messageId;
+        errorCard.messageId = 0;
+        errorCard.lastRenderedText = "";
+        errorCard.lastRenderedReplyMarkupKey = null;
+        errorCard.lastRenderedAtMs = null;
+        errorCard.rateLimitUntilAtMs = null;
+        if (messageId <= 0) {
+          await this.logRuntimeCardEvent(activeTurn, errorCard, "cleanup_dropped", {
+            reason,
+            card: summarizeRuntimeCardSurface(errorCard)
+          });
+          continue;
+        }
+
+        const deleted = await this.deps.safeDeleteMessage(activeTurn.chatId, messageId);
+        if (isTelegramDeleteCommitted(deleted)) {
+          await this.logRuntimeCardEvent(activeTurn, errorCard, "cleanup_deleted", {
+            reason,
+            deletedOutcome: deleted.outcome,
+            deletedMessageId: messageId,
+            card: summarizeRuntimeCardSurface(errorCard)
+          });
+          continue;
+        }
+
+        const retryMs = deleted.outcome === "rate_limited" ? deleted.retryAfterMs : FAILED_RUNTIME_CARD_DELETE_RETRY_MS;
+        this.retainRuntimeCardDelete(activeTurn.chatId, messageId, deleted.outcome === "rate_limited"
+          ? { retryDelayMs: retryMs }
+          : { retryDelayMs: retryMs, failureCount: 1 });
+        await this.logRuntimeCardEvent(activeTurn, errorCard, "cleanup_requeued", {
+          reason,
+          deletedOutcome: deleted.outcome,
+          deletedMessageId: messageId,
+          retryMs,
+          card: summarizeRuntimeCardSurface(errorCard)
+        });
+      }
+    });
+  }
+
   clearRuntimeCardTimer(surface: RuntimeCardMessageState): void {
     if (!surface.timer) {
       return;
@@ -2856,6 +3045,10 @@ export class RuntimeSurfaceController {
         this.clearRetainedHubTimer(retained);
       }
     }
+    for (const retained of this.retainedRuntimeCardDeletes.values()) {
+      this.clearRetainedRuntimeCardDeleteTimer(retained);
+    }
+    this.retainedRuntimeCardDeletes.clear();
     for (const turnId of this.turnHubAutoRefreshStates.keys()) {
       this.clearTurnHubAutoRefreshState(turnId);
     }

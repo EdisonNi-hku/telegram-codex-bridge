@@ -133,6 +133,25 @@ function createStatusCard(messageId = 0) {
   };
 }
 
+function createErrorCard(messageId = 0) {
+  return {
+    surface: "error" as const,
+    key: "error-1",
+    parseMode: "HTML" as const,
+    messageId,
+    lastRenderedText: "",
+    lastRenderedReplyMarkupKey: null,
+    lastRenderedAtMs: null,
+    rateLimitUntilAtMs: null,
+    pendingText: null,
+    pendingReplyMarkup: null,
+    pendingReason: null,
+    timer: null,
+    title: "Runtime error",
+    detail: "tool crashed"
+  };
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -423,6 +442,267 @@ test("RuntimeSurfaceController retries failed edits on the same status message i
     assert.match(activeTurn.statusCard.lastRenderedText, /Running/u);
     controller.clearRuntimeCardTimer(activeTurn.statusCard as never);
   } finally {
+    await cleanup();
+  }
+});
+
+test("RuntimeSurfaceController clears stale error cards after successful completion", async () => {
+  const activeTurns: unknown[] = [];
+  const { controller, store, deletedMessages, cleanup } = await createControllerContext({
+    listActiveTurns: () => activeTurns
+  });
+
+  try {
+    const session = await store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    store.setActiveSession("chat-1", session.sessionId);
+
+    const activeTurn = {
+      sessionId: session.sessionId,
+      chatId: "chat-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      tracker: {
+        getInspectSnapshot: () => createInspectSnapshot({ turnStatus: "completed" }),
+        getStatus: () => createActivityStatus({ turnStatus: "completed", finalMessageAvailable: true })
+      },
+      statusCard: createStatusCard(1200),
+      latestStatusProgressText: null,
+      latestPlanFingerprint: "",
+      latestAgentFingerprint: "",
+      subagentIdentityBackfillStates: new Map(),
+      errorCards: [createErrorCard(1400)],
+      nextErrorCardId: 2,
+      surfaceQueue: Promise.resolve()
+    };
+    activeTurns.push(activeTurn);
+
+    await controller.syncRuntimeCards(
+      activeTurn as never,
+      { kind: "turn_completed", status: "completed" } as never,
+      createActivityStatus({ turnStatus: "failed", errorState: "unknown", latestProgress: "tool crashed" }),
+      createActivityStatus({ turnStatus: "completed", finalMessageAvailable: true }),
+      {
+        force: true,
+        reason: "turn_completed"
+      }
+    );
+
+    assert.equal(activeTurn.errorCards.length, 0);
+    assert.deepEqual(deletedMessages, [1400]);
+    assert.equal(activeTurn.statusCard.messageId, 1200);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RuntimeSurfaceController retries stale error-card cleanup after Telegram rate limits", async () => {
+  const activeTurns: unknown[] = [];
+  const deleteAttempts: number[] = [];
+  let firstDelete = true;
+  const { controller, store, cleanup } = await createControllerContext({
+    listActiveTurns: () => activeTurns,
+    safeDeleteMessage: async (_chatId, messageId) => {
+      deleteAttempts.push(messageId);
+      if (firstDelete) {
+        firstDelete = false;
+        return { outcome: "rate_limited", retryAfterMs: 1 };
+      }
+      return { outcome: "deleted" };
+    }
+  });
+
+  try {
+    const session = await store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    store.setActiveSession("chat-1", session.sessionId);
+
+    const activeTurn = {
+      sessionId: session.sessionId,
+      chatId: "chat-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      tracker: {
+        getInspectSnapshot: () => createInspectSnapshot({ turnStatus: "completed" }),
+        getStatus: () => createActivityStatus({ turnStatus: "completed", finalMessageAvailable: true })
+      },
+      statusCard: createStatusCard(1200),
+      latestStatusProgressText: null,
+      latestPlanFingerprint: "",
+      latestAgentFingerprint: "",
+      subagentIdentityBackfillStates: new Map(),
+      errorCards: [createErrorCard(1400)],
+      nextErrorCardId: 2,
+      surfaceQueue: Promise.resolve()
+    };
+    activeTurns.push(activeTurn);
+
+    await controller.syncRuntimeCards(
+      activeTurn as never,
+      { kind: "turn_completed", status: "completed" } as never,
+      createActivityStatus({ turnStatus: "failed", errorState: "unknown", latestProgress: "tool crashed" }),
+      createActivityStatus({ turnStatus: "completed", finalMessageAvailable: true }),
+      {
+        force: true,
+        reason: "turn_completed"
+      }
+    );
+
+    assert.equal(activeTurn.errorCards.length, 0);
+    assert.deepEqual(deleteAttempts, [1400]);
+
+    await sleep(20);
+
+    assert.deepEqual(deleteAttempts, [1400, 1400]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RuntimeSurfaceController clears stale error cards after recovery resumes running work", async () => {
+  const activeTurns: unknown[] = [];
+  const { controller, store, deletedMessages, cleanup } = await createControllerContext({
+    listActiveTurns: () => activeTurns
+  });
+
+  try {
+    const session = await store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    store.setActiveSession("chat-1", session.sessionId);
+
+    const activeTurn = {
+      sessionId: session.sessionId,
+      chatId: "chat-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      tracker: {
+        getInspectSnapshot: () => createInspectSnapshot({ turnStatus: "running" }),
+        getStatus: () => createActivityStatus({ turnStatus: "running" })
+      },
+      statusCard: createStatusCard(1200),
+      latestStatusProgressText: null,
+      latestPlanFingerprint: "",
+      latestAgentFingerprint: "",
+      subagentIdentityBackfillStates: new Map(),
+      errorCards: [createErrorCard(1400)],
+      nextErrorCardId: 2,
+      surfaceQueue: Promise.resolve()
+    };
+    activeTurns.push(activeTurn);
+
+    await controller.syncRuntimeCards(
+      activeTurn as never,
+      null,
+      createActivityStatus({ turnStatus: "blocked", threadBlockedReason: "waitingOnUserInput" }),
+      createActivityStatus({ turnStatus: "running" }),
+      {
+        force: true,
+        reason: "turn_resumed"
+      }
+    );
+
+    assert.equal(activeTurn.errorCards.length, 0);
+    assert.deepEqual(deletedMessages, [1400]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RuntimeSurfaceController keeps deferred stale error-card cleanup alive after repeated delete failures", async () => {
+  const activeTurns: unknown[] = [];
+  let deleteAttempts = 0;
+  const scheduledCallbacks: Array<() => void> = [];
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (((callback: (...args: any[]) => void) => {
+    const timer = { unref() {} };
+    scheduledCallbacks.push(() => {
+      callback();
+    });
+    return timer as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout);
+  globalThis.clearTimeout = ((() => {}) as typeof clearTimeout);
+
+  const { controller, store, cleanup } = await createControllerContext({
+    listActiveTurns: () => activeTurns,
+    safeDeleteMessage: async () => {
+      deleteAttempts += 1;
+      return { outcome: "failed" };
+    }
+  });
+
+  try {
+    const session = await store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    store.setActiveSession("chat-1", session.sessionId);
+
+    const activeTurn = {
+      sessionId: session.sessionId,
+      chatId: "chat-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      tracker: {
+        getInspectSnapshot: () => createInspectSnapshot({ turnStatus: "completed" }),
+        getStatus: () => createActivityStatus({ turnStatus: "completed", finalMessageAvailable: true })
+      },
+      statusCard: createStatusCard(1200),
+      latestStatusProgressText: null,
+      latestPlanFingerprint: "",
+      latestAgentFingerprint: "",
+      subagentIdentityBackfillStates: new Map(),
+      errorCards: [createErrorCard(1400)],
+      nextErrorCardId: 2,
+      surfaceQueue: Promise.resolve()
+    };
+    activeTurns.push(activeTurn);
+
+    await controller.syncRuntimeCards(
+      activeTurn as never,
+      { kind: "turn_completed", status: "completed" } as never,
+      createActivityStatus({ turnStatus: "failed", errorState: "unknown", latestProgress: "tool crashed" }),
+      createActivityStatus({ turnStatus: "completed", finalMessageAvailable: true }),
+      {
+        force: true,
+        reason: "turn_completed"
+      }
+    );
+
+    const getRetainedDeletes = () => (controller as unknown as {
+      retainedRuntimeCardDeletes: Map<string, { failureCount: number }>;
+    }).retainedRuntimeCardDeletes;
+
+    assert.equal(activeTurn.errorCards.length, 0);
+    assert.equal(deleteAttempts, 1);
+    assert.equal(getRetainedDeletes().size, 1);
+    assert.equal(scheduledCallbacks.length, 1);
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const callback = scheduledCallbacks.shift();
+      assert.ok(callback);
+      callback();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    const retained = [...getRetainedDeletes().values()][0];
+    assert.ok(retained);
+    assert.equal(deleteAttempts, 5);
+    assert.equal(retained?.failureCount, 5);
+    assert.equal(scheduledCallbacks.length, 1);
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    globalThis.clearTimeout = realClearTimeout;
     await cleanup();
   }
 });
