@@ -88,6 +88,10 @@ async function createCoordinatorContext(options: {
       caption?: string;
     }
   ) => Promise<ControlSurfaceImageResult>;
+  getDynamicToolAvailability?: (toolName: string) => {
+    enabled: boolean;
+    failureText: string;
+  } | null;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ctb-turn-coordinator-test-"));
   const paths = createTestPaths(root);
@@ -237,6 +241,7 @@ async function createCoordinatorContext(options: {
       }
     },
     dynamicToolDeclarations: TELEGRAM_PACK.platformActions.getDynamicToolDeclarations(),
+    ...(options.getDynamicToolAvailability ? { getDynamicToolAvailability: options.getDynamicToolAvailability } : {}),
     interpretPackServerRequest: TELEGRAM_PACK.platformActions.interpretServerRequest,
     safeSendHtmlMessageResult: async (chatId, html, replyMarkup) => {
       if (options.safeSendHtmlMessageResult) {
@@ -1947,6 +1952,53 @@ test("TurnCoordinator handles send_telegram_image tool calls by sending images a
     assert.equal(requestResults.length, 1);
     assert.match(JSON.stringify(requestResults[0]?.payload ?? {}), /"success":true/u);
     assert.match(JSON.stringify(requestResults[0]?.payload ?? {}), /Image sent to the active control surface/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator rejects platform actions when runtime tool availability blocks the tool", async () => {
+  const requestResults: Array<{ id: string; payload: unknown }> = [];
+  const { coordinator, store, sentImages, cleanup } = await createCoordinatorContext({
+    appServer: {
+      respondToServerRequest: async (id, payload) => {
+        requestResults.push({ id: `${id}`, payload });
+      }
+    },
+    getDynamicToolAvailability: (toolName) => toolName === "send_telegram_image"
+      ? {
+        enabled: false,
+        failureText: "The current Feishu pack upload health does not allow image delivery."
+      }
+      : null
+  });
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+
+    await coordinator.beginActiveTurn("chat-1", session, "thread-image-gated", "turn-image-gated", "inProgress");
+
+    await coordinator.handleAppServerServerRequest({
+      id: "tool-call-image-gated",
+      method: "item/tool/call",
+      params: {
+        threadId: "thread-image-gated",
+        turnId: "turn-image-gated",
+        tool: "send_telegram_image",
+        arguments: {
+          path: "/tmp/preview.png"
+        }
+      }
+    });
+
+    assert.deepEqual(sentImages, []);
+    assert.equal(requestResults.length, 1);
+    assert.match(JSON.stringify(requestResults[0]?.payload ?? {}), /"success":false/u);
+    assert.match(JSON.stringify(requestResults[0]?.payload ?? {}), /does not allow image delivery/u);
   } finally {
     await cleanup();
   }

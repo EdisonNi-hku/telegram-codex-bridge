@@ -212,6 +212,7 @@ export interface StoreRuntimeArtifacts {
   getCommandPanelPreferences(chatId: string): CommandPanelPreferencesRow | null;
   setCommandPanelPreferences(chatId: string, commands: string[]): CommandPanelPreferencesRow;
   deleteCommandPanelPreferences(chatId: string): void;
+  rebindCommandPanelPreferencesChatIds(chatId: string, previousChatIds: string[]): void;
   getCurrentSessionCard(chatId: string): CurrentSessionCardRow | null;
   upsertCurrentSessionCard(options: {
     chatId: string;
@@ -555,6 +556,51 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
 
     deleteCommandPanelPreferences(chatId) {
       db.prepare("DELETE FROM command_panel_preferences WHERE chat_id = ?").run(chatId);
+    },
+
+    rebindCommandPanelPreferencesChatIds(chatId, previousChatIds) {
+      if (previousChatIds.length === 0) {
+        return;
+      }
+
+      const allChatIds = [chatId, ...previousChatIds];
+      const allPlaceholders = buildInClausePlaceholders(allChatIds.length);
+      const latest = db
+        .prepare(
+          `
+            SELECT *
+            FROM command_panel_preferences
+            WHERE chat_id IN (${allPlaceholders})
+            ORDER BY updated_at DESC, rowid DESC
+            LIMIT 1
+          `
+        )
+        .get(...allChatIds) as CommandPanelPreferencesRecord | undefined;
+      const previousPlaceholders = buildInClausePlaceholders(previousChatIds.length);
+
+      db
+        .prepare(
+          `
+            DELETE FROM command_panel_preferences
+            WHERE chat_id IN (${previousPlaceholders})
+          `
+        )
+        .run(...previousChatIds);
+
+      if (latest && latest.chat_id !== chatId) {
+        db
+          .prepare(
+            `
+              INSERT OR REPLACE INTO command_panel_preferences (
+                chat_id,
+                commands_json,
+                updated_at
+              )
+              VALUES (?, ?, ?)
+            `
+          )
+          .run(chatId, latest.commands_json, latest.updated_at);
+      }
     },
 
     getCurrentSessionCard,

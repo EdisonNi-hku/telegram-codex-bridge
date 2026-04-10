@@ -456,6 +456,8 @@ export class BridgeService {
         })
       },
       dynamicToolDeclarations: this.deps.dynamicToolDeclarations ?? [],
+      getDynamicToolDeclarations: () => this.getDynamicToolDeclarations(),
+      getDynamicToolAvailability: (toolName) => this.getDynamicToolAvailability(toolName),
       interpretPackServerRequest: this.deps.interpretPackServerRequest ?? (() => ({
         kind: "unsupported",
         errorCode: -32601,
@@ -869,6 +871,7 @@ export class BridgeService {
     }
 
     if (this.shouldOpenCommandPanelFromText(text)) {
+      this.richInputAdapter.clearPendingAutoAttach(chatId);
       await this.openCommandPanel(chatId);
       return;
     }
@@ -881,6 +884,10 @@ export class BridgeService {
       }
       await this.handleNormalText(chatId, text);
       return;
+    }
+
+    if (command.name !== "cancel" && command.name !== "attach") {
+      this.richInputAdapter.clearPendingAutoAttach(chatId);
     }
 
     await this.routeCommand(chatId, command.name, command.args);
@@ -2328,6 +2335,48 @@ export class BridgeService {
 
   private async handleThreadCommand(chatId: string, args: string): Promise<void> {
     await this.codexCommandCoordinator.handleThreadCommand(chatId, args);
+  }
+
+  private getDynamicToolDeclarations(): BridgeDynamicToolDeclaration[] {
+    const declared = this.deps.dynamicToolDeclarations ?? [];
+    if (this.config.activePack !== "feishu") {
+      return declared;
+    }
+
+    const packMetadata = this.snapshot?.details.packMetadata ?? {};
+    return declared.filter((tool) => {
+      if (tool.name === "send_feishu_file" && packMetadata.feishuFileUploadReady === false) {
+        return false;
+      }
+      if (tool.name === "send_feishu_image" && packMetadata.feishuImageUploadReady === false) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private getDynamicToolAvailability(toolName: string): {
+    enabled: boolean;
+    failureText: string;
+  } | null {
+    if (this.config.activePack !== "feishu") {
+      return null;
+    }
+
+    const packMetadata = this.snapshot?.details.packMetadata ?? {};
+    if (toolName === "send_feishu_file" && packMetadata.feishuFileUploadReady === false) {
+      return {
+        enabled: false,
+        failureText: "The current Feishu pack upload health does not allow file delivery."
+      };
+    }
+    if (toolName === "send_feishu_image" && packMetadata.feishuImageUploadReady === false) {
+      return {
+        enabled: false,
+        failureText: "The current Feishu pack upload health does not allow image delivery."
+      };
+    }
+    return null;
   }
 
   private async startStructuredInputTurn(chatId: string, session: SessionRow, input: UserInput[]): Promise<void> {

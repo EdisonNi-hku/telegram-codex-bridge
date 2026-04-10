@@ -23,6 +23,11 @@ import {
 import { buildFeishuSetupHealth } from "./setup.js";
 
 const FEISHU_FILE_UPLOAD_CHECK_ID = "feishu_file_upload_scopes";
+const FEISHU_IMAGE_UPLOAD_CHECK_ID = "feishu_image_upload_scopes";
+const FEISHU_IMAGE_PROBE_BYTES = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6Vrj8AAAAASUVORK5CYII=",
+  "base64"
+);
 
 const FEISHU_DYNAMIC_TOOLS = [{
   toolName: "send_feishu_file",
@@ -112,13 +117,21 @@ export interface FeishuUploadScopeValidation {
 export async function validateFeishuUploadScopes(
   config: FeishuPackConfig,
   deps?: {
+    target?: "file" | "image";
     probeUpload?: (filePath: string, fileName: string) => Promise<void>;
   }
 ): Promise<FeishuUploadScopeValidation> {
+  const target = deps?.target ?? "file";
   const tempRoot = await mkdtemp(join(tmpdir(), "ctb-feishu-upload-scope-"));
-  const probeFileName = "ctb-feishu-upload-scope-probe.txt";
+  const probeFileName = target === "image"
+    ? "ctb-feishu-upload-scope-probe.png"
+    : "ctb-feishu-upload-scope-probe.txt";
   const probeFilePath = join(tempRoot, probeFileName);
-  await writeFile(probeFilePath, "scope probe\n", "utf8");
+  if (target === "image") {
+    await writeFile(probeFilePath, FEISHU_IMAGE_PROBE_BYTES);
+  } else {
+    await writeFile(probeFilePath, "scope probe\n", "utf8");
+  }
 
   try {
     if (deps?.probeUpload) {
@@ -129,18 +142,28 @@ export async function validateFeishuUploadScopes(
         appSecret: config.appSecret,
         domain: resolveFeishuSdkDomain(config.apiBaseUrl)
       });
-      await client.im.v1.file.create({
-        data: {
-          file_type: "stream",
-          file_name: probeFileName,
-          file: createReadStream(probeFilePath)
-        }
-      });
+      if (target === "image") {
+        await client.im.v1.image.create({
+          data: {
+            image_type: "message",
+            image: createReadStream(probeFilePath)
+          }
+        });
+      } else {
+        await client.im.v1.file.create({
+          data: {
+            file_type: "stream",
+            file_name: probeFileName,
+            file: createReadStream(probeFilePath)
+          }
+        });
+      }
     }
 
+    const targetLabel = target === "image" ? "image" : "file";
     return {
       ok: true,
-      summary: "feishu file upload scopes validated",
+      summary: `feishu ${targetLabel} upload scopes validated`,
       errorCode: null,
       errorMessage: null,
       missingScopes: []
@@ -149,10 +172,11 @@ export async function validateFeishuUploadScopes(
     const details = extractFeishuSdkErrorDetails(error);
     const code = details?.code === null || details?.code === undefined ? null : `${details.code}`;
     const missingScopes = details?.permissionViolations ?? [];
+    const targetLabel = target === "image" ? "image" : "file";
     if (details?.code === 99991672 && missingScopes.length > 0) {
       return {
         ok: false,
-        summary: `feishu file upload is blocked; missing app scopes ${missingScopes.join(", ")}`,
+        summary: `feishu ${targetLabel} upload is blocked; missing app scopes ${missingScopes.join(", ")}`,
         errorCode: code,
         errorMessage: details.msg,
         missingScopes
@@ -162,8 +186,8 @@ export async function validateFeishuUploadScopes(
     return {
       ok: false,
       summary: code
-        ? `feishu file upload probe failed with code ${code}; ${details?.msg ?? `${error}`}`
-        : `feishu file upload probe failed; ${details?.msg ?? `${error}`}`,
+        ? `feishu ${targetLabel} upload probe failed with code ${code}; ${details?.msg ?? `${error}`}`
+        : `feishu ${targetLabel} upload probe failed; ${details?.msg ?? `${error}`}`,
       errorCode: code,
       errorMessage: details?.msg ?? `${error}`,
       missingScopes
@@ -179,7 +203,8 @@ function buildPackHealthReport(options: {
   tokenValid: boolean;
   missingCredentials: string[];
   tokenIssue?: string;
-  uploadScopeValidation?: FeishuUploadScopeValidation | null;
+  fileUploadScopeValidation?: FeishuUploadScopeValidation | null;
+  imageUploadScopeValidation?: FeishuUploadScopeValidation | null;
 }): PackHealthReport {
   const credentialsCheck = {
     id: "feishu_credentials",
@@ -208,16 +233,31 @@ function buildPackHealthReport(options: {
     blocking: true,
     source: "automatic" as const
   };
-  const uploadScopeCheck = options.uploadScopeValidation
+  const fileUploadScopeCheck = options.fileUploadScopeValidation
     ? {
       id: FEISHU_FILE_UPLOAD_CHECK_ID,
-      ok: options.uploadScopeValidation.ok,
-      summary: options.uploadScopeValidation.summary,
+      ok: options.fileUploadScopeValidation.ok,
+      summary: options.fileUploadScopeValidation.summary,
       blocking: false,
       source: "automatic" as const
     }
     : null;
-  const checks = [credentialsCheck, tokenCheck, bindingCheck, ...(uploadScopeCheck ? [uploadScopeCheck] : [])];
+  const imageUploadScopeCheck = options.imageUploadScopeValidation
+    ? {
+      id: FEISHU_IMAGE_UPLOAD_CHECK_ID,
+      ok: options.imageUploadScopeValidation.ok,
+      summary: options.imageUploadScopeValidation.summary,
+      blocking: false,
+      source: "automatic" as const
+    }
+    : null;
+  const checks = [
+    credentialsCheck,
+    tokenCheck,
+    bindingCheck,
+    ...(fileUploadScopeCheck ? [fileUploadScopeCheck] : []),
+    ...(imageUploadScopeCheck ? [imageUploadScopeCheck] : [])
+  ];
 
   return {
     state: !credentialsCheck.ok || !tokenCheck.ok
@@ -229,9 +269,14 @@ function buildPackHealthReport(options: {
     issues: checks.filter((check) => !check.ok).map((check) => check.summary),
     metadata: {
       feishuAppId: options.appId || null,
-      feishuFileUploadErrorCode: options.uploadScopeValidation?.errorCode ?? null,
-      feishuFileUploadError: options.uploadScopeValidation?.errorMessage ?? null,
-      feishuMissingUploadScopes: options.uploadScopeValidation?.missingScopes.join(", ") || null,
+      feishuFileUploadReady: options.fileUploadScopeValidation?.ok ?? null,
+      feishuFileUploadErrorCode: options.fileUploadScopeValidation?.errorCode ?? null,
+      feishuFileUploadError: options.fileUploadScopeValidation?.errorMessage ?? null,
+      feishuMissingFileUploadScopes: options.fileUploadScopeValidation?.missingScopes.join(", ") || null,
+      feishuImageUploadReady: options.imageUploadScopeValidation?.ok ?? null,
+      feishuImageUploadErrorCode: options.imageUploadScopeValidation?.errorCode ?? null,
+      feishuImageUploadError: options.imageUploadScopeValidation?.errorMessage ?? null,
+      feishuMissingImageUploadScopes: options.imageUploadScopeValidation?.missingScopes.join(", ") || null,
       mediaCanSendImage: FEISHU_PACK.capabilities.canSendImage,
       mediaCanSendFile: FEISHU_PACK.capabilities.canSendFile,
       mediaCanReceiveImage: FEISHU_PACK.capabilities.canReceiveImage,
@@ -318,14 +363,24 @@ export const FEISHU_PACK: BridgePackDefinition<FeishuPackConfig> = {
           issue: validation.issue ?? "feishu tenant token validation failed"
         });
       }
-      const uploadScopeValidation = validation.ok
-        ? await validateFeishuUploadScopes(feishuConfig)
+      const fileUploadScopeValidation = validation.ok
+        ? await validateFeishuUploadScopes(feishuConfig, { target: "file" })
         : null;
-      if (uploadScopeValidation && !uploadScopeValidation.ok) {
-        await logger.warn("feishu upload scope check failed", {
-          issue: uploadScopeValidation.summary,
-          errorCode: uploadScopeValidation.errorCode,
-          missingScopes: uploadScopeValidation.missingScopes
+      if (fileUploadScopeValidation && !fileUploadScopeValidation.ok) {
+        await logger.warn("feishu file upload scope check failed", {
+          issue: fileUploadScopeValidation.summary,
+          errorCode: fileUploadScopeValidation.errorCode,
+          missingScopes: fileUploadScopeValidation.missingScopes
+        });
+      }
+      const imageUploadScopeValidation = validation.ok
+        ? await validateFeishuUploadScopes(feishuConfig, { target: "image" })
+        : null;
+      if (imageUploadScopeValidation && !imageUploadScopeValidation.ok) {
+        await logger.warn("feishu image upload scope check failed", {
+          issue: imageUploadScopeValidation.summary,
+          errorCode: imageUploadScopeValidation.errorCode,
+          missingScopes: imageUploadScopeValidation.missingScopes
         });
       }
 
@@ -335,7 +390,8 @@ export const FEISHU_PACK: BridgePackDefinition<FeishuPackConfig> = {
         tokenValid: validation.ok,
         missingCredentials,
         ...(validation.issue ? { tokenIssue: validation.issue } : {}),
-        uploadScopeValidation
+        fileUploadScopeValidation,
+        imageUploadScopeValidation
       });
 
       const setupHealth = buildFeishuSetupHealth({

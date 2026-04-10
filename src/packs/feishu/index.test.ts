@@ -36,6 +36,39 @@ test("validateFeishuUploadScopes reports missing upload scopes clearly", async (
   });
 });
 
+test("validateFeishuUploadScopes validates image upload separately", async () => {
+  const result = await validateFeishuUploadScopes({
+    appId: "cli_test",
+    appSecret: "secret",
+    apiBaseUrl: "https://open.feishu.cn"
+  }, {
+    target: "image",
+    probeUpload: async () => {
+      throw {
+        response: {
+          data: {
+            code: 99991672,
+            msg: "Image access denied",
+            error: {
+              permission_violations: [
+                { subject: "im:image:upload" }
+              ]
+            }
+          }
+        }
+      };
+    }
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    summary: "feishu image upload is blocked; missing app scopes im:image:upload",
+    errorCode: "99991672",
+    errorMessage: "Image access denied",
+    missingScopes: ["im:image:upload"]
+  });
+});
+
 test("validateFeishuUploadScopes returns ok when upload probing succeeds", async () => {
   const result = await validateFeishuUploadScopes({
     appId: "cli_test",

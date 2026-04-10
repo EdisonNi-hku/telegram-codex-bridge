@@ -194,6 +194,11 @@ interface TurnCoordinatorDeps {
     sendControlSurfaceFile: (request: ControlSurfaceFileRequest) => Promise<ControlSurfaceFileResult>;
   };
   dynamicToolDeclarations: BridgeDynamicToolDeclaration[];
+  getDynamicToolDeclarations?: () => BridgeDynamicToolDeclaration[];
+  getDynamicToolAvailability?: (toolName: string) => {
+    enabled: boolean;
+    failureText: string;
+  } | null;
   interpretPackServerRequest: (request: JsonRpcServerRequest) => ServerRequestSupport;
   safeSendHtmlMessageResult: (
     chatId: string,
@@ -524,6 +529,7 @@ export class TurnCoordinator {
   private async ensureSessionThreadState(session: SessionRow): Promise<EnsuredThreadState> {
     const store = this.deps.getStore();
     const appServer = this.deps.getAppServer();
+    const dynamicToolDeclarations = this.deps.getDynamicToolDeclarations?.() ?? this.deps.dynamicToolDeclarations;
     if (!store) {
       throw new Error("state store unavailable");
     }
@@ -536,7 +542,7 @@ export class TurnCoordinator {
       const started = await appServer.startThread({
         cwd: session.projectPath,
         ...(session.selectedModel ? { model: session.selectedModel } : {}),
-        dynamicTools: this.deps.dynamicToolDeclarations
+        dynamicTools: dynamicToolDeclarations
       });
       store.updateSessionThreadId(session.sessionId, started.thread.id);
       store.syncSessionTitleFromThread(started.thread.id, {
@@ -573,7 +579,7 @@ export class TurnCoordinator {
       const started = await appServer.startThread({
         cwd: session.projectPath,
         ...(session.selectedModel ? { model: session.selectedModel } : {}),
-        dynamicTools: this.deps.dynamicToolDeclarations
+        dynamicTools: dynamicToolDeclarations
       });
       store.updateSessionThreadId(session.sessionId, started.thread.id);
       store.syncSessionTitleFromThread(started.thread.id, {
@@ -1621,6 +1627,20 @@ export class TurnCoordinator {
         contentItems: [buildDynamicToolTextContentItem(
           `${support.toolName} requires a non-empty \`path\` argument.`
         )]
+      });
+      return true;
+    }
+
+    const toolAvailability = this.deps.getDynamicToolAvailability?.(support.toolName);
+    if (toolAvailability && !toolAvailability.enabled) {
+      await this.appendDebugJournal(activeTurn, `bridge/serverRequest/platformAction/${actionLabel}`, {
+        requestId: serializeServerRequestId(request.id),
+        tool: support.toolName,
+        reason: "runtime_availability_blocked"
+      });
+      await appServer.respondToServerRequest(request.id, {
+        success: false,
+        contentItems: [buildDynamicToolTextContentItem(toolAvailability.failureText)]
       });
       return true;
     }

@@ -428,11 +428,12 @@ test("RichInputAdapter voice processing stays in the background so later structu
   }
 });
 
-test("RichInputAdapter receives files as attachments and still forwards accompanying text", async () => {
-  const { adapter, store, sentMessages, startTextTurns, cleanup } = await createAdapterContext();
+test("RichInputAdapter receives files with accompanying text as one structured turn", async () => {
+  const { adapter, store, sentMessages, startStructuredTurns, cleanup } = await createAdapterContext();
 
   try {
     const session = authorizeChatWithSession(store, "1");
+    (adapter as any).extractAttachmentText = async () => "以下是附件《report.pdf》的提取内容：\n\n正文内容。";
 
     await adapter.handleInboundMediaEvent("1", {
       text: "summarize the attachment",
@@ -461,6 +462,51 @@ test("RichInputAdapter receives files as attachments and still forwards accompan
     assert.match(sentMessages[0]?.text ?? "", /已接收文件附件/u);
     assert.match(sentMessages[0]?.text ?? "", /发送 \/cancel 可取消/u);
     assert.equal((sentMessages[0]?.replyMarkup as any)?.inline_keyboard?.[0]?.[0]?.text, undefined);
+    assert.deepEqual(startStructuredTurns, [{
+      chatId: "1",
+      sessionId: session.sessionId,
+      input: [
+        { type: "text", text: "以下是附件《report.pdf》的提取内容：\n\n正文内容。" },
+        { type: "text", text: "summarize the attachment" }
+      ]
+    }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RichInputAdapter falls back to plain text when same-message file inputs are unreadable", async () => {
+  const { adapter, store, sentMessages, startTextTurns, cleanup } = await createAdapterContext();
+
+  try {
+    const session = authorizeChatWithSession(store, "1");
+    (adapter as any).extractAttachmentText = async () => null;
+
+    await adapter.handleInboundMediaEvent("1", {
+      text: "summarize the attachment",
+      media: [{
+        descriptor: {
+          kind: "file",
+          role: "user_input",
+          source: "platform_resource",
+          filename: "report.pdf",
+          platformRef: {
+            platform: "feishu",
+            conversationId: "oc_chat_1",
+            messageId: "om_file_1",
+            resourceId: "file_key_1",
+            resourceType: "file"
+          }
+        },
+        status: "resolved",
+        localPath: "/tmp/report.pdf",
+        sha256: "1234567890abcdef",
+        resolvedAt: "2026-04-09T00:00:00.000Z",
+        expiresAt: "2026-04-16T00:00:00.000Z"
+      }]
+    });
+
+    assert.match(sentMessages[0]?.text ?? "", /已接收文件附件/u);
     assert.deepEqual(startTextTurns, [{
       chatId: "1",
       sessionId: session.sessionId,
@@ -593,6 +639,182 @@ test("RichInputAdapter auto-attaches the most recent received attachment to the 
 
     const consumedAgain = await adapter.handleAutoAttachText("1", "第二次");
     assert.equal(consumedAgain, false);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RichInputAdapter clears pending auto-attach without deleting the stored attachment", async () => {
+  const { adapter, store, cleanup } = await createAdapterContext();
+
+  try {
+    authorizeChatWithSession(store, "1");
+    (adapter as any).extractAttachmentText = async () => "以下是附件《report.pdf》的提取内容：\n\n自动带上的附件内容。";
+
+    await adapter.handleInboundMediaEvent("1", {
+      text: null,
+      media: [{
+        descriptor: {
+          kind: "file",
+          role: "user_input",
+          source: "platform_resource",
+          filename: "report.pdf",
+          platformRef: {
+            platform: "feishu",
+            conversationId: "oc_chat_1",
+            messageId: "om_file_1",
+            resourceId: "file_key_1",
+            resourceType: "file"
+          }
+        },
+        status: "resolved",
+        localPath: "/tmp/report.pdf",
+        sha256: "b3fc722f8900000000",
+        resolvedAt: "2026-04-09T00:00:00.000Z",
+        expiresAt: "2026-04-16T00:00:00.000Z"
+      }]
+    });
+
+    assert.equal(adapter.clearPendingAutoAttach("1"), true);
+    assert.equal(await adapter.handleAutoAttachText("1", "帮我查看"), false);
+    assert.equal((adapter as any).findAttachment(store.getActiveSession("1")!.sessionId, "att-b3fc722f89")?.filename, "report.pdf");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RichInputAdapter keeps auto-attach pending when a running turn cannot accept it yet", async () => {
+  let availability: { kind: "available"; threadId: string; turnId: string } | { kind: "interaction_pending" } = {
+    kind: "interaction_pending"
+  };
+  const steerCalls: unknown[] = [];
+  const { adapter, store, startStructuredTurns, pendingInteractionNotices, continuationReanchorCalls, cleanup } = await createAdapterContext({
+    getBlockedTurnSteerAvailability: () => availability,
+    appServer: {
+      steerTurn: async (payload: unknown) => {
+        steerCalls.push(payload);
+      }
+    }
+  });
+
+  try {
+    const session = authorizeChatWithSession(store, "1");
+    store.updateSessionStatus(session.sessionId, "running", {
+      lastTurnId: "turn-1",
+      lastTurnStatus: "inProgress"
+    });
+    (adapter as any).extractAttachmentText = async () => "以下是附件《report.pdf》的提取内容：\n\n自动带上的附件内容。";
+
+    await adapter.handleInboundMediaEvent("1", {
+      text: null,
+      media: [{
+        descriptor: {
+          kind: "file",
+          role: "user_input",
+          source: "platform_resource",
+          filename: "report.pdf",
+          platformRef: {
+            platform: "feishu",
+            conversationId: "oc_chat_1",
+            messageId: "om_file_1",
+            resourceId: "file_key_1",
+            resourceType: "file"
+          }
+        },
+        status: "resolved",
+        localPath: "/tmp/report.pdf",
+        sha256: "b3fc722f8900000000",
+        resolvedAt: "2026-04-09T00:00:00.000Z",
+        expiresAt: "2026-04-16T00:00:00.000Z"
+      }]
+    });
+
+    assert.equal(await adapter.handleAutoAttachText("1", "帮我查看"), true);
+    assert.equal(startStructuredTurns.length, 0);
+    assert.deepEqual(pendingInteractionNotices, ["1"]);
+
+    availability = { kind: "available", threadId: "thread-1", turnId: "turn-1" };
+    assert.equal(await adapter.handleAutoAttachText("1", "帮我查看"), true);
+    assert.deepEqual(steerCalls.at(-1), {
+      threadId: "thread-1",
+      expectedTurnId: "turn-1",
+      input: [
+        { type: "text", text: "以下是附件《report.pdf》的提取内容：\n\n自动带上的附件内容。" },
+        { type: "text", text: "帮我查看" }
+      ]
+    });
+    assert.deepEqual(continuationReanchorCalls.at(-1), {
+      chatId: "1",
+      sessionId: session.sessionId
+    });
+  } finally {
+    await cleanup();
+  }
+});
+
+test("RichInputAdapter keeps file auto-attach pending when same-message prompt is blocked", async () => {
+  let availability: { kind: "available"; threadId: string; turnId: string } | { kind: "interaction_pending" } = {
+    kind: "interaction_pending"
+  };
+  const steerCalls: unknown[] = [];
+  const { adapter, store, startStructuredTurns, pendingInteractionNotices, continuationReanchorCalls, cleanup } = await createAdapterContext({
+    getBlockedTurnSteerAvailability: () => availability,
+    appServer: {
+      steerTurn: async (payload: unknown) => {
+        steerCalls.push(payload);
+      }
+    }
+  });
+
+  try {
+    const session = authorizeChatWithSession(store, "1");
+    store.updateSessionStatus(session.sessionId, "running", {
+      lastTurnId: "turn-1",
+      lastTurnStatus: "inProgress"
+    });
+    (adapter as any).extractAttachmentText = async () => "以下是附件《report.pdf》的提取内容：\n\n正文内容。";
+
+    await adapter.handleInboundMediaEvent("1", {
+      text: "summarize the attachment",
+      media: [{
+        descriptor: {
+          kind: "file",
+          role: "user_input",
+          source: "platform_resource",
+          filename: "report.pdf",
+          platformRef: {
+            platform: "feishu",
+            conversationId: "oc_chat_1",
+            messageId: "om_file_1",
+            resourceId: "file_key_1",
+            resourceType: "file"
+          }
+        },
+        status: "resolved",
+        localPath: "/tmp/report.pdf",
+        sha256: "1234567890abcdef",
+        resolvedAt: "2026-04-09T00:00:00.000Z",
+        expiresAt: "2026-04-16T00:00:00.000Z"
+      }]
+    });
+
+    assert.equal(startStructuredTurns.length, 0);
+    assert.deepEqual(pendingInteractionNotices, ["1"]);
+
+    availability = { kind: "available", threadId: "thread-1", turnId: "turn-1" };
+    assert.equal(await adapter.handleAutoAttachText("1", "summarize the attachment"), true);
+    assert.deepEqual(steerCalls.at(-1), {
+      threadId: "thread-1",
+      expectedTurnId: "turn-1",
+      input: [
+        { type: "text", text: "以下是附件《report.pdf》的提取内容：\n\n正文内容。" },
+        { type: "text", text: "summarize the attachment" }
+      ]
+    });
+    assert.deepEqual(continuationReanchorCalls.at(-1), {
+      chatId: "1",
+      sessionId: session.sessionId
+    });
   } finally {
     await cleanup();
   }

@@ -358,6 +358,7 @@ export class BridgeStateStore {
       if (previousChatIds.length > 0) {
         this.sessions.rebindSessionsChatIds(candidate.chatId, previousChatIds);
         this.runtimeArtifacts.rebindRuntimeNoticesChatIds(candidate.chatId, previousChatIds);
+        this.runtimeArtifacts.rebindCommandPanelPreferencesChatIds(candidate.chatId, previousChatIds);
         this.runtimeArtifacts.rebindCurrentSessionCardsChatIds(candidate.chatId, previousChatIds);
         this.runtimeArtifacts.rebindTerminalResultViewsChatIds(candidate.chatId, previousChatIds);
 

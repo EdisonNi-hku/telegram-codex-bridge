@@ -157,6 +157,10 @@ export class RichInputAdapter {
     return this.pendingRichInputComposers.has(chatId);
   }
 
+  clearPendingAutoAttach(chatId: string): boolean {
+    return this.pendingAutoAttachByChatId.delete(chatId);
+  }
+
   async cancelPendingRichInputComposer(chatId: string): Promise<boolean> {
     const hadComposer = this.pendingRichInputComposers.has(chatId);
     const hadAutoAttach = this.pendingAutoAttachByChatId.has(chatId);
@@ -306,23 +310,25 @@ export class RichInputAdapter {
     const attachments = pending.attachmentIds
       .map((attachmentId) => this.findAttachment(activeSession.sessionId, attachmentId))
       .filter((attachment): attachment is RegisteredAttachment => Boolean(attachment));
-    this.pendingAutoAttachByChatId.delete(chatId);
     if (attachments.length === 0) {
+      this.pendingAutoAttachByChatId.delete(chatId);
       return false;
     }
 
-    const attachmentInputs = (await Promise.all(
-      attachments.map(async (attachment) => await this.buildAttachmentInputs(attachment))
-    )).flat();
+    const attachmentInputs = await this.buildAttachmentInputsForAttachments(attachments);
     if (attachmentInputs.length === 0) {
+      this.pendingAutoAttachByChatId.delete(chatId);
       await this.deps.safeSendMessage(chatId, "最近附件暂时无法自动转成 Codex 可读输入，请改用支持文本提取的文件，或稍后再试。");
       return false;
     }
 
-    await this.submitRichInputs(chatId, activeSession, [
+    const submitted = await this.submitRichInputs(chatId, activeSession, [
       ...attachmentInputs,
       { type: "text", text }
     ]);
+    if (submitted) {
+      this.pendingAutoAttachByChatId.delete(chatId);
+    }
     return true;
   }
 
@@ -422,22 +428,40 @@ export class RichInputAdapter {
     const resolvedFiles = event.media.filter((asset) => asset.status === "resolved" && asset.descriptor.kind === "file");
     const unresolved = event.media.filter((asset) => asset.status === "unresolved");
 
-    if (resolvedFiles.length > 0) {
-      await this.sendAttachmentReceipt(chatId, activeSession.sessionId, resolvedFiles);
-    }
+    const registeredFiles = resolvedFiles.length > 0
+      ? await this.sendAttachmentReceipt(chatId, activeSession.sessionId, resolvedFiles)
+      : [];
 
     if (unresolved.length > 0) {
       await this.sendUnresolvedMediaNotice(chatId, unresolved);
     }
 
-    if (resolvedImages.length > 0) {
-      const imageInputs: UserInput[] = resolvedImages
-        .map((asset) => asset.localPath)
-        .filter((path): path is string => Boolean(path))
-        .map((path) => ({
-          type: "localImage" as const,
-          path
-        }));
+    const imageInputs: UserInput[] = resolvedImages
+      .map((asset) => asset.localPath)
+      .filter((path): path is string => Boolean(path))
+      .map((path) => ({
+        type: "localImage" as const,
+        path
+      }));
+
+    if (event.text) {
+      const attachmentInputs = registeredFiles.length > 0
+        ? await this.buildAttachmentInputsForAttachments(registeredFiles)
+        : [];
+      if (imageInputs.length > 0 || attachmentInputs.length > 0) {
+        const submitted = await this.submitRichInputs(chatId, activeSession, [
+          ...imageInputs,
+          ...attachmentInputs,
+          { type: "text", text: event.text }
+        ]);
+        if (submitted && registeredFiles.length > 0) {
+          this.pendingAutoAttachByChatId.delete(chatId);
+        }
+        return;
+      }
+    }
+
+    if (imageInputs.length > 0) {
       await this.submitOrQueueRichInput(
         chatId,
         activeSession,
@@ -620,7 +644,7 @@ export class RichInputAdapter {
     });
   }
 
-  private async submitTextInput(chatId: string, session: SessionRow, text: string): Promise<void> {
+  private async submitTextInput(chatId: string, session: SessionRow, text: string): Promise<boolean> {
     if (session.status === "running") {
       const steerAvailability = this.deps.getBlockedTurnSteerAvailability(chatId, session);
       if (steerAvailability.kind === "available") {
@@ -641,23 +665,25 @@ export class RichInputAdapter {
             error: `${error}`
           });
           await this.deps.safeSendMessage(chatId, "Codex 服务暂时不可用，请稍后重试。");
+          return false;
         }
-        return;
+        return true;
       }
 
       if (steerAvailability.kind === "interaction_pending") {
         await this.deps.sendPendingInteractionBlockNotice(chatId);
-        return;
+        return false;
       }
 
       await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。", this.buildBusyTurnReplyMarkup());
-      return;
+      return false;
     }
 
     await this.deps.startTextTurn(chatId, session, text);
+    return true;
   }
 
-  private async submitRichInputs(chatId: string, session: SessionRow, input: UserInput[]): Promise<void> {
+  private async submitRichInputs(chatId: string, session: SessionRow, input: UserInput[]): Promise<boolean> {
     if (session.status === "running") {
       const steerAvailability = this.deps.getBlockedTurnSteerAvailability(chatId, session);
       if (steerAvailability.kind === "available") {
@@ -678,20 +704,22 @@ export class RichInputAdapter {
             error: `${error}`
           });
           await this.deps.safeSendMessage(chatId, "Codex 服务暂时不可用，请稍后重试。");
+          return false;
         }
-        return;
+        return true;
       }
 
       if (steerAvailability.kind === "interaction_pending") {
         await this.deps.sendPendingInteractionBlockNotice(chatId);
-        return;
+        return false;
       }
 
       await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请等待完成或发送 /interrupt。", this.buildBusyTurnReplyMarkup());
-      return;
+      return false;
     }
 
     await this.deps.startStructuredTurn(chatId, session, input);
+    return true;
   }
 
   private async transcribeVoiceWithOpenAi(localVoicePath: string): Promise<VoiceTranscriptionResult> {
@@ -958,7 +986,7 @@ export class RichInputAdapter {
     chatId: string,
     sessionId: string,
     assets: ResolvedMediaAsset[]
-  ): Promise<void> {
+  ): Promise<RegisteredAttachment[]> {
     const registered = assets.map((asset) => this.registerAttachment(sessionId, asset));
     this.pendingAutoAttachByChatId.set(chatId, {
       sessionId,
@@ -974,6 +1002,7 @@ export class RichInputAdapter {
         : `已接收 ${registered.length} 个文件附件：\n${summary}\n下一条消息会自动带上最近附件；也可用 /attach <附件ID> :: 任务说明；发送 /cancel 可取消。`,
       this.buildCancelReplyMarkup()
     );
+    return registered;
   }
 
   private registerAttachment(sessionId: string, asset: ResolvedMediaAsset): RegisteredAttachment {
@@ -1019,6 +1048,12 @@ export class RichInputAdapter {
 
   private findAttachment(sessionId: string, attachmentId: string): RegisteredAttachment | null {
     return this.attachmentsBySessionId.get(sessionId)?.find((entry) => entry.attachmentId === attachmentId) ?? null;
+  }
+
+  private async buildAttachmentInputsForAttachments(attachments: RegisteredAttachment[]): Promise<UserInput[]> {
+    return (await Promise.all(
+      attachments.map(async (attachment) => await this.buildAttachmentInputs(attachment))
+    )).flat();
   }
 
   private async buildAttachmentInputs(attachment: RegisteredAttachment): Promise<UserInput[]> {

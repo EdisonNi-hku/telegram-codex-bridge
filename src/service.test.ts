@@ -12,6 +12,7 @@ import { ActivityTracker } from "./activity/tracker.js";
 import type { ThreadReadResult } from "./codex/app-server.js";
 import { CodexAppServerClient } from "./codex/app-server.js";
 import { classifyNotification } from "./codex/notification-classifier.js";
+import { FEISHU_PACK } from "./packs/feishu/index.js";
 import { TELEGRAM_PACK } from "./packs/telegram/index.js";
 import { BridgeService } from "./service.js";
 import { BridgeStateStore } from "./state/store.js";
@@ -8808,6 +8809,139 @@ test("telegram photo captions start a turn immediately with a local image input"
     assert.equal(startTurnPayload.input[0]?.type, "localImage");
     assert.match(startTurnPayload.input[0]?.path ?? "", /telegram-images\/1411-/u);
     assert.deepEqual(startTurnPayload.input[1], { type: "text", text: "summarize this screenshot" });
+  } finally {
+    await cleanup();
+  }
+});
+
+test("slash commands clear pending auto-attach before the next plain-text turn", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const sent: string[] = [];
+  const startTurnCalls: unknown[] = [];
+
+  try {
+    authorizeNumericChatWithSession(store, "1");
+
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, _options?: any) => {
+        sent.push(text);
+        return createFakeTelegramMessage(1415 + sent.length, text);
+      },
+      editMessageText: async (_chatId: string, messageId: number, text: string, _options?: any) =>
+        createFakeTelegramMessage(messageId, text)
+    };
+    (service as any).mediaIngressService.resolveMessageMedia = async (message: { message_id: number }) => message.message_id === 1415
+      ? {
+        text: null,
+        media: [{
+          descriptor: {
+            kind: "file",
+            role: "user_input",
+            source: "platform_resource",
+            filename: "report.pdf",
+            platformRef: {
+              platform: "feishu",
+              conversationId: "oc_chat_1",
+              messageId: "om_file_1",
+              resourceId: "file_key_1",
+              resourceType: "file"
+            }
+          },
+          status: "resolved",
+          localPath: "/tmp/report.pdf",
+          sha256: "b3fc722f8900000000",
+          resolvedAt: "2026-04-09T00:00:00.000Z",
+          expiresAt: "2026-04-16T00:00:00.000Z"
+        }]
+      }
+      : null;
+    (service as any).richInputAdapter.extractAttachmentText = async () => "以下是附件《report.pdf》的提取内容：\n\n不会自动带上。";
+
+    (service as any).appServer = {
+      isRunning: true,
+      startThread: async () => ({ thread: { id: "thread-auto-attach-clear" } }),
+      startTurn: async (payload: unknown) => {
+        startTurnCalls.push(payload);
+        return { turn: { id: "turn-auto-attach-clear", status: "inProgress" } };
+      },
+      resumeThread: async () => ({ thread: { id: "thread-auto-attach-clear", turns: [] } })
+    };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 1415, "ignored media text"));
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 1416, "/help"));
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 1417, "just continue"));
+
+    assert.match(sent[0] ?? "", /已接收文件附件/u);
+    assert.equal(startTurnCalls.length, 1);
+    assert.deepEqual(startTurnCalls[0], {
+      threadId: "thread-auto-attach-clear",
+      cwd: "/tmp/project-one",
+      text: "just continue"
+    });
+    assert.doesNotMatch(JSON.stringify(startTurnCalls[0]), /report\.pdf/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("feishu thread creation filters dynamic tools using readiness upload availability", async () => {
+  const feishuConfig: BridgeConfig = {
+    ...testConfig,
+    activePack: "feishu",
+    shared: {
+      ...testConfig.shared,
+      activePack: "feishu"
+    },
+    packs: {
+      ...testConfig.packs,
+      feishu: {
+        appId: "cli_test",
+        appSecret: "secret",
+        apiBaseUrl: "https://open.feishu.cn"
+      }
+    }
+  };
+  const { service, store, cleanup } = await createServiceContext({
+    dynamicToolDeclarations: FEISHU_PACK.platformActions.getDynamicToolDeclarations(),
+    interpretPackServerRequest: FEISHU_PACK.platformActions.interpretServerRequest
+  }, feishuConfig);
+  const startThreadCalls: unknown[] = [];
+
+  try {
+    const session = authorizeNumericChatWithSession(store, "1");
+    (service as any).snapshot = {
+      state: "ready",
+      checkedAt: "2026-04-10T00:00:00.000Z",
+      details: {
+        activePack: "feishu",
+        codexInstalled: true,
+        codexAuthenticated: true,
+        appServerAvailable: true,
+        authorizedUserBound: true,
+        issues: [],
+        packMetadata: {
+          feishuFileUploadReady: true,
+          feishuImageUploadReady: false
+        }
+      },
+      appServerPid: null
+    } satisfies ReadinessSnapshot;
+    (service as any).appServer = {
+      isRunning: true,
+      startThread: async (payload: unknown) => {
+        startThreadCalls.push(payload);
+        return { thread: { id: "thread-feishu-filtered" } };
+      },
+      startTurn: async () => ({ turn: { id: "turn-feishu-filtered", status: "inProgress" } }),
+      resumeThread: async () => ({ thread: { id: "thread-feishu-filtered", turns: [] } })
+    };
+
+    await (service as any).startRealTurn("1", session, "ship it");
+
+    assert.deepEqual(
+      ((startThreadCalls[0] as { dynamicTools?: Array<{ name: string }> }).dynamicTools ?? []).map((tool) => tool.name),
+      ["send_feishu_file"]
+    );
   } finally {
     await cleanup();
   }

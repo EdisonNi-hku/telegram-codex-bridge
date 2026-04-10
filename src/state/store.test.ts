@@ -298,6 +298,7 @@ test("confirmPendingAuthorization migrates sessions, active session, and notices
       projectName: "Project Two",
       projectPath: "/tmp/project-two"
     });
+    store.setCommandPanelPreferences("chat-old", ["status", "model"]);
     store.setActiveSession("chat-old", firstSession.sessionId);
     store.updateSessionStatus(secondSession.sessionId, "running");
     store.markRunningSessionsFailedWithNotices("bridge_restart");
@@ -327,12 +328,54 @@ test("confirmPendingAuthorization migrates sessions, active session, and notices
 
     const activeSession = store.getActiveSession("chat-new");
     assert.equal(activeSession?.sessionId, firstSession.sessionId);
+    assert.deepEqual(store.getCommandPanelPreferences("chat-new")?.commands, ["status", "model"]);
+    assert.equal(store.getCommandPanelPreferences("chat-old"), null);
 
     const notices = store.listRuntimeNotices("chat-new");
     assert.equal(notices.length, 1);
     assert.equal(notices[0]?.chatId, "chat-new");
     assert.equal(store.listRuntimeNotices("chat-old").length, 0);
     assert.equal(store.countRuntimeNotices(), 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("authorization rebind keeps the latest command panel preferences across old and new chats", async () => {
+  const { store, cleanup } = await openStore();
+
+  try {
+    store.upsertPendingAuthorization({
+      userId: "user-command-panel-rebind",
+      chatId: "chat-old-pref",
+      username: "viewer_old",
+      displayName: "Viewer Old"
+    });
+    const [initialCandidate] = store.listPendingAuthorizations();
+    assert.ok(initialCandidate);
+    store.confirmPendingAuthorization(initialCandidate);
+
+    store.setCommandPanelPreferences("chat-old-pref", ["status", "skills"]);
+    store.setCommandPanelPreferences("chat-new-pref", ["help", "model"]);
+    ((store as any).db as { prepare: (sql: string) => { run: (...params: unknown[]) => void } })
+      .prepare("UPDATE command_panel_preferences SET updated_at = ? WHERE chat_id = ?")
+      .run("2026-04-10T00:00:02.000Z", "chat-old-pref");
+    ((store as any).db as { prepare: (sql: string) => { run: (...params: unknown[]) => void } })
+      .prepare("UPDATE command_panel_preferences SET updated_at = ? WHERE chat_id = ?")
+      .run("2026-04-10T00:00:01.000Z", "chat-new-pref");
+
+    store.upsertPendingAuthorization({
+      userId: "user-command-panel-rebind",
+      chatId: "chat-new-pref",
+      username: "viewer_new",
+      displayName: "Viewer New"
+    });
+    const [rebindCandidate] = store.listPendingAuthorizations();
+    assert.ok(rebindCandidate);
+    store.confirmPendingAuthorization(rebindCandidate);
+
+    assert.deepEqual(store.getCommandPanelPreferences("chat-new-pref")?.commands, ["status", "skills"]);
+    assert.equal(store.getCommandPanelPreferences("chat-old-pref"), null);
   } finally {
     await cleanup();
   }
