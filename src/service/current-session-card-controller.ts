@@ -1,7 +1,7 @@
 import type { Logger } from "../logger.js";
 import type { BridgeStateStore } from "../state/store.js";
 import { buildCurrentSessionCardText } from "../telegram/ui.js";
-import type { UiLanguage } from "../types.js";
+import type { ReasoningEffort, SessionRow, UiLanguage } from "../types.js";
 import {
   isTelegramDeleteCommitted,
   isTelegramEditCommitted,
@@ -18,6 +18,12 @@ interface CurrentSessionCardControllerDeps {
   safeDeleteMessage: (chatId: string, messageId: number) => Promise<TelegramDeleteResult>;
   safePinChatMessage: (chatId: string, messageId: number) => Promise<boolean>;
   safeUnpinChatMessage: (chatId: string, messageId: number) => Promise<boolean>;
+  resolveSessionModelState: (session: SessionRow) => Promise<{
+    configuredModel: string | null;
+    configuredReasoningEffort: ReasoningEffort | null;
+    effectiveModel: string | null;
+    effectiveReasoningEffort: ReasoningEffort | null;
+  }>;
 }
 
 export class CurrentSessionCardController {
@@ -42,7 +48,8 @@ export class CurrentSessionCardController {
       return;
     }
 
-    const html = buildCurrentSessionCardText(activeSession, this.deps.getUiLanguage());
+    const modelState = await this.deps.resolveSessionModelState(activeSession);
+    const html = buildCurrentSessionCardText(activeSession, this.deps.getUiLanguage(), modelState);
     let nextMessageId = existingMessageId;
     const shouldRecreate = this.shouldRecreateCard(existing?.sessionId ?? null, activeSession.sessionId, reason);
 

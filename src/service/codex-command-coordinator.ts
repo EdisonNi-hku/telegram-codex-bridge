@@ -46,6 +46,12 @@ interface CodexCommandCoordinatorDeps {
   fetchAllMcpServerStatuses: () => Promise<
     NonNullable<Awaited<ReturnType<CodexAppServerClient["listMcpServerStatuses"]>>["data"]>
   >;
+  resolveSessionModelState: (session: SessionRow) => Promise<{
+    configuredModel: string | null;
+    configuredReasoningEffort: ReasoningEffort | null;
+    effectiveModel: string | null;
+    effectiveReasoningEffort: ReasoningEffort | null;
+  }>;
   ensureSessionThread: (session: SessionRow) => Promise<string>;
   beginActiveTurn: (
     chatId: string,
@@ -115,10 +121,12 @@ export class CodexCommandCoordinator {
     const models = await this.deps.fetchAllModels();
 
     if (!requestedModel) {
+      const modelState = await this.deps.resolveSessionModelState(activeSession);
       const picker = buildModelPickerMessage({
         session: activeSession,
         models,
-        page: 0
+        page: 0,
+        modelState
       });
       await this.deps.safeSendMessage(chatId, picker.text, picker.replyMarkup);
       return;
@@ -137,10 +145,12 @@ export class CodexCommandCoordinator {
 
     if (matched.supportedReasoningEfforts.length > 1) {
       const modelIndex = models.findIndex((model) => model.id === matched.id);
+      const modelState = await this.deps.resolveSessionModelState(activeSession);
       const picker = buildReasoningEffortPickerMessage({
         session: activeSession,
         model: matched,
-        modelIndex
+        modelIndex,
+        modelState
       });
       await this.deps.safeSendMessage(chatId, picker.text, picker.replyMarkup);
       return;
@@ -190,7 +200,8 @@ export class CodexCommandCoordinator {
     }
 
     await this.deps.safeAnswerCallbackQuery(callbackQueryId);
-    await this.deps.safeEditHtmlMessageText(chatId, messageId, buildModelPickerClosedText(session));
+    const modelState = await this.deps.resolveSessionModelState(session);
+    await this.deps.safeEditHtmlMessageText(chatId, messageId, buildModelPickerClosedText(session, modelState));
   }
 
   async handleModelPageCallback(
@@ -209,7 +220,8 @@ export class CodexCommandCoordinator {
     await this.deps.safeAnswerCallbackQuery(callbackQueryId);
     await this.deps.ensureAppServerAvailable();
     const models = await this.deps.fetchAllModels();
-    const picker = buildModelPickerMessage({ session, models, page });
+    const modelState = await this.deps.resolveSessionModelState(session);
+    const picker = buildModelPickerMessage({ session, models, page, modelState });
     await this.deps.safeEditMessageText(chatId, messageId, picker.text, picker.replyMarkup);
   }
 
@@ -236,7 +248,8 @@ export class CodexCommandCoordinator {
     }
 
     if (model.supportedReasoningEfforts.length > 1) {
-      const picker = buildReasoningEffortPickerMessage({ session, model, modelIndex });
+      const modelState = await this.deps.resolveSessionModelState(session);
+      const picker = buildReasoningEffortPickerMessage({ session, model, modelIndex, modelState });
       await this.deps.safeEditMessageText(chatId, messageId, picker.text, picker.replyMarkup);
       return;
     }

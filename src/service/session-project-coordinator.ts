@@ -31,6 +31,7 @@ import {
   buildBridgeCommandReplyMarkup
 } from "../telegram/ui.js";
 import type {
+  ReasoningEffort,
   ProjectPickerResult,
   ReadinessSnapshot,
   SessionRow
@@ -106,6 +107,12 @@ interface SessionProjectCoordinatorDeps {
   ) => Promise<TelegramEditResult>;
   safeDeleteMessage: (chatId: string, messageId: number) => Promise<TelegramDeleteResult>;
   getActiveRuntimeStatusText: (chatId: string) => string | null;
+  resolveSessionModelState: (session: SessionRow) => Promise<{
+    configuredModel: string | null;
+    configuredReasoningEffort: ReasoningEffort | null;
+    effectiveModel: string | null;
+    effectiveReasoningEffort: ReasoningEffort | null;
+  }>;
   reanchorRuntimeAfterBridgeReply: (chatId: string, sessionId: string, reason: string) => Promise<void>;
   syncCurrentSessionCard: (chatId: string, reason: string) => Promise<void>;
   handleSessionArchived: (chatId: string, sessionId: string, reason: string) => Promise<void>;
@@ -403,6 +410,7 @@ export class SessionProjectCoordinator {
 
     const snapshot = store.getReadinessSnapshot() ?? this.deps.getSnapshot() ?? fallbackSnapshot;
     const activeSession = store.getActiveSession(chatId);
+    const modelState = activeSession ? await this.deps.resolveSessionModelState(activeSession) : null;
     if (!snapshot) {
       await this.deps.safeSendMessage(chatId, "桥接状态未知，请在本机运行 ctb doctor。");
       return;
@@ -410,7 +418,7 @@ export class SessionProjectCoordinator {
 
     await this.deps.safeSendHtmlMessage(
       chatId,
-      buildStatusText(snapshot, activeSession, this.deps.getActiveRuntimeStatusText(chatId))
+      buildStatusText(snapshot, activeSession, this.deps.getActiveRuntimeStatusText(chatId), modelState)
     );
   }
 
@@ -420,7 +428,9 @@ export class SessionProjectCoordinator {
       return;
     }
 
-    await this.deps.safeSendHtmlMessage(chatId, buildWhereText(store.getActiveSession(chatId)));
+    const activeSession = store.getActiveSession(chatId);
+    const modelState = activeSession ? await this.deps.resolveSessionModelState(activeSession) : undefined;
+    await this.deps.safeSendHtmlMessage(chatId, buildWhereText(activeSession, modelState));
   }
 
   async handleSessions(chatId: string, args: string): Promise<void> {

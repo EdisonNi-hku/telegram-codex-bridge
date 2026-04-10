@@ -87,7 +87,13 @@ async function createControllerContext() {
     safeUnpinChatMessage: async (chatId, messageId) => {
       unpinned.push({ chatId, messageId });
       return true;
-    }
+    },
+    resolveSessionModelState: async (session) => ({
+      configuredModel: session.selectedModel,
+      configuredReasoningEffort: session.selectedReasoningEffort,
+      effectiveModel: session.selectedModel,
+      effectiveReasoningEffort: session.selectedReasoningEffort
+    })
   });
 
   return {

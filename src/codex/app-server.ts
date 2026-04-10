@@ -172,6 +172,17 @@ export interface ModelListResult {
   nextCursor?: string | null;
 }
 
+export interface ConfigReadResult {
+  config: {
+    model?: string | null;
+    model_reasoning_effort?: ReasoningEffort | null;
+    plan_mode_reasoning_effort?: ReasoningEffort | null;
+    migrations?: Record<string, string> | null;
+  };
+  layers?: unknown[] | null;
+  origins: Record<string, unknown>;
+}
+
 export interface SkillListResult {
   data: Array<{
     cwd: string;
@@ -604,6 +615,21 @@ export class CodexAppServerClient {
     }
 
     return await this.request<ModelListResult>("model/list", params);
+  }
+
+  async readConfig(options?: {
+    cwd?: string;
+    includeLayers?: boolean;
+  }): Promise<ConfigReadResult> {
+    const params: Record<string, unknown> = {};
+    if (options?.cwd !== undefined) {
+      params.cwd = options.cwd;
+    }
+    if (options?.includeLayers !== undefined) {
+      params.includeLayers = options.includeLayers;
+    }
+
+    return await this.request<ConfigReadResult>("config/read", params);
   }
 
   async listSkills(options: {

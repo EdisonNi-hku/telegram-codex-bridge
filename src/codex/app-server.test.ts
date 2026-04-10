@@ -185,6 +185,29 @@ test("readThread sends includeTurns when requested", async () => {
   });
 });
 
+test("readConfig sends cwd and includeLayers when requested", async () => {
+  const client = new CodexAppServerClient("codex", "/tmp/app-server.log", testLogger);
+  let captured: { method: string; params: unknown } | null = null;
+
+  (client as any).request = async (method: string, params: unknown) => {
+    captured = { method, params };
+    return { config: {}, origins: {} };
+  };
+
+  await client.readConfig({
+    cwd: "/tmp/project",
+    includeLayers: true
+  });
+
+  assert.deepEqual(captured, {
+    method: "config/read",
+    params: {
+      cwd: "/tmp/project",
+      includeLayers: true
+    }
+  });
+});
+
 test("handleMessage routes method-plus-id frames to server request handlers", () => {
   const client = new CodexAppServerClient("codex", "/tmp/app-server.log", testLogger);
   const requests: unknown[] = [];

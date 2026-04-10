@@ -56,7 +56,7 @@ import {
   type TelegramEditResult
 } from "./service/runtime-surface-state.js";
 import { extractFinalAnswerFromHistory } from "./service/turn-artifacts.js";
-import { TurnCoordinator } from "./service/turn-coordinator.js";
+import { TurnCoordinator, type SessionModelState } from "./service/turn-coordinator.js";
 import { BridgeStateStore, StateStoreOpenError } from "./state/store.js";
 import { TelegramApi, TelegramApiError,
   type TelegramCallbackQuery,
@@ -303,7 +303,8 @@ export class BridgeService {
       safeEditHtmlMessageText: async (chatId, messageId, html) => this.safeEditHtmlMessageText(chatId, messageId, html),
       safeDeleteMessage: async (chatId, messageId) => this.safeDeleteMessageResult(chatId, messageId),
       safePinChatMessage: async (chatId, messageId) => this.safePinChatMessage(chatId, messageId),
-      safeUnpinChatMessage: async (chatId, messageId) => this.safeUnpinChatMessage(chatId, messageId)
+      safeUnpinChatMessage: async (chatId, messageId) => this.safeUnpinChatMessage(chatId, messageId),
+      resolveSessionModelState: async (session) => this.resolveSessionModelState(session)
     });
     this.sessionProjectCoordinator = new SessionProjectCoordinator({
       logger: {
@@ -332,6 +333,7 @@ export class BridgeService {
         this.safeEditHtmlMessageText(chatId, messageId, text, replyMarkup),
       safeDeleteMessage: async (chatId, messageId) => this.safeDeleteMessageResult(chatId, messageId),
       getActiveRuntimeStatusText: (chatId) => this.buildActiveRuntimeStatusText(chatId),
+      resolveSessionModelState: async (session) => this.resolveSessionModelState(session),
       reanchorRuntimeAfterBridgeReply: async (chatId, sessionId, reason) =>
         this.reanchorRuntimeAfterBridgeReply(chatId, reason, sessionId),
       syncCurrentSessionCard: async (chatId, reason) =>
@@ -393,6 +395,7 @@ export class BridgeService {
       getStore: () => this.store,
       getAppServer: () => this.appServer,
       ensureAppServerAvailable: async () => this.ensureAppServerAvailable(),
+      fetchRuntimeConfig: async (cwd) => this.fetchRuntimeConfig(cwd),
       fetchAllModels: async () => this.fetchAllModels(),
       interactionBroker: {
         getBlockedTurnSteerAvailability: (chatId, session, activeTurn) =>
@@ -521,6 +524,7 @@ export class BridgeService {
       fetchAllModels: async () => this.fetchAllModels(),
       fetchAllApps: async (threadId) => this.fetchAllApps(threadId),
       fetchAllMcpServerStatuses: async () => this.fetchAllMcpServerStatuses(),
+      resolveSessionModelState: async (session) => this.resolveSessionModelState(session),
       ensureSessionThread: async (session) => this.turnCoordinator.ensureSessionThread(session),
       beginActiveTurn: async (chatId, session, threadId, turnId, turnStatus, options) =>
         this.turnCoordinator.beginActiveTurn(chatId, session, threadId, turnId, turnStatus, undefined, options),
@@ -2408,6 +2412,17 @@ export class BridgeService {
     return this.fetchAllPaginated((opts) => this.appServer?.listModels({ ...opts, includeHidden: false }));
   }
 
+  private async fetchRuntimeConfig(cwd: string): Promise<{
+    model: string | null;
+    reasoningEffort: ReasoningEffort | null;
+  }> {
+    const result = await this.appServer?.readConfig({ cwd, includeLayers: false });
+    return {
+      model: result?.config?.model ?? null,
+      reasoningEffort: result?.config?.model_reasoning_effort ?? null
+    };
+  }
+
   private async fetchAllApps(
     threadId?: string
   ): Promise<NonNullable<Awaited<ReturnType<CodexAppServerClient["listApps"]>>["data"]>> {
@@ -2418,6 +2433,24 @@ export class BridgeService {
     NonNullable<Awaited<ReturnType<CodexAppServerClient["listMcpServerStatuses"]>>["data"]>
   > {
     return this.fetchAllPaginated((opts) => this.appServer?.listMcpServerStatuses(opts));
+  }
+
+  private async resolveSessionModelState(session: SessionRow): Promise<SessionModelState> {
+    try {
+      return await this.turnCoordinator.resolveSessionModelState(session);
+    } catch (error) {
+      await this.logger.warn("failed to resolve session model state; falling back to session configuration", {
+        sessionId: session.sessionId,
+        error: `${error}`
+      });
+      return {
+        configuredModel: session.selectedModel ?? null,
+        configuredReasoningEffort: session.selectedReasoningEffort ?? null,
+        effectiveModel: session.selectedModel ?? null,
+        effectiveReasoningEffort: session.selectedReasoningEffort ?? null,
+        source: "session_fallback"
+      };
+    }
   }
 
   private async handleInterrupt(chatId: string): Promise<void> {

@@ -4743,7 +4743,8 @@ test("where command returns the active session with bridge and Codex identifiers
         "<b>项目：</b> Project One",
         "<b>路径：</b> /tmp/project-one",
         "<b>状态：</b> 空闲",
-        "<b>模型 + 思考强度：</b> 默认模型 + 默认",
+        "<b>模型配置：</b> 默认模型 + 默认",
+        "<b>模型生效：</b> 默认模型 + 默认",
         "<b>plan mode:</b> off",
         `<b>Bridge 会话 ID：</b> ${session.sessionId}`,
         "<b>Codex 线程 ID：</b> 尚未创建（首次发送任务后生成）",
@@ -4788,7 +4789,8 @@ test("where command includes the current Codex thread and latest turn identifier
         "<b>项目：</b> Project One",
         "<b>路径：</b> /tmp/project-one",
         "<b>状态：</b> 空闲",
-        "<b>模型 + 思考强度：</b> 默认模型 + 默认",
+        "<b>模型配置：</b> 默认模型 + 默认",
+        "<b>模型生效：</b> 默认模型 + 默认",
         "<b>plan mode:</b> on",
         `<b>Bridge 会话 ID：</b> ${session.sessionId}`,
         "<b>Codex 线程 ID：</b> thread-where",
@@ -4993,7 +4995,10 @@ test("status command renders structured fields with Telegram HTML", async () => 
     assert.equal(sent.length, 1);
     assert.equal(sent[0]?.parseMode, "HTML");
     assert.match(sent[0]?.text ?? "", /^<b>服务状态<\/b>/u);
-    assert.match(sent[0]?.text ?? "", /<b>当前会话：<\/b> Project One \/ Project One \/ 空闲 \/ 默认模型 \+ 默认/u);
+    assert.match(
+      sent[0]?.text ?? "",
+      /<b>当前会话：<\/b> Project One \/ Project One \/ 空闲 \/ 配置 默认模型 \+ 默认 \/ 生效 默认模型 \+ 默认/u
+    );
     assert.match(sent[0]?.text ?? "", /<b>最近检查：<\/b> 2026-03-10T10:00:00\.000Z/u);
     assert.equal(store.getActiveSession("chat-1")?.sessionId, session.sessionId);
   } finally {
@@ -5250,7 +5255,7 @@ test("use command leaves the existing runtime hub in place when another session 
     const idleSessionIndex = store.listSessions("chat-1").findIndex((entry) => entry.sessionId === idleSession.sessionId) + 1;
     await (service as any).routeCommand("chat-1", "use", `${idleSessionIndex}`);
 
-    assert.equal(sent[1]?.text, "Project Idle / Project Idle\n空闲 · 默认模型 + 默认");
+    assert.equal(sent[1]?.text, "Project Idle / Project Idle\n空闲 · 配置 默认模型 + 默认 / 生效 默认模型 + 默认");
     assert.equal(sent[1]?.parseMode, "HTML");
     assert.equal(
       sent[2]?.text,
@@ -5319,7 +5324,7 @@ test("use command does not reanchor a background running session after it become
     const runningSessionIndex = store.listSessions("chat-1").findIndex((entry) => entry.sessionId === runningSession.sessionId) + 1;
     await (service as any).routeCommand("chat-1", "use", `${runningSessionIndex}`);
 
-    assert.equal(sent[1]?.text, "Project One / Project One\n执行中 · 默认模型 + 默认");
+    assert.equal(sent[1]?.text, "Project One / Project One\n执行中 · 配置 默认模型 + 默认 / 生效 默认模型 + 默认");
     assert.equal(sent[1]?.parseMode, "HTML");
     assert.equal(
       sent[2]?.text,
@@ -7901,37 +7906,10 @@ test("model command opens a paginated picker and supports two-step model plus re
     await (service as any).routeCommand("1", "model", "");
     assert.match(sent[0]?.text ?? "", /选择模型/u);
     assert.match(sent[0]?.text ?? "", /当前配置：gpt-5 \+ 中/u);
+    assert.match(sent[0]?.text ?? "", /当前生效：gpt-5 \+ 中/u);
     assert.equal(sent[0]?.options?.replyMarkup?.inline_keyboard?.length, 8);
-    assert.equal(sent[0]?.options?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "GPT-5 [当前/默认]");
-    assert.equal(sent[0]?.options?.replyMarkup?.inline_keyboard?.[6]?.[0]?.text, "下一页");
-
-    await (service as any).handleCallback({
-      id: "cb-model-page-2",
-      from: { id: 1, is_bot: false, first_name: "Tester" },
-      message: {
-        message_id: 1201,
-        chat: { id: 1, type: "private" },
-        date: 0,
-        text: sent[0]?.text
-      },
-      data: getCallbackData(sent[0], 6, 0)
-    });
-    assert.equal(callbackAnswers.at(-1), "");
-    assert.match(edited.at(-1)?.text ?? "", /第 2\/2 页/u);
-    assert.equal(edited.at(-1)?.options?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "GPT-4.1 nano");
-
-    await (service as any).handleCallback({
-      id: "cb-model-page-1",
-      from: { id: 1, is_bot: false, first_name: "Tester" },
-      message: {
-        message_id: 1201,
-        chat: { id: 1, type: "private" },
-        date: 0,
-        text: edited.at(-1)?.text ?? ""
-      },
-      data: getCallbackData(edited.at(-1), 2, 0)
-    });
-    assert.match(edited.at(-1)?.text ?? "", /第 1\/2 页/u);
+    assert.equal(sent[0]?.options?.replyMarkup?.inline_keyboard?.[1]?.[0]?.text, "GPT-5 [已配置/生效]");
+    assert.equal(sent[0]?.options?.replyMarkup?.inline_keyboard?.[6]?.[0]?.text, "GPT-4.1 nano");
 
     await (service as any).handleCallback({
       id: "cb-model-pick-o3",
@@ -7940,10 +7918,11 @@ test("model command opens a paginated picker and supports two-step model plus re
         message_id: 1201,
         chat: { id: 1, type: "private" },
         date: 0,
-        text: edited.at(-1)?.text ?? ""
+        text: sent[0]?.text ?? ""
       },
-      data: getCallbackData(edited.at(-1), 3, 0)
+      data: getCallbackData(sent[0], 3, 0)
     });
+    assert.equal(callbackAnswers.at(-1), "");
     assert.match(edited.at(-1)?.text ?? "", /选择思考强度/u);
     assert.match(edited.at(-1)?.text ?? "", /o3/u);
     assert.equal(edited.at(-1)?.options?.replyMarkup?.inline_keyboard?.[0]?.[0]?.text, "默认（高）");

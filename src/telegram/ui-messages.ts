@@ -29,8 +29,7 @@ import {
   formatHtmlField,
   formatHtmlHeading,
   formatReasoningEffortLabel,
-  formatRelativeTime,
-  formatSessionModelReasoningConfig
+  formatRelativeTime
 } from "./ui-shared.js";
 
 function displayProjectName(projectName: string, projectAlias: string | null | undefined): string {
@@ -162,23 +161,32 @@ interface ReasoningEffortOption {
   description: string;
 }
 
-const MODEL_PAGE_SIZE = 5;
+const MODEL_PAGE_SIZE = 8;
+
+export interface SessionModelDisplayState {
+  configuredModel: string | null;
+  configuredReasoningEffort: ReasoningEffort | null;
+  effectiveModel: string | null;
+  effectiveReasoningEffort: ReasoningEffort | null;
+}
 
 export function buildModelPickerMessage(options: {
   session: SessionRow;
   models: ModelPickerOption[];
   page: number;
+  modelState?: SessionModelDisplayState;
 }): {
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
 } {
+  const state = resolveModelDisplayState(options.session, options.modelState);
   const totalPages = Math.max(1, Math.ceil(options.models.length / MODEL_PAGE_SIZE));
   const safePage = Math.min(Math.max(options.page, 0), totalPages - 1);
   const pageModels = options.models.slice(safePage * MODEL_PAGE_SIZE, (safePage + 1) * MODEL_PAGE_SIZE);
   const rows: TelegramInlineKeyboardMarkup["inline_keyboard"] = [
-    [{ text: buildDefaultModelButtonLabel(options.models, options.session), callback_data: encodeModelDefaultCallback(options.session.sessionId) }],
+    [{ text: buildDefaultModelButtonLabel(state), callback_data: encodeModelDefaultCallback(options.session.sessionId) }],
     ...pageModels.map((model, index) => [{
-      text: buildModelButtonLabel(model, options.session),
+      text: buildModelButtonLabel(model, state),
       callback_data: encodeModelPickCallback(options.session.sessionId, safePage * MODEL_PAGE_SIZE + index)
     }])
   ];
@@ -197,7 +205,8 @@ export function buildModelPickerMessage(options: {
   return {
     text: [
       "选择模型",
-      `当前配置：${formatSessionModelReasoningConfig(options.session)}`,
+      `当前配置：${formatModelReasoning(state.configuredModel, state.configuredReasoningEffort)}`,
+      `当前生效：${formatModelReasoning(state.effectiveModel, state.effectiveReasoningEffort)}`,
       `第 ${safePage + 1}/${totalPages} 页`,
       "先选模型，再按该模型支持情况选择思考强度。"
     ].join("\n"),
@@ -212,18 +221,21 @@ export function buildReasoningEffortPickerMessage(options: {
     supportedReasoningEfforts: ReasoningEffortOption[];
   };
   modelIndex: number;
+  modelState?: SessionModelDisplayState;
 }): {
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
 } {
-  const isCurrentModel = options.session.selectedModel === options.model.id;
+  const state = resolveModelDisplayState(options.session, options.modelState);
+  const isConfiguredModel = state.configuredModel === options.model.id;
+  const isEffectiveModel = state.effectiveModel === options.model.id;
   const effortButtons = options.model.supportedReasoningEfforts.map((option) => ({
-    text: buildReasoningEffortButtonLabel(option.reasoningEffort, options.session, isCurrentModel),
+    text: buildReasoningEffortButtonLabel(option.reasoningEffort, state, isConfiguredModel, isEffectiveModel),
     callback_data: encodeModelEffortCallback(options.session.sessionId, options.modelIndex, option.reasoningEffort)
   }));
   const rows = [
     [{
-      text: buildDefaultEffortButtonLabel(options.model.defaultReasoningEffort, options.session, isCurrentModel),
+      text: buildDefaultEffortButtonLabel(options.model.defaultReasoningEffort, state, isConfiguredModel, isEffectiveModel),
       callback_data: encodeModelEffortCallback(options.session.sessionId, options.modelIndex, null)
     }],
     ...chunkButtons(effortButtons, 2),
@@ -234,7 +246,8 @@ export function buildReasoningEffortPickerMessage(options: {
     text: [
       "选择思考强度",
       `模型：${options.model.id}`,
-      `当前配置：${formatSessionModelReasoningConfig(options.session)}`,
+      `当前配置：${formatModelReasoning(state.configuredModel, state.configuredReasoningEffort)}`,
+      `当前生效：${formatModelReasoning(state.effectiveModel, state.effectiveReasoningEffort)}`,
       "仅展示这个模型实际支持的档位。"
     ].join("\n"),
     replyMarkup: { inline_keyboard: rows }
@@ -244,15 +257,24 @@ export function buildReasoningEffortPickerMessage(options: {
 export function buildStatusText(
   snapshot: ReadinessSnapshot,
   activeSession: SessionRow | null,
-  runtimeStatusText?: string | null
+  runtimeStatusText?: string | null,
+  modelState?: SessionModelDisplayState | null
 ): string {
   const issueText = snapshot.details.issues.length === 0 ? "无" : snapshot.details.issues.join("；");
+  const resolvedModelState = activeSession ? resolveModelDisplayState(activeSession, modelState ?? undefined) : null;
   const activeSessionText = activeSession
     ? [
         displayProjectName(activeSession.projectName, activeSession.projectAlias),
         activeSession.displayName,
         formatSessionState(activeSession),
-        formatSessionModelReasoningConfig(activeSession),
+        `配置 ${formatModelReasoning(
+          resolvedModelState?.configuredModel ?? null,
+          resolvedModelState?.configuredReasoningEffort ?? null
+        )}`,
+        `生效 ${formatModelReasoning(
+          resolvedModelState?.effectiveModel ?? null,
+          resolvedModelState?.effectiveReasoningEffort ?? null
+        )}`,
         formatLastTurnSummary(activeSession)
       ]
         .filter((value): value is string => Boolean(value))
@@ -280,18 +302,20 @@ export function buildStatusText(
   return lines.join("\n");
 }
 
-export function buildWhereText(session: SessionRow | null): string {
+export function buildWhereText(session: SessionRow | null, modelState?: SessionModelDisplayState): string {
   if (!session) {
     return "当前没有活动会话。";
   }
 
+  const state = resolveModelDisplayState(session, modelState);
   const lines = [
     formatHtmlHeading("当前会话"),
     formatHtmlField("会话名：", session.displayName),
     formatHtmlField("项目：", displayProjectName(session.projectName, session.projectAlias)),
     formatHtmlField("路径：", session.projectPath),
     formatHtmlField("状态：", formatSessionState(session)),
-    formatHtmlField("模型 + 思考强度：", formatSessionModelReasoningConfig(session)),
+    formatHtmlField("模型配置：", formatModelReasoning(state.configuredModel, state.configuredReasoningEffort)),
+    formatHtmlField("模型生效：", formatModelReasoning(state.effectiveModel, state.effectiveReasoningEffort)),
     formatHtmlField("plan mode:", session.planMode ? "on" : "off")
   ];
 
@@ -306,11 +330,16 @@ export function buildWhereText(session: SessionRow | null): string {
   return lines.join("\n");
 }
 
-export function buildCurrentSessionCardText(session: SessionRow, language: UiLanguage): string {
+export function buildCurrentSessionCardText(
+  session: SessionRow,
+  language: UiLanguage,
+  modelState?: SessionModelDisplayState
+): string {
   const projectName = displayProjectName(session.projectName, session.projectAlias);
+  const state = resolveModelDisplayState(session, modelState);
   return [
     `${escapeHtml(projectName)} / ${escapeHtml(session.displayName)}`,
-    `${escapeHtml(formatSessionStateForCard(session, language))} · ${escapeHtml(formatSessionModelReasoningConfigForCard(session, language))}`
+    `${escapeHtml(formatSessionStateForCard(session, language))} · ${escapeHtml(formatSessionModelReasoningConfigForCard(state, language))}`
   ].join("\n");
 }
 
@@ -447,10 +476,12 @@ export function buildProjectPinnedText(projectName: string): string {
   return formatHtmlField("已收藏项目：", projectName);
 }
 
-export function buildModelPickerClosedText(session: SessionRow): string {
+export function buildModelPickerClosedText(session: SessionRow, modelState?: SessionModelDisplayState): string {
+  const state = resolveModelDisplayState(session, modelState);
   return [
     formatHtmlHeading("已关闭模型选择"),
-    formatHtmlField("当前配置：", formatSessionModelReasoningConfig(session))
+    formatHtmlField("当前配置：", formatModelReasoning(state.configuredModel, state.configuredReasoningEffort)),
+    formatHtmlField("当前生效：", formatModelReasoning(state.effectiveModel, state.effectiveReasoningEffort))
   ].join("\n");
 }
 
@@ -541,16 +572,12 @@ function formatReasoningEffortLabelForCard(effort: ReasoningEffort, language: Ui
   }
 }
 
-function formatSessionModelReasoningConfigForCard(session: SessionRow, language: UiLanguage): string {
+function formatSessionModelReasoningConfigForCard(state: SessionModelDisplayState, language: UiLanguage): string {
   if (language !== "en") {
-    return formatSessionModelReasoningConfig(session);
+    return `配置 ${formatModelReasoning(state.configuredModel, state.configuredReasoningEffort)} / 生效 ${formatModelReasoning(state.effectiveModel, state.effectiveReasoningEffort)}`;
   }
 
-  const modelLabel = session.selectedModel ?? "Default model";
-  const effortLabel = session.selectedReasoningEffort
-    ? formatReasoningEffortLabelForCard(session.selectedReasoningEffort, language)
-    : "default";
-  return `${modelLabel} + ${effortLabel}`;
+  return `configured ${formatModelReasoningForCard(state.configuredModel, state.configuredReasoningEffort, language)} / effective ${formatModelReasoningForCard(state.effectiveModel, state.effectiveReasoningEffort, language)}`;
 }
 
 function formatSessionFailureReason(reason: SessionRow["failureReason"]): string {
@@ -584,20 +611,18 @@ function formatLastTurnSummary(session: SessionRow): string | null {
   }
 }
 
-function buildDefaultModelButtonLabel(models: ModelPickerOption[], session: SessionRow): string {
-  const defaultModel = models.find((model) => model.isDefault);
-  const suffix = defaultModel ? `（${defaultModel.displayName}）` : "";
-  const marker = session.selectedModel === null ? " [当前]" : "";
-  return `默认模型${suffix}${marker}`;
+function buildDefaultModelButtonLabel(state: SessionModelDisplayState): string {
+  const marker = state.configuredModel === null && state.configuredReasoningEffort === null ? " [已配置]" : "";
+  return `清除模型/强度覆盖${marker}`;
 }
 
-function buildModelButtonLabel(model: ModelPickerOption, session: SessionRow): string {
+function buildModelButtonLabel(model: ModelPickerOption, state: SessionModelDisplayState): string {
   const markers: string[] = [];
-  if (session.selectedModel === model.id || (session.selectedModel === null && model.isDefault)) {
-    markers.push("当前");
+  if (state.configuredModel === model.id) {
+    markers.push("已配置");
   }
-  if (model.isDefault) {
-    markers.push("默认");
+  if (state.effectiveModel === model.id) {
+    markers.push("生效");
   }
   const markerText = markers.length > 0 ? ` [${markers.join("/")}]` : "";
   return `${model.displayName}${markerText}`;
@@ -605,18 +630,64 @@ function buildModelButtonLabel(model: ModelPickerOption, session: SessionRow): s
 
 function buildDefaultEffortButtonLabel(
   defaultReasoningEffort: ReasoningEffort,
-  session: SessionRow,
-  isCurrentModel: boolean
+  state: SessionModelDisplayState,
+  isConfiguredModel: boolean,
+  isEffectiveModel: boolean
 ): string {
-  const marker = isCurrentModel && session.selectedReasoningEffort === null ? " [当前]" : "";
-  return `默认（${formatReasoningEffortLabel(defaultReasoningEffort)}）${marker}`;
+  const markers: string[] = [];
+  if (isConfiguredModel && state.configuredReasoningEffort === null) {
+    markers.push("已配置");
+  }
+  if (isEffectiveModel && state.effectiveReasoningEffort === null) {
+    markers.push("生效");
+  }
+  const markerText = markers.length > 0 ? ` [${markers.join("/")}]` : "";
+  return `默认（${formatReasoningEffortLabel(defaultReasoningEffort)}）${markerText}`;
 }
 
 function buildReasoningEffortButtonLabel(
   effort: ReasoningEffort,
-  session: SessionRow,
-  isCurrentModel: boolean
+  state: SessionModelDisplayState,
+  isConfiguredModel: boolean,
+  isEffectiveModel: boolean
 ): string {
-  const marker = isCurrentModel && session.selectedReasoningEffort === effort ? " [当前]" : "";
-  return `${formatReasoningEffortLabel(effort)}${marker}`;
+  const markers: string[] = [];
+  if (isConfiguredModel && state.configuredReasoningEffort === effort) {
+    markers.push("已配置");
+  }
+  if (isEffectiveModel && state.effectiveReasoningEffort === effort) {
+    markers.push("生效");
+  }
+  const markerText = markers.length > 0 ? ` [${markers.join("/")}]` : "";
+  return `${formatReasoningEffortLabel(effort)}${markerText}`;
+}
+
+function resolveModelDisplayState(
+  session: SessionRow,
+  state?: SessionModelDisplayState
+): SessionModelDisplayState {
+  if (state) {
+    return state;
+  }
+
+  return {
+    configuredModel: session.selectedModel ?? null,
+    configuredReasoningEffort: session.selectedReasoningEffort ?? null,
+    effectiveModel: session.selectedModel ?? null,
+    effectiveReasoningEffort: session.selectedReasoningEffort ?? null
+  };
+}
+
+function formatModelReasoning(model: string | null, effort: ReasoningEffort | null): string {
+  const modelLabel = model ?? "默认模型";
+  const effortLabel = effort ? formatReasoningEffortLabel(effort) : "默认";
+  return `${modelLabel} + ${effortLabel}`;
+}
+
+function formatModelReasoningForCard(model: string | null, effort: ReasoningEffort | null, language: UiLanguage): string {
+  const modelLabel = model ?? (language === "en" ? "Default model" : "默认模型");
+  const effortLabel = effort
+    ? formatReasoningEffortLabelForCard(effort, language)
+    : language === "en" ? "default" : "默认";
+  return `${modelLabel} + ${effortLabel}`;
 }

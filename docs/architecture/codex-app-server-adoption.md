@@ -106,6 +106,7 @@ Primary owners:
 Used today:
 
 - `model/list`
+- `config/read`
 - `skills/list`
 - `plugin/list`
 - `plugin/install`
@@ -123,6 +124,7 @@ Current bridge meaning:
 - these methods are exposed only through compact Telegram command UX
 - the bridge does not dump raw protocol payloads into chat
 - session-level model selection is persisted bridge-side and applied on the next turn start
+- `model/list` is used for candidate discovery; effective default model/effort truth comes from thread/runtime sources (`thread/start`, `thread/resume`, `config/read`)
 
 Primary owner:
 

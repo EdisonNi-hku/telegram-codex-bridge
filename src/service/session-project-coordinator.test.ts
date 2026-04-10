@@ -112,6 +112,12 @@ async function createCoordinatorContext() {
       return { outcome: "deleted" };
     },
     getActiveRuntimeStatusText: () => null,
+    resolveSessionModelState: async (session) => ({
+      configuredModel: session.selectedModel,
+      configuredReasoningEffort: session.selectedReasoningEffort,
+      effectiveModel: session.selectedModel,
+      effectiveReasoningEffort: session.selectedReasoningEffort
+    }),
     reanchorRuntimeAfterBridgeReply: async (chatId, sessionId, reason) => {
       reanchorCalls.push({ chatId, sessionId, reason });
     },
@@ -414,6 +420,12 @@ test("handleArchive keeps using the original store after remote archive mirrorin
       safeEditHtmlMessageText: async () => ({ outcome: "edited" }),
       safeDeleteMessage: async () => ({ outcome: "deleted" }),
       getActiveRuntimeStatusText: () => null,
+      resolveSessionModelState: async (session) => ({
+        configuredModel: session.selectedModel,
+        configuredReasoningEffort: session.selectedReasoningEffort,
+        effectiveModel: session.selectedModel,
+        effectiveReasoningEffort: session.selectedReasoningEffort
+      }),
       reanchorRuntimeAfterBridgeReply: async () => {},
       syncCurrentSessionCard: async (chatId, reason) => {
         currentSessionCardCalls.push({ chatId, reason });

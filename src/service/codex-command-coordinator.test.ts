@@ -123,6 +123,12 @@ async function createCoordinatorContext(options: {
     fetchAllApps: async () => options.fetchAllApps ? await options.fetchAllApps() : [],
     fetchAllMcpServerStatuses: async () =>
       options.fetchAllMcpServerStatuses ? await options.fetchAllMcpServerStatuses() : [],
+    resolveSessionModelState: async (session) => ({
+      configuredModel: session.selectedModel,
+      configuredReasoningEffort: session.selectedReasoningEffort,
+      effectiveModel: session.selectedModel,
+      effectiveReasoningEffort: session.selectedReasoningEffort
+    }),
     ensureSessionThread: async () => "thread-source",
     beginActiveTurn: async (chatId, session, threadId, turnId, turnStatus, options) => {
       beginActiveTurnCalls.push({

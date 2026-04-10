@@ -57,14 +57,18 @@ Responses:
 
 Shows:
 - a two-step inline-button picker driven by the current app-server `model/list`
-- step 1 shows only 4-6 visible model candidates at a time, marks `当前` and `默认`, and paginates when needed
+- step 1 shows configured state and effective runtime state separately
+- model rows mark `已配置` and `生效`; the Telegram UX does not treat `model/list.isDefault` as a user-facing current-state marker
+- the clear-default row is an explicit "clear overrides" action rather than a duplicate default-model display row
+- small model lists stay on one page; pagination is shown only when needed
 - step 2 appears only when the chosen model exposes multiple `supportedReasoningEfforts`; otherwise the bridge skips directly to confirmation
 - reasoning effort button copy translates protocol values into user-facing Chinese labels
-- the active session's effective selection as `模型 + 思考强度`
+- the active session's `configured` and `effective` model + reasoning values
 
 Rules:
 - selection is stored on the bridge session and applied on the next `thread/start` or `turn/start`
 - the bridge stores model and reasoning effort separately; `默认` means "do not pin an override for this field"
+- effective defaults are resolved from runtime/thread truth (`thread/start`, `thread/resume`, and `config/read`) instead of being inferred from `model/list.isDefault`
 - the bridge does not expose provider setup or arbitrary config editing through Telegram
 - confirmation uses `已为会话「{session_name}」设置模型：{model_and_effort}`
 

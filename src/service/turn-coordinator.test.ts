@@ -92,6 +92,10 @@ async function createCoordinatorContext(options: {
     enabled: boolean;
     failureText: string;
   } | null;
+  fetchRuntimeConfig?: () => Promise<{
+    model: string | null;
+    reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
+  }>;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ctb-turn-coordinator-test-"));
   const paths = createTestPaths(root);
@@ -143,6 +147,13 @@ async function createCoordinatorContext(options: {
     getStore: () => store,
     getAppServer: () => appServer as CodexAppServerClient,
     ensureAppServerAvailable: async () => {},
+    fetchRuntimeConfig: async () =>
+      options.fetchRuntimeConfig
+        ? await options.fetchRuntimeConfig()
+        : {
+            model: "gpt-5-default",
+            reasoningEffort: "medium"
+          },
     fetchAllModels: async () => options.models ?? [{
       id: "gpt-5-default",
       model: "gpt-5-default",
@@ -368,6 +379,65 @@ test("TurnCoordinator starts structured turns and requests the structured-work h
   }
 });
 
+test("TurnCoordinator plan mode uses runtime-thread truth over model picker defaults", async () => {
+  const startTurnCalls: unknown[] = [];
+  const { coordinator, store, cleanup } = await createCoordinatorContext({
+    models: [{
+      id: "gpt-5.3-codex",
+      model: "gpt-5.3-codex",
+      displayName: "GPT-5.3 Codex",
+      description: "Picker default model",
+      hidden: false,
+      isDefault: true,
+      defaultReasoningEffort: "medium",
+      supportedReasoningEfforts: [{ reasoningEffort: "medium", description: "medium" }]
+    }],
+    appServer: {
+      startThread: async () => ({
+        thread: { id: "thread-plan-runtime" },
+        model: "gpt-5.4",
+        modelProvider: "openai",
+        reasoningEffort: "xhigh"
+      }),
+      startTurn: async (payload: unknown) => {
+        startTurnCalls.push(payload);
+        return { turn: { id: "turn-plan-runtime", status: "inProgress" } };
+      }
+    },
+    fetchRuntimeConfig: async () => ({
+      model: "gpt-5.4",
+      reasoningEffort: "xhigh"
+    })
+  });
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      planMode: true
+    });
+
+    await coordinator.startTextTurn("chat-1", session, "Plan with runtime defaults.");
+
+    assert.deepEqual(startTurnCalls, [{
+      threadId: "thread-plan-runtime",
+      cwd: "/tmp/project-one",
+      text: "Plan with runtime defaults.",
+      collaborationMode: {
+        mode: "plan",
+        settings: {
+          model: "gpt-5.4",
+          developerInstructions: null,
+          reasoningEffort: null
+        }
+      }
+    }]);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("TurnCoordinator resolves the default model and reasoning effort for runtime surfaces", async () => {
   const { coordinator, store, cleanup } = await createCoordinatorContext({
     models: [{
@@ -452,6 +522,35 @@ test("TurnCoordinator uses resumed thread runtime config instead of model picker
 
     assert.equal(coordinator.getActiveTurn()?.effectiveModel, "gpt-5.4");
     assert.equal(coordinator.getActiveTurn()?.effectiveReasoningEffort, "high");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator resolves effective display state from config/read for default sessions without threads", async () => {
+  const { coordinator, store, cleanup } = await createCoordinatorContext({
+    fetchRuntimeConfig: async () => ({
+      model: "gpt-5.4",
+      reasoningEffort: "xhigh"
+    })
+  });
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-1",
+      displayName: "Session Alpha",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    const modelState = await coordinator.resolveSessionModelState(session);
+
+    assert.deepEqual(modelState, {
+      configuredModel: null,
+      configuredReasoningEffort: null,
+      effectiveModel: "gpt-5.4",
+      effectiveReasoningEffort: "xhigh",
+      source: "config_read"
+    });
   } finally {
     await cleanup();
   }

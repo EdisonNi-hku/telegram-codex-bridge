@@ -102,6 +102,14 @@ interface EffectiveTurnConfig {
   reasoningEffortPinned: boolean;
 }
 
+export interface SessionModelState {
+  configuredModel: string | null;
+  configuredReasoningEffort: ReasoningEffort | null;
+  effectiveModel: string | null;
+  effectiveReasoningEffort: ReasoningEffort | null;
+  source: "active_turn" | "thread_resume" | "config_read" | "session_fallback";
+}
+
 interface TerminalDeliveryResult {
   answerId: string;
   kind: "final_answer" | "plan_result";
@@ -140,6 +148,10 @@ interface TurnCoordinatorDeps {
   getStore: () => BridgeStateStore | null;
   getAppServer: () => CodexAppServerClient | null;
   ensureAppServerAvailable: () => Promise<void>;
+  fetchRuntimeConfig: (cwd: string) => Promise<{
+    model: string | null;
+    reasoningEffort: ReasoningEffort | null;
+  }>;
   fetchAllModels: () => Promise<NonNullable<Awaited<ReturnType<CodexAppServerClient["listModels"]>>["data"]>>;
   interactionBroker: {
     getBlockedTurnSteerAvailability: (
@@ -409,7 +421,7 @@ export class TurnCoordinator {
         threadId,
         cwd: session.projectPath,
         ...payload
-      });
+      }, threadState);
       const turn = await appServer?.startTurn(request);
       if (!turn) {
         throw new Error("turn start returned no result");
@@ -526,6 +538,51 @@ export class TurnCoordinator {
     return ensured.threadId;
   }
 
+  async resolveSessionModelState(session: SessionRow): Promise<SessionModelState> {
+    const activeTurn = this.getActiveTurnBySessionId(session.sessionId);
+    let baseModel: string | null = null;
+    let baseReasoningEffort: ReasoningEffort | null = null;
+    let source: SessionModelState["source"] = "session_fallback";
+
+    if (activeTurn) {
+      baseModel = activeTurn.effectiveModel;
+      baseReasoningEffort = activeTurn.effectiveReasoningEffort;
+      source = "active_turn";
+    } else if (session.threadId) {
+      try {
+        const resumed = await this.deps.getAppServer()?.resumeThread(session.threadId);
+        if (resumed) {
+          baseModel = resumed.model ?? null;
+          baseReasoningEffort = resumed.reasoningEffort ?? resumed.thread.reasoningEffort ?? null;
+          source = "thread_resume";
+        }
+      } catch (error) {
+        await this.deps.logger.warn("failed to resume thread while resolving session model state", {
+          sessionId: session.sessionId,
+          threadId: session.threadId,
+          error: `${error}`
+        });
+      }
+    }
+
+    if (source !== "active_turn" && source !== "thread_resume") {
+      const runtime = await this.readRuntimeConfigBestEffort(session.projectPath);
+      if (runtime) {
+        baseModel = runtime.model;
+        baseReasoningEffort = runtime.reasoningEffort;
+        source = "config_read";
+      }
+    }
+
+    return {
+      configuredModel: session.selectedModel ?? null,
+      configuredReasoningEffort: session.selectedReasoningEffort ?? null,
+      effectiveModel: session.selectedModel ?? baseModel ?? null,
+      effectiveReasoningEffort: session.selectedReasoningEffort ?? baseReasoningEffort ?? null,
+      source
+    };
+  }
+
   private async ensureSessionThreadState(session: SessionRow): Promise<EnsuredThreadState> {
     const store = this.deps.getStore();
     const appServer = this.deps.getAppServer();
@@ -591,6 +648,21 @@ export class TurnCoordinator {
         model: started.model ?? null,
         reasoningEffort: started.reasoningEffort ?? null
       };
+    }
+  }
+
+  private async readRuntimeConfigBestEffort(cwd: string): Promise<{
+    model: string | null;
+    reasoningEffort: ReasoningEffort | null;
+  } | null> {
+    try {
+      return await this.deps.fetchRuntimeConfig(cwd);
+    } catch (error) {
+      await this.deps.logger.warn("failed to read runtime config", {
+        cwd,
+        error: `${error}`
+      });
+      return null;
     }
   }
 
@@ -974,7 +1046,8 @@ export class TurnCoordinator {
       cwd: string;
       text?: string;
       input?: UserInput[];
-    }
+    },
+    threadState: EnsuredThreadState
   ): Promise<Parameters<CodexAppServerClient["startTurn"]>[0]> {
     const baseRequest: Parameters<CodexAppServerClient["startTurn"]>[0] = {
       threadId: request.threadId,
@@ -989,7 +1062,7 @@ export class TurnCoordinator {
         collaborationMode: {
           mode: session.planMode ? "plan" : "default",
           settings: {
-            model: await this.resolveCollaborationModeModel(session),
+            model: await this.resolveCollaborationModeModel(session, threadState),
             developerInstructions: null,
             reasoningEffort: session.selectedReasoningEffort ?? null
           }
@@ -1004,9 +1077,18 @@ export class TurnCoordinator {
     };
   }
 
-  private async resolveCollaborationModeModel(session: SessionRow): Promise<string> {
+  private async resolveCollaborationModeModel(session: SessionRow, threadState: EnsuredThreadState): Promise<string> {
     if (session.selectedModel) {
       return session.selectedModel;
+    }
+
+    if (threadState.model) {
+      return threadState.model;
+    }
+
+    const runtime = await this.readRuntimeConfigBestEffort(session.projectPath);
+    if (runtime?.model) {
+      return runtime.model;
     }
 
     const models = await this.deps.fetchAllModels();
