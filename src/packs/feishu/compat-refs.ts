@@ -15,6 +15,7 @@ interface FeishuCompatRefsRecord {
   nextMessageOffset: number;
   chatRemoteByLocal: Record<string, string>;
   chatLocalByRemote: Record<string, number>;
+  userChatRemoteByUser: Record<string, string>;
   userRemoteByLocal: Record<string, string>;
   userLocalByRemote: Record<string, number>;
   messageRemoteByLocal: Record<string, {
@@ -34,6 +35,11 @@ type FeishuCompatRefsOperation =
     op: "user_put";
     remoteOpenId: string;
     localUserId: number;
+  }
+  | {
+    op: "user_chat_put";
+    remoteOpenId: string;
+    remoteChatId: string;
   }
   | {
     op: "message_put";
@@ -58,6 +64,7 @@ function createEmptyRecord(): FeishuCompatRefsRecord {
     nextMessageOffset: 1,
     chatRemoteByLocal: {},
     chatLocalByRemote: {},
+    userChatRemoteByUser: {},
     userRemoteByLocal: {},
     userLocalByRemote: {},
     messageRemoteByLocal: {},
@@ -152,8 +159,34 @@ export class FeishuCompatRefs {
     return local;
   }
 
+  rememberUserChat(remoteOpenId: string, remoteChatId: string): void {
+    if (this.record.userChatRemoteByUser[remoteOpenId] === remoteChatId) {
+      return;
+    }
+
+    this.record.userChatRemoteByUser[remoteOpenId] = remoteChatId;
+    this.appendOperation({
+      op: "user_chat_put",
+      remoteOpenId,
+      remoteChatId
+    });
+  }
+
   resolveRemoteChatId(localChatId: string | number): string | null {
     return this.record.chatRemoteByLocal[`${localChatId}`] ?? null;
+  }
+
+  resolveRemoteChatIdForRemoteUser(remoteOpenId: string): string | null {
+    return this.record.userChatRemoteByUser[remoteOpenId] ?? null;
+  }
+
+  resolveLocalChatIdForRemoteUser(remoteOpenId: string): number | null {
+    const remoteChatId = this.resolveRemoteChatIdForRemoteUser(remoteOpenId);
+    if (!remoteChatId) {
+      return null;
+    }
+
+    return this.record.chatLocalByRemote[remoteChatId] ?? null;
   }
 
   resolveRemoteUserId(localUserId: string | number): string | null {
@@ -259,6 +292,9 @@ export class FeishuCompatRefs {
       case "user_put":
         this.record.userLocalByRemote[operation.remoteOpenId] = operation.localUserId;
         this.record.userRemoteByLocal[`${operation.localUserId}`] = operation.remoteOpenId;
+        break;
+      case "user_chat_put":
+        this.record.userChatRemoteByUser[operation.remoteOpenId] = operation.remoteChatId;
         break;
       case "message_put":
         this.upsertRemoteMessageMapping(

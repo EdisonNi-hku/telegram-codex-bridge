@@ -10,6 +10,7 @@ import type {
   TelegramUpdate,
   TelegramUser
 } from "../telegram/api.js";
+import { parseCallbackData } from "../telegram/ui-callbacks.js";
 import { resolveFeishuSdkDomain, type FeishuTelegramApiCompat } from "./api.js";
 
 interface PendingQueueWaiter {
@@ -60,6 +61,87 @@ function parseFeishuTextContent(content: string): string | null {
     return typeof parsed.text === "string" ? parsed.text : null;
   } catch {
     return null;
+  }
+}
+
+function extractFeishuCallbackData(event: {
+  action?: {
+    tag?: string;
+    option?: unknown;
+    value?: Record<string, unknown> | string;
+  };
+}): string | null {
+  const actionValue = event.action?.value;
+  if (typeof actionValue === "string" && actionValue.trim().length > 0) {
+    return actionValue;
+  }
+
+  if (
+    actionValue
+    && typeof actionValue === "object"
+    && typeof actionValue.callback_data === "string"
+    && actionValue.callback_data.trim().length > 0
+  ) {
+    return actionValue.callback_data;
+  }
+
+  if (event.action?.tag === "overflow" && typeof event.action.option === "string" && event.action.option.trim().length > 0) {
+    return event.action.option;
+  }
+
+  return null;
+}
+
+function buildFeishuCardCallbackResponse(
+  callbackData: string | null,
+  accepted: boolean
+): Record<string, unknown> {
+  if (!accepted || !callbackData || !parseCallbackData(callbackData)) {
+    return {
+      toast: {
+        type: "error",
+        content: "这个按钮已过期，请重新打开界面。"
+      }
+    };
+  }
+
+  const parsed = parseCallbackData(callbackData);
+  if (!parsed) {
+    return {
+      toast: {
+        type: "error",
+        content: "这个按钮已过期，请重新打开界面。"
+      }
+    };
+  }
+
+  switch (parsed.kind) {
+    case "status_interrupt":
+      return {
+        toast: {
+          type: "warning",
+          content: "正在请求中断…"
+        }
+      };
+    case "commands_run":
+    case "pick":
+    case "path_confirm":
+    case "browse_use_current_dir_confirm":
+    case "rollback_confirm":
+    case "plan_implement":
+      return {
+        toast: {
+          type: "info",
+          content: "正在处理…"
+        }
+      };
+    default:
+      return {
+        toast: {
+          type: "info",
+          content: "正在更新…"
+        }
+      };
   }
 }
 
@@ -168,6 +250,7 @@ export class FeishuTelegramPollerCompat {
     const refs = this.api.refsStore;
     const localUserId = refs.getOrCreateLocalUserId(remoteOpenId);
     const localChatId = refs.getOrCreateLocalChatId(event.message.chat_id);
+    refs.rememberUserChat(remoteOpenId, event.message.chat_id);
     const localMessageId = refs.recordRemoteMessage(event.message.message_id, event.message.chat_id);
     const messageBase: TelegramMessage = {
       message_id: localMessageId,
@@ -211,25 +294,93 @@ export class FeishuTelegramPollerCompat {
     };
   }
 
+  private async translateChatEnteredEvent(event: {
+    chat_id: string;
+    create_time?: string;
+    operator_id?: {
+      open_id?: string;
+    };
+  }): Promise<TelegramUpdate | null> {
+    const remoteOpenId = event.operator_id?.open_id;
+    if (!remoteOpenId) {
+      return null;
+    }
+
+    const refs = this.api.refsStore;
+    const localUserId = refs.getOrCreateLocalUserId(remoteOpenId);
+    const localChatId = refs.getOrCreateLocalChatId(event.chat_id);
+    refs.rememberUserChat(remoteOpenId, event.chat_id);
+
+    return {
+      update_id: this.nextUpdateId++,
+      platform_event: {
+        source: "feishu",
+        kind: "chat_entered",
+        user: this.buildTelegramUser(localUserId, remoteOpenId),
+        chat: {
+          id: localChatId,
+          type: "private"
+        }
+      }
+    };
+  }
+
+  private async translateBotMenuEvent(event: {
+    event_key?: string;
+    operator?: {
+      operator_id?: {
+        open_id?: string;
+      };
+    };
+  }): Promise<TelegramUpdate | null> {
+    const remoteOpenId = event.operator?.operator_id?.open_id;
+    const eventKey = typeof event.event_key === "string" ? event.event_key : null;
+    if (!remoteOpenId || !eventKey) {
+      return null;
+    }
+
+    const refs = this.api.refsStore;
+    const localUserId = refs.getOrCreateLocalUserId(remoteOpenId);
+    const localChatId = refs.resolveLocalChatIdForRemoteUser(remoteOpenId);
+    if (localChatId === null) {
+      return null;
+    }
+
+    return {
+      update_id: this.nextUpdateId++,
+      platform_event: {
+        source: "feishu",
+        kind: "bot_menu",
+        user: this.buildTelegramUser(localUserId, remoteOpenId),
+        chat: {
+          id: localChatId,
+          type: "private"
+        },
+        eventKey
+      }
+    };
+  }
+
   private async translateCardCallbackEvent(event: {
     open_id?: string;
     open_message_id?: string;
     token: string;
     operator?: {
       open_id?: string;
-    };
-    context?: {
-      open_message_id?: string;
-    };
-    action?: {
-      value?: Record<string, unknown>;
-    };
-  }): Promise<TelegramUpdate | null> {
+        };
+        context?: {
+          open_message_id?: string;
+          open_chat_id?: string;
+        };
+        action?: {
+          tag?: string;
+          option?: unknown;
+          value?: Record<string, unknown> | string;
+        };
+      }): Promise<TelegramUpdate | null> {
     const remoteOpenId = event.open_id ?? event.operator?.open_id ?? null;
     const remoteMessageId = event.open_message_id ?? event.context?.open_message_id ?? null;
-    const callbackData = typeof event.action?.value?.callback_data === "string"
-      ? event.action.value.callback_data
-      : null;
+    const callbackData = extractFeishuCallbackData(event);
     if (!callbackData || !remoteOpenId || !remoteMessageId) {
       return null;
     }
@@ -240,6 +391,7 @@ export class FeishuTelegramPollerCompat {
     if (!remoteRef) {
       return null;
     }
+    refs.rememberUserChat(remoteOpenId, event.context?.open_chat_id ?? remoteRef.remoteChatId);
     const localChatId = refs.getOrCreateLocalChatId(remoteRef.remoteChatId);
     const callbackQuery: TelegramCallbackQuery = {
       id: event.token,
@@ -310,6 +462,31 @@ export class FeishuTelegramPollerCompat {
           this.enqueue(update);
         }
       },
+      "im.chat.access_event.bot_p2p_chat_entered_v1": async (event: {
+        chat_id: string;
+        create_time?: string;
+        operator_id?: {
+          open_id?: string;
+        };
+      }) => {
+        const update = await this.translateChatEnteredEvent(event);
+        if (update) {
+          this.enqueue(update);
+        }
+      },
+      "application.bot.menu_v6": async (event: {
+        event_key?: string;
+        operator?: {
+          operator_id?: {
+            open_id?: string;
+          };
+        };
+      }) => {
+        const update = await this.translateBotMenuEvent(event);
+        if (update) {
+          this.enqueue(update);
+        }
+      },
       "card.action.trigger": async (event: {
         open_id?: string;
         open_message_id?: string;
@@ -319,16 +496,20 @@ export class FeishuTelegramPollerCompat {
         };
         context?: {
           open_message_id?: string;
+          open_chat_id?: string;
         };
         action?: {
-          value?: Record<string, unknown>;
+          tag?: string;
+          option?: unknown;
+          value?: Record<string, unknown> | string;
         };
       }) => {
+        const callbackData = extractFeishuCallbackData(event);
         const update = await this.translateCardCallbackEvent(event);
         if (update) {
           this.enqueue(update);
         }
-        return {};
+        return buildFeishuCardCallbackResponse(callbackData, update !== null);
       }
     });
     this.wsClient = wsClient;

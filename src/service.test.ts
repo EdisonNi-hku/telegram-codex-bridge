@@ -12,6 +12,7 @@ import { ActivityTracker } from "./activity/tracker.js";
 import type { ThreadReadResult } from "./codex/app-server.js";
 import { CodexAppServerClient } from "./codex/app-server.js";
 import { classifyNotification } from "./codex/notification-classifier.js";
+import { FEISHU_BOT_MENU_EVENT_KEYS } from "./feishu/ui.js";
 import { FEISHU_PACK } from "./packs/feishu/index.js";
 import { TELEGRAM_PACK } from "./packs/telegram/index.js";
 import { BridgeService } from "./service.js";
@@ -68,6 +69,22 @@ const testConfig: BridgeConfig = {
   appServerGuardCooldownMs: 900_000
 };
 
+const feishuTestConfig: BridgeConfig = {
+  ...testConfig,
+  activePack: "feishu",
+  shared: {
+    ...testConfig.shared,
+    activePack: "feishu"
+  },
+  packs: {
+    feishu: {
+      appId: "cli_test",
+      appSecret: "secret",
+      apiBaseUrl: "https://open.feishu.cn"
+    }
+  }
+};
+
 function createTestPaths(root: string): BridgePaths {
   const logsDir = join(root, "logs");
   const telegramSessionFlowLogsDir = join(logsDir, "telegram-session-flow");
@@ -119,9 +136,10 @@ async function createServiceContext(
   ]);
 
   const store = await BridgeStateStore.open(paths, testLogger);
+  const activePack = config.activePack === "feishu" ? FEISHU_PACK : TELEGRAM_PACK;
   const service = new BridgeService(paths, config, {
-    dynamicToolDeclarations: TELEGRAM_PACK.platformActions.getDynamicToolDeclarations(),
-    interpretPackServerRequest: TELEGRAM_PACK.platformActions.interpretServerRequest,
+    dynamicToolDeclarations: activePack.platformActions.getDynamicToolDeclarations(),
+    interpretPackServerRequest: activePack.platformActions.interpretServerRequest,
     ...deps
   });
 
@@ -576,6 +594,23 @@ function authorizeChat(store: BridgeStateStore, chatId: string): void {
 function authorizeChatWithSession(store: BridgeStateStore, chatId: string) {
   authorizeChat(store, chatId);
   return createSession(store, chatId);
+}
+
+function authorizeFeishuChat(store: BridgeStateStore, chatId: string, userId: string): void {
+  store.upsertPendingAuthorization({
+    platform: "feishu",
+    userId,
+    chatId,
+    username: "tester",
+    displayName: "Tester"
+  });
+
+  const candidate = store.listPendingAuthorizations({ platform: "feishu" })[0];
+  if (!candidate) {
+    throw new Error("expected pending feishu authorization candidate");
+  }
+
+  store.confirmPendingAuthorization(candidate);
 }
 
 function authorizeNumericChatWithSession(store: BridgeStateStore, chatId: string, userId = 1) {
@@ -9886,6 +9921,171 @@ test("voice processing runs in the background so later commands are not blocked"
 
     releaseVoiceTask();
     await (service as any).richInputAdapter.voiceTaskQueue;
+  } finally {
+    await cleanup();
+  }
+});
+
+test("feishu chat-entered events send the native welcome surface for the authorized user", async () => {
+  const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
+  const sent: Array<{ text: string; parseMode?: string; replyMarkup?: unknown }> = [];
+  const chatId = "7000000000000001";
+  const userId = "7500000000000001";
+
+  try {
+    authorizeFeishuChat(store, chatId, userId);
+    const session = createSession(store, chatId);
+    store.setActiveSession(chatId, session.sessionId);
+    store.writeReadinessSnapshot(createReadinessSnapshot({
+      details: {
+        activePack: "feishu",
+        packState: "ready",
+        setupState: "complete",
+        authorizedUserBound: true,
+        packChecks: []
+      }
+    }));
+
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        sent.push({ text, parseMode: options?.parseMode, replyMarkup: options?.replyMarkup });
+        return createFakeTelegramMessage(3101, text);
+      }
+    };
+
+    await (service as any).handleUpdate({
+      update_id: 1,
+      platform_event: {
+        source: "feishu",
+        kind: "chat_entered",
+        user: {
+          id: Number.parseInt(userId, 10),
+          is_bot: false,
+          first_name: "ou_user_entered",
+          username: "ou_user_entered"
+        },
+        chat: {
+          id: Number.parseInt(chatId, 10),
+          type: "private"
+        }
+      }
+    });
+
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0]?.parseMode, "HTML");
+    assert.match(sent[0]?.text ?? "", /欢迎使用 Codex Bridge/u);
+    assert.ok(sent[0]?.replyMarkup);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("feishu bot-menu status on an unbound chat shows setup status without creating pending authorization", async () => {
+  const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
+  const sent: Array<{ text: string; parseMode?: string; replyMarkup?: unknown }> = [];
+  const chatId = "7000000000000002";
+
+  try {
+    store.writeReadinessSnapshot(createReadinessSnapshot({
+      state: "awaiting_authorization",
+      details: {
+        activePack: "feishu",
+        packState: "awaiting_authorization",
+        setupState: "incomplete",
+        authorizedUserBound: false,
+        issues: ["feishu authorization is pending"],
+        packIssues: ["feishu authorization is pending"],
+        packChecks: [{
+          id: "feishu_authorization_binding",
+          ok: false,
+          summary: "feishu authorization is pending"
+        }]
+      }
+    }));
+
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        sent.push({ text, parseMode: options?.parseMode, replyMarkup: options?.replyMarkup });
+        return createFakeTelegramMessage(3102, text);
+      }
+    };
+
+    await (service as any).handleUpdate({
+      update_id: 2,
+      platform_event: {
+        source: "feishu",
+        kind: "bot_menu",
+        eventKey: FEISHU_BOT_MENU_EVENT_KEYS.status,
+        user: {
+          id: 7500000000000002,
+          is_bot: false,
+          first_name: "ou_user_menu_unbound",
+          username: "ou_user_menu_unbound"
+        },
+        chat: {
+          id: Number.parseInt(chatId, 10),
+          type: "private"
+        }
+      }
+    });
+
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0]?.parseMode, "HTML");
+    assert.match(sent[0]?.text ?? "", /飞书接入尚未完成/u);
+    assert.equal(sent[0]?.replyMarkup, undefined);
+    assert.equal(store.listPendingAuthorizations({ platform: "feishu" }).length, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("feishu bot-menu events route menu commands for the authorized user", async () => {
+  const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
+  const routed: Array<{ chatId: string; command: string; args: string }> = [];
+  const chatId = "7000000000000003";
+  const userId = "7500000000000003";
+
+  try {
+    authorizeFeishuChat(store, chatId, userId);
+    store.writeReadinessSnapshot(createReadinessSnapshot({
+      details: {
+        activePack: "feishu",
+        packState: "ready",
+        setupState: "complete",
+        authorizedUserBound: true,
+        packChecks: []
+      }
+    }));
+
+    (service as any).api = {};
+    (service as any).routeCommand = async (nextChatId: string, command: string, args: string) => {
+      routed.push({ chatId: nextChatId, command, args });
+    };
+
+    await (service as any).handleUpdate({
+      update_id: 3,
+      platform_event: {
+        source: "feishu",
+        kind: "bot_menu",
+        eventKey: FEISHU_BOT_MENU_EVENT_KEYS.newSession,
+        user: {
+          id: Number.parseInt(userId, 10),
+          is_bot: false,
+          first_name: "ou_user_menu_bound",
+          username: "ou_user_menu_bound"
+        },
+        chat: {
+          id: Number.parseInt(chatId, 10),
+          type: "private"
+        }
+      }
+    });
+
+    assert.deepEqual(routed, [{
+      chatId,
+      command: "new",
+      args: ""
+    }]);
   } finally {
     await cleanup();
   }

@@ -2,6 +2,7 @@ import { basename, relative, sep } from "node:path";
 
 import type { BridgeConfig } from "../config.js";
 import type { BridgeCommandActionView } from "../core/interaction-model/bridge-actions.js";
+import { buildFeishuStatusReplyMarkup, buildFeishuStatusText } from "../feishu/ui.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import { buildProjectPicker, validateManualProjectPath } from "../project/discovery.js";
@@ -37,7 +38,8 @@ import type {
   ReasoningEffort,
   ProjectPickerResult,
   ReadinessSnapshot,
-  SessionRow
+  SessionRow,
+  UiLanguage
 } from "../types.js";
 import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 
@@ -66,9 +68,11 @@ interface SessionProjectCoordinatorDeps {
   logger: Pick<Logger, "warn">;
   paths: Pick<BridgePaths, "homeDir">;
   config: Pick<BridgeConfig, "projectScanRoots">;
+  activePack: BridgeConfig["activePack"];
   preferBridgeCommandButtons: boolean;
   getStore: () => BridgeStateStore | null;
   getSnapshot: () => ReadinessSnapshot | null;
+  getUiLanguage: () => UiLanguage;
   ensureAppServerAvailable: () => Promise<SessionProjectArchiveAppServer>;
   registerPendingThreadArchiveOp: (
     threadId: string,
@@ -454,12 +458,29 @@ export class SessionProjectCoordinator {
 
     const snapshot = store.getReadinessSnapshot() ?? this.deps.getSnapshot() ?? fallbackSnapshot;
     const activeSession = store.getActiveSession(chatId);
-    const modelState = activeSession ? await this.deps.resolveSessionModelState(activeSession) : null;
     if (!snapshot) {
       await this.deps.safeSendMessage(chatId, "桥接状态未知，请在本机运行 ctb doctor。");
       return;
     }
 
+    if (this.deps.activePack === "feishu") {
+      await this.deps.safeSendHtmlMessage(
+        chatId,
+        buildFeishuStatusText({
+          language: this.deps.getUiLanguage(),
+          snapshot,
+          activeSession,
+          runtimeStatusText: this.deps.getActiveRuntimeStatusText(chatId)
+        }),
+        buildFeishuStatusReplyMarkup({
+          language: this.deps.getUiLanguage(),
+          activeSession
+        })
+      );
+      return;
+    }
+
+    const modelState = activeSession ? await this.deps.resolveSessionModelState(activeSession) : null;
     await this.deps.safeSendHtmlMessage(
       chatId,
       buildStatusText(snapshot, activeSession, this.deps.getActiveRuntimeStatusText(chatId), modelState)

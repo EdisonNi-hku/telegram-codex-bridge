@@ -6,6 +6,7 @@ import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type { FeishuPackConfig } from "../packs/feishu/config.js";
 import { FeishuCompatRefs } from "../packs/feishu/compat-refs.js";
+import { buildFeishuInteractiveCard } from "./card-renderer.js";
 import type {
   TelegramBotCommand,
   TelegramBotCommandScope,
@@ -25,73 +26,6 @@ function buildFeishuClient(config: FeishuPackConfig) {
     appId: config.appId,
     appSecret: config.appSecret,
     domain: resolveFeishuSdkDomain(config.apiBaseUrl)
-  });
-}
-
-function decodeHtmlEntities(text: string): string {
-  return text
-    .replace(/&nbsp;/gu, " ")
-    .replace(/&lt;/gu, "<")
-    .replace(/&gt;/gu, ">")
-    .replace(/&quot;/gu, "\"")
-    .replace(/&#39;/gu, "'")
-    .replace(/&amp;/gu, "&");
-}
-
-function htmlToLarkMarkdown(html: string): string {
-  return decodeHtmlEntities(
-    html
-      .replace(/<br\s*\/?>/giu, "\n")
-      .replace(/<\/p>/giu, "\n\n")
-      .replace(/<p[^>]*>/giu, "")
-      .replace(/<(strong|b)>/giu, "**")
-      .replace(/<\/(strong|b)>/giu, "**")
-      .replace(/<(em|i)>/giu, "*")
-      .replace(/<\/(em|i)>/giu, "*")
-      .replace(/<code>/giu, "`")
-      .replace(/<\/code>/giu, "`")
-      .replace(/<pre[^>]*>/giu, "```\n")
-      .replace(/<\/pre>/giu, "\n```")
-      .replace(/<a[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/giu, "[$2]($1)")
-      .replace(/<[^>]+>/gu, "")
-  ).trim();
-}
-
-function buildInteractiveCard(
-  html: string,
-  replyMarkup?: TelegramInlineKeyboardMarkup
-): string {
-  const content = htmlToLarkMarkdown(html) || "-";
-  const elements: Array<Record<string, unknown>> = [{
-    tag: "markdown",
-    content
-  }];
-
-  for (const row of replyMarkup?.inline_keyboard ?? []) {
-    elements.push({
-      tag: "action",
-      layout: row.length >= 3 ? "trisection" : row.length === 2 ? "bisected" : "flow",
-      actions: row.map((button) => ({
-        tag: "button",
-        type: button.style ?? "default",
-        text: {
-          tag: "plain_text",
-          content: button.text
-        },
-        value: {
-          callback_data: button.callback_data
-        }
-      }))
-    });
-  }
-
-  return JSON.stringify({
-    config: {
-      wide_screen_mode: true,
-      update_multi: true,
-      enable_forward: true
-    },
-    elements
   });
 }
 
@@ -290,7 +224,7 @@ export class FeishuTelegramApiCompat {
         data: {
           receive_id: remoteChatId,
           msg_type: "interactive",
-          content: buildInteractiveCard(text, options?.replyMarkup)
+          content: buildFeishuInteractiveCard(text, options?.replyMarkup)
         }
       });
       const remoteMessageId = response.data?.message_id;
@@ -459,8 +393,8 @@ export class FeishuTelegramApiCompat {
     const remoteRef = this.refs.resolveRemoteMessage(messageId);
     const remoteChatId = this.requireRemoteChatId(chatId);
     const content = options?.replyMarkup || options?.parseMode === "HTML"
-      ? buildInteractiveCard(text, options?.replyMarkup)
-      : buildInteractiveCard(text);
+      ? buildFeishuInteractiveCard(text, options?.replyMarkup)
+      : buildFeishuInteractiveCard(text);
     const previousRemoteMessageId = remoteRef?.remoteMessageId ?? null;
 
     if (remoteRef) {

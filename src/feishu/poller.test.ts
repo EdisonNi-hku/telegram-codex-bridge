@@ -9,6 +9,7 @@ import { buildFeishuWsClientOptions, FeishuTelegramPollerCompat } from "./poller
 import type { BridgeConfig } from "../config.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
+import { encodeCommandPanelRunCallback, encodeStatusInterruptCallback } from "../telegram/ui-callbacks.js";
 
 const testLogger: Logger = {
   info: async () => {},
@@ -248,6 +249,229 @@ test("FeishuTelegramPollerCompat accepts modern nested card callback payloads", 
     assert.equal(update?.callback_query?.id, "callback-token");
     assert.equal(update?.callback_query?.data, "runtime:refresh");
     assert.equal(update?.callback_query?.message?.message_id, localMessageId);
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("FeishuTelegramPollerCompat translates p2p chat-entered events into platform events", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-feishu-poller-test-"));
+  const paths = createPaths(root);
+
+  try {
+    const api = new FeishuTelegramApiCompat({
+      appId: "cli_test",
+      appSecret: "secret",
+      apiBaseUrl: "https://open.feishu.cn"
+    }, paths);
+    const poller = new FeishuTelegramPollerCompat(
+      api,
+      createConfig(),
+      paths,
+      testLogger,
+      async () => {},
+      {
+        createWsClient: () => ({
+          start: async () => {},
+          close: () => {}
+        }),
+        createEventDispatcher: () => ({
+          register: () => {}
+        })
+      }
+    );
+
+    const update = await (poller as any).translateChatEnteredEvent({
+      chat_id: "oc_chat_entered_1",
+      operator_id: {
+        open_id: "ou_user_entered_1"
+      }
+    });
+
+    assert.equal(update?.platform_event?.kind, "chat_entered");
+    assert.equal(update?.platform_event?.source, "feishu");
+    assert.equal(update?.platform_event?.user.username, "ou_user_entered_1");
+    assert.equal(
+      api.refsStore.resolveLocalChatIdForRemoteUser("ou_user_entered_1"),
+      update?.platform_event?.chat.id
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("FeishuTelegramPollerCompat resolves bot-menu events through the remembered user chat", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-feishu-poller-test-"));
+  const paths = createPaths(root);
+
+  try {
+    const api = new FeishuTelegramApiCompat({
+      appId: "cli_test",
+      appSecret: "secret",
+      apiBaseUrl: "https://open.feishu.cn"
+    }, paths);
+    const poller = new FeishuTelegramPollerCompat(
+      api,
+      createConfig(),
+      paths,
+      testLogger,
+      async () => {},
+      {
+        createWsClient: () => ({
+          start: async () => {},
+          close: () => {}
+        }),
+        createEventDispatcher: () => ({
+          register: () => {}
+        })
+      }
+    );
+
+    const messageUpdate = await (poller as any).translateMessageEvent({
+      sender: {
+        sender_id: {
+          open_id: "ou_user_menu_1"
+        }
+      },
+      message: {
+        message_id: "om_message_menu_1",
+        chat_id: "oc_chat_menu_1",
+        create_time: "1710000000000",
+        message_type: "text",
+        content: JSON.stringify({
+          text: "hello"
+        })
+      }
+    });
+    const menuUpdate = await (poller as any).translateBotMenuEvent({
+      event_key: "bridge_status",
+      operator: {
+        operator_id: {
+          open_id: "ou_user_menu_1"
+        }
+      }
+    });
+
+    assert.equal(messageUpdate?.message?.chat.id, menuUpdate?.platform_event?.chat.id);
+    assert.equal(menuUpdate?.platform_event?.kind, "bot_menu");
+    assert.equal(menuUpdate?.platform_event?.eventKey, "bridge_status");
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("FeishuTelegramPollerCompat accepts overflow option values as callback payloads", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-feishu-poller-test-"));
+  const paths = createPaths(root);
+
+  try {
+    const api = new FeishuTelegramApiCompat({
+      appId: "cli_test",
+      appSecret: "secret",
+      apiBaseUrl: "https://open.feishu.cn"
+    }, paths);
+    await api.ready();
+    const refs = api.refsStore;
+    refs.getOrCreateLocalUserId("ou_user_overflow_1");
+    refs.getOrCreateLocalChatId("oc_chat_overflow_1");
+    refs.rememberUserChat("ou_user_overflow_1", "oc_chat_overflow_1");
+    const localMessageId = refs.recordRemoteMessage("om_message_overflow_1", "oc_chat_overflow_1");
+    const poller = new FeishuTelegramPollerCompat(
+      api,
+      createConfig(),
+      paths,
+      testLogger,
+      async () => {},
+      {
+        createWsClient: () => ({
+          start: async () => {},
+          close: () => {}
+        }),
+        createEventDispatcher: () => ({
+          register: () => {}
+        })
+      }
+    );
+
+    const callbackData = encodeCommandPanelRunCallback("status");
+    const update = await (poller as any).translateCardCallbackEvent({
+      token: "callback-token-overflow",
+      operator: {
+        open_id: "ou_user_overflow_1"
+      },
+      context: {
+        open_message_id: "om_message_overflow_1",
+        open_chat_id: "oc_chat_overflow_1"
+      },
+      action: {
+        tag: "overflow",
+        option: callbackData
+      }
+    });
+
+    assert.equal(update?.callback_query?.data, callbackData);
+    assert.equal(update?.callback_query?.message?.message_id, localMessageId);
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("FeishuTelegramPollerCompat returns immediate toast feedback for accepted card callbacks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-feishu-poller-test-"));
+  const paths = createPaths(root);
+  let registeredHandlers: Record<string, (event: any) => Promise<unknown> | unknown> = {};
+
+  try {
+    const api = new FeishuTelegramApiCompat({
+      appId: "cli_test",
+      appSecret: "secret",
+      apiBaseUrl: "https://open.feishu.cn"
+    }, paths);
+    await api.ready();
+    const refs = api.refsStore;
+    refs.getOrCreateLocalUserId("ou_user_callback_1");
+    refs.getOrCreateLocalChatId("oc_chat_callback_1");
+    refs.recordRemoteMessage("om_message_callback_1", "oc_chat_callback_1");
+    const poller = new FeishuTelegramPollerCompat(
+      api,
+      createConfig(),
+      paths,
+      testLogger,
+      async () => {},
+      {
+        createWsClient: () => ({
+          start: async () => {},
+          close: () => {}
+        }),
+        createEventDispatcher: () => ({
+          register: (handlers) => {
+            registeredHandlers = handlers;
+          }
+        })
+      }
+    );
+
+    (poller as any).ensureTransport();
+    const callbackData = encodeStatusInterruptCallback("session-1");
+    const response = await registeredHandlers["card.action.trigger"]?.({
+      token: "callback-trigger-token",
+      operator: {
+        open_id: "ou_user_callback_1"
+      },
+      context: {
+        open_message_id: "om_message_callback_1",
+        open_chat_id: "oc_chat_callback_1"
+      },
+      action: {
+        value: {
+          callback_data: callbackData
+        }
+      }
+    }) as Record<string, any>;
+
+    assert.equal(response.toast?.type, "warning");
+    assert.equal(response.toast?.content, "正在请求中断…");
+    assert.equal((poller as any).queue[0]?.callback_query?.data, callbackData);
   } finally {
     await rm(root, { recursive: true, force: true }).catch(() => {});
   }

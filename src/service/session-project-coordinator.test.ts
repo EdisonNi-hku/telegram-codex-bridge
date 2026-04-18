@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { BridgePaths } from "../paths.js";
 import { BridgeStateStore } from "../state/store.js";
 import { SessionProjectCoordinator } from "./session-project-coordinator.js";
+import type { BridgeConfig } from "../config.js";
 
 function createTestPaths(root: string): BridgePaths {
   const logsDir = join(root, "logs");
@@ -40,7 +41,9 @@ function createTestPaths(root: string): BridgePaths {
   };
 }
 
-async function createCoordinatorContext() {
+async function createCoordinatorContext(options?: {
+  activePack?: BridgeConfig["activePack"];
+}) {
   const root = await mkdtemp(join(tmpdir(), "ctb-session-project-coordinator-test-"));
   const paths = createTestPaths(root);
   await Promise.all([
@@ -59,43 +62,50 @@ async function createCoordinatorContext() {
   const archiveHookCalls: Array<{ chatId: string; sessionId: string; reason: string }> = [];
   const unarchiveHookCalls: Array<{ chatId: string; sessionId: string; reason: string }> = [];
   const currentSessionCardCalls: Array<{ chatId: string; reason: string }> = [];
-  const sentMessages: Array<{ messageId: number; text: string; html: boolean }> = [];
+  const sentMessages: Array<{
+    messageId: number;
+    text: string;
+    html: boolean;
+    replyMarkup?: unknown;
+  }> = [];
   const deletedMessages: number[] = [];
   const editedMessages: Array<{ messageId: number; text: string; html: boolean }> = [];
   let nextMessageId = 100;
 
   const coordinator = new SessionProjectCoordinator({
-    logger: { warn: async () => {} },
-    paths: { homeDir: root },
-    config: { projectScanRoots: [] },
-    preferBridgeCommandButtons: false,
-    getStore: () => store,
-    getSnapshot: () => null,
-    ensureAppServerAvailable: async () => {
-      throw new Error("not used");
-    },
+      logger: { warn: async () => {} },
+      paths: { homeDir: root },
+      config: { projectScanRoots: [] },
+      activePack: options?.activePack ?? "telegram",
+      preferBridgeCommandButtons: false,
+      getStore: () => store,
+      getSnapshot: () => null,
+      getUiLanguage: () => "zh",
+      ensureAppServerAvailable: async () => {
+        throw new Error("not used");
+      },
     registerPendingThreadArchiveOp: () => 0,
     markPendingThreadArchiveCommit: async () => {},
     dropPendingThreadArchiveOp: () => {},
-    safeSendMessage: async (_chatId, text) => {
-      sentMessages.push({ messageId: nextMessageId, text, html: false });
+    safeSendMessage: async (_chatId, text, replyMarkup) => {
+      sentMessages.push({ messageId: nextMessageId, text, html: false, replyMarkup });
       nextMessageId += 1;
       return true;
     },
-    safeSendMessageResult: async (_chatId, text) => {
+    safeSendMessageResult: async (_chatId, text, replyMarkup) => {
       const messageId = nextMessageId;
-      sentMessages.push({ messageId, text, html: false });
+      sentMessages.push({ messageId, text, html: false, replyMarkup });
       nextMessageId += 1;
       return { message_id: messageId };
     },
-    safeSendHtmlMessage: async (_chatId, text) => {
-      sentMessages.push({ messageId: nextMessageId, text, html: true });
+    safeSendHtmlMessage: async (_chatId, text, replyMarkup) => {
+      sentMessages.push({ messageId: nextMessageId, text, html: true, replyMarkup });
       nextMessageId += 1;
       return true;
     },
-    safeSendHtmlMessageResult: async (_chatId, text) => {
+    safeSendHtmlMessageResult: async (_chatId, text, replyMarkup) => {
       const messageId = nextMessageId;
-      sentMessages.push({ messageId, text, html: true });
+      sentMessages.push({ messageId, text, html: true, replyMarkup });
       nextMessageId += 1;
       return { message_id: messageId };
     },
@@ -160,6 +170,20 @@ function authorizeChat(store: BridgeStateStore, chatId: string): void {
   });
 
   const candidate = store.listPendingAuthorizations()[0];
+  assert.ok(candidate);
+  store.confirmPendingAuthorization(candidate);
+}
+
+function authorizeFeishuChat(store: BridgeStateStore, chatId: string, userId = "user-1"): void {
+  store.upsertPendingAuthorization({
+    platform: "feishu",
+    userId,
+    chatId,
+    username: "tester",
+    displayName: "Tester"
+  });
+
+  const candidate = store.listPendingAuthorizations({ platform: "feishu" })[0];
   assert.ok(candidate);
   store.confirmPendingAuthorization(candidate);
 }
@@ -402,12 +426,14 @@ test("handleArchive keeps using the original store after remote archive mirrorin
       logger: { warn: async () => {} },
       paths: { homeDir: "/tmp" },
       config: { projectScanRoots: [] },
+      activePack: "telegram",
       preferBridgeCommandButtons: false,
       getStore: () => {
         getStoreCalls += 1;
         return getStoreCalls === 1 ? store : null;
       },
       getSnapshot: () => null,
+      getUiLanguage: () => "zh",
       ensureAppServerAvailable: async () => ({
         archiveThread: async (threadId: string) => {
           archivedThreadIds.push(threadId);
@@ -718,6 +744,56 @@ test("handleRenameInput refreshes the current session card after renaming the ac
       chatId: "chat-1",
       reason: "session_renamed"
     }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("sendStatus uses the Feishu status surface when the Feishu pack is active", async () => {
+  const { coordinator, store, sentMessages, cleanup } = await createCoordinatorContext({
+    activePack: "feishu"
+  });
+
+  try {
+    authorizeFeishuChat(store, "chat-1");
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Session One"
+    });
+    store.setActiveSession("chat-1", session.sessionId);
+    store.writeReadinessSnapshot({
+      state: "ready",
+      checkedAt: "2026-04-18T10:00:00.000Z",
+      details: {
+        activePack: "feishu",
+        codexInstalled: true,
+        codexAuthenticated: true,
+        appServerAvailable: true,
+        packState: "ready",
+        setupState: "complete",
+        authorizedUserBound: true,
+        issues: [],
+        packChecks: [{
+          id: "feishu_authorization_binding",
+          ok: true,
+          summary: "feishu authorization is bound"
+        }]
+      }
+    });
+
+    await coordinator.sendStatus("chat-1", null);
+
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0]?.html, true);
+    assert.match(sentMessages[0]?.text ?? "", /飞书状态/u);
+    assert.match(sentMessages[0]?.text ?? "", /当前会话：/u);
+    assert.deepEqual((sentMessages[0]?.replyMarkup as any)?.inline_keyboard?.[0]?.map((button: any) => button.text), [
+      "新建会话",
+      "最近会话",
+      "当前状态"
+    ]);
   } finally {
     await cleanup();
   }

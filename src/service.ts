@@ -70,6 +70,12 @@ import { applyFeishuSetupObservation } from "./packs/feishu/setup.js";
 import { getTelegramPackConfig } from "./packs/telegram/config.js";
 import { ActivityTracker } from "./activity/tracker.js";
 import type { ActivityStatus, DebugJournalRecord, InspectSnapshot } from "./activity/types.js";
+import {
+  buildFeishuStatusReplyMarkup,
+  buildFeishuStatusText,
+  buildFeishuWelcomeMessage,
+  resolveFeishuBotMenuCommand
+} from "./feishu/ui.js";
 import { classifyNotification } from "./codex/notification-classifier.js";
 import type { BridgeDynamicToolDeclaration, ServerRequestSupport } from "./codex/server-request-policy.js";
 import type { JsonRpcServerRequest, UserInput } from "./codex/app-server.js";
@@ -151,6 +157,7 @@ const VOICE_REALTIME_WAIT_TIMEOUT_MS = 30_000;
 const VOICE_REALTIME_POLL_INTERVAL_MS = 1_000;
 const VOICE_REALTIME_TRANSCRIPTION_PROMPT = "请逐字转写收到的语音，只返回转写文本，不要解释。";
 const CODEX_CLI_STATUS_LINE_BASELINE_TOKENS = 12_000;
+const FEISHU_ENTRY_SURFACE_COOLDOWN_MS = 60_000;
 
 interface BridgeServiceDependencies {
   probeReadiness?: typeof probeReadiness;
@@ -239,6 +246,7 @@ export class BridgeService {
   private performanceSampler: PerformanceSamplerLike | null = null;
   private appServerHealthGuard: AppServerHealthGuardLike | null = null;
   private readonly unauthorizedReplyAt = new Map<string, number>();
+  private readonly feishuEntrySurfaceAt = new Map<string, number>();
   private readonly commandPanelDrafts = new Map<string, CommandPanelDraftState>();
   private readonly preferBridgeCommandButtons: boolean;
   private stopping = false;
@@ -312,9 +320,11 @@ export class BridgeService {
       },
       paths: { homeDir: this.paths.homeDir },
       config: { projectScanRoots: this.config.projectScanRoots },
+      activePack: this.config.activePack,
       preferBridgeCommandButtons: this.preferBridgeCommandButtons,
       getStore: () => this.store,
       getSnapshot: () => this.snapshot,
+      getUiLanguage: () => this.getUiLanguage(),
       ensureAppServerAvailable: async () => this.requireAppServer(),
       registerPendingThreadArchiveOp: (threadId, sessionId, expectedRemoteState, origin) =>
         this.threadArchiveReconciler.registerPendingOp(threadId, sessionId, expectedRemoteState, origin),
@@ -783,6 +793,11 @@ export class BridgeService {
   }
 
   private async handleUpdate(update: TelegramUpdate): Promise<void> {
+    if (update.platform_event) {
+      await this.handlePlatformEvent(update.platform_event);
+      return;
+    }
+
     if (update.message) {
       await this.handleMessage(update.message);
       return;
@@ -791,6 +806,195 @@ export class BridgeService {
     if (update.callback_query) {
       await this.handleCallback(update.callback_query);
     }
+  }
+
+  private async handlePlatformEvent(event: NonNullable<TelegramUpdate["platform_event"]>): Promise<void> {
+    if (!this.api || !this.store || this.config.activePack !== "feishu" || event.source !== "feishu") {
+      return;
+    }
+
+    if (event.chat.type !== "private") {
+      return;
+    }
+
+    switch (event.kind) {
+      case "chat_entered":
+        await this.handleFeishuChatEntered(event);
+        return;
+      case "bot_menu":
+        await this.handleFeishuBotMenu(event);
+        return;
+      default:
+        return;
+    }
+  }
+
+  private async handleFeishuChatEntered(event: NonNullable<TelegramUpdate["platform_event"]>): Promise<void> {
+    if (!this.store || event.kind !== "chat_entered") {
+      return;
+    }
+
+    const authorized = this.store.getAuthorizedUser(this.config.activePack);
+    const chatId = `${event.chat.id}`;
+    const userId = `${event.user.id}`;
+    if (!authorized) {
+      await this.sendFeishuSetupOrStatusSurface(chatId, {
+        interactive: false,
+        respectCooldown: true
+      });
+      return;
+    }
+
+    if (authorized.userId !== userId) {
+      await this.logger.info("ignored feishu p2p chat-entered event for unauthorized user", {
+        chatId,
+        userId,
+        authorizedUserId: authorized.userId
+      });
+      return;
+    }
+
+    const snapshot = this.store.getReadinessSnapshot() ?? this.snapshot;
+    if (!snapshot || snapshot.details.setupState !== "complete") {
+      await this.sendFeishuSetupOrStatusSurface(chatId, {
+        interactive: true,
+        respectCooldown: true
+      });
+      return;
+    }
+
+    await this.sendFeishuWelcomeSurface(chatId, {
+      respectCooldown: true
+    });
+  }
+
+  private async handleFeishuBotMenu(event: NonNullable<TelegramUpdate["platform_event"]>): Promise<void> {
+    if (!this.store || event.kind !== "bot_menu") {
+      return;
+    }
+
+    const chatId = `${event.chat.id}`;
+    const userId = `${event.user.id}`;
+    const authorized = this.store.getAuthorizedUser(this.config.activePack);
+    if (!authorized) {
+      await this.sendFeishuSetupOrStatusSurface(chatId, {
+        interactive: false,
+        respectCooldown: false
+      });
+      return;
+    }
+
+    if (authorized.userId !== userId) {
+      await this.logger.info("ignored feishu bot-menu event for unauthorized user", {
+        chatId,
+        userId,
+        authorizedUserId: authorized.userId,
+        eventKey: event.eventKey ?? null
+      });
+      return;
+    }
+
+    const snapshot = this.store.getReadinessSnapshot() ?? this.snapshot;
+    if (!snapshot || snapshot.details.setupState !== "complete") {
+      await this.sendFeishuSetupOrStatusSurface(chatId, {
+        interactive: true,
+        respectCooldown: false
+      });
+      return;
+    }
+
+    const command = event.eventKey ? resolveFeishuBotMenuCommand(event.eventKey) : null;
+    if (!command) {
+      await this.logger.warn("ignored unknown feishu bot menu event", {
+        chatId,
+        eventKey: event.eventKey ?? null
+      });
+      return;
+    }
+
+    switch (command) {
+      case "new":
+      case "status":
+      case "sessions":
+      case "help":
+        await this.routeCommand(chatId, command, "");
+        return;
+      default:
+        return;
+    }
+  }
+
+  private shouldSkipFeishuEntrySurface(chatId: string, surface: "welcome" | "setup"): boolean {
+    const key = `${chatId}:${surface}`;
+    const lastDeliveredAt = this.feishuEntrySurfaceAt.get(key) ?? 0;
+    if (Date.now() - lastDeliveredAt < FEISHU_ENTRY_SURFACE_COOLDOWN_MS) {
+      return true;
+    }
+
+    this.feishuEntrySurfaceAt.set(key, Date.now());
+    return false;
+  }
+
+  private async sendFeishuWelcomeSurface(
+    chatId: string,
+    options: {
+      respectCooldown: boolean;
+    }
+  ): Promise<void> {
+    if (!this.store || this.config.activePack !== "feishu") {
+      return;
+    }
+
+    if (options.respectCooldown && this.shouldSkipFeishuEntrySurface(chatId, "welcome")) {
+      return;
+    }
+
+    const rendered = buildFeishuWelcomeMessage({
+      language: this.getUiLanguage(),
+      activePackLabel: this.activePackLabel,
+      activeSession: this.store.getActiveSession(chatId)
+    });
+    await this.safeSendHtmlMessage(chatId, rendered.text, rendered.replyMarkup);
+  }
+
+  private async sendFeishuSetupOrStatusSurface(
+    chatId: string,
+    options: {
+      interactive: boolean;
+      respectCooldown: boolean;
+    }
+  ): Promise<void> {
+    if (!this.store || this.config.activePack !== "feishu") {
+      return;
+    }
+
+    if (options.respectCooldown && this.shouldSkipFeishuEntrySurface(chatId, "setup")) {
+      return;
+    }
+
+    const snapshot = this.store.getReadinessSnapshot() ?? this.snapshot;
+    if (!snapshot) {
+      await this.safeSendMessage(chatId, "桥接状态未知，请在本机运行 ctb doctor。");
+      return;
+    }
+
+    const activeSession = this.store.getActiveSession(chatId);
+    const language = this.getUiLanguage();
+    await this.safeSendHtmlMessage(
+      chatId,
+      buildFeishuStatusText({
+        language,
+        snapshot,
+        activeSession,
+        runtimeStatusText: this.buildActiveRuntimeStatusText(chatId)
+      }),
+      options.interactive
+        ? buildFeishuStatusReplyMarkup({
+            language,
+            activeSession
+          })
+        : undefined
+    );
   }
 
   private async handleMessage(message: TelegramMessage): Promise<void> {

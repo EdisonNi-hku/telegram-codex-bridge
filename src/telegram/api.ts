@@ -66,6 +66,14 @@ export interface TelegramCallbackQuery {
   data?: string;
 }
 
+export interface TelegramPlatformEvent {
+  source: "feishu";
+  kind: "chat_entered" | "bot_menu";
+  user: TelegramUser;
+  chat: TelegramChat;
+  eventKey?: string;
+}
+
 export interface TelegramInlineKeyboardButton {
   text: string;
   callback_data: string;
@@ -89,6 +97,7 @@ export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
   callback_query?: TelegramCallbackQuery;
+  platform_event?: TelegramPlatformEvent;
 }
 
 interface TelegramResponse<T> {

@@ -6,6 +6,30 @@ import { join } from "node:path";
 
 import { FeishuTelegramApiCompat } from "../../feishu/api.js";
 
+function collectButtons(node: unknown, results: Array<{ type?: string }> = []): Array<{ type?: string }> {
+  if (Array.isArray(node)) {
+    for (const entry of node) {
+      collectButtons(entry, results);
+    }
+    return results;
+  }
+
+  if (!node || typeof node !== "object") {
+    return results;
+  }
+
+  const record = node as Record<string, unknown>;
+  if (record.tag === "button") {
+    results.push(record as { type?: string });
+  }
+
+  for (const value of Object.values(record)) {
+    collectButtons(value, results);
+  }
+
+  return results;
+}
+
 async function createCompat() {
   const root = await mkdtemp(join(tmpdir(), "ctb-feishu-compat-"));
   const api = new FeishuTelegramApiCompat({
@@ -285,17 +309,10 @@ test("feishu compat maps button style to card button type", async () => {
       }
     });
 
-    const card = JSON.parse(interactiveContent) as {
-      elements: Array<{
-        tag: string;
-        actions?: Array<{
-          type?: string;
-        }>;
-      }>;
-    };
-    const actions = card.elements.find((element) => element.tag === "action")?.actions ?? [];
-    assert.equal(actions[0]?.type, "default");
-    assert.equal(actions[1]?.type, "primary");
+    const card = JSON.parse(interactiveContent) as Record<string, unknown>;
+    const buttons = collectButtons(card);
+    assert.equal(buttons[0]?.type, "default");
+    assert.equal(buttons[1]?.type, "primary");
   } finally {
     await cleanup();
   }
@@ -341,17 +358,10 @@ test("feishu compat does not force the first button to primary when style is omi
       }
     });
 
-    const card = JSON.parse(interactiveContent) as {
-      elements: Array<{
-        tag: string;
-        actions?: Array<{
-          type?: string;
-        }>;
-      }>;
-    };
-    const actions = card.elements.find((element) => element.tag === "action")?.actions ?? [];
-    assert.equal(actions[0]?.type, "default");
-    assert.equal(actions[1]?.type, "default");
+    const card = JSON.parse(interactiveContent) as Record<string, unknown>;
+    const buttons = collectButtons(card);
+    assert.equal(buttons[0]?.type, "default");
+    assert.equal(buttons[1]?.type, "default");
   } finally {
     await cleanup();
   }

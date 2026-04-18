@@ -376,7 +376,8 @@ test("installCodexSkill copies the bundled skill into CODEX_HOME", async () => {
 
     await withEnvironment(
       {
-        CODEX_HOME: join(root, "codex-home")
+        CODEX_HOME: join(root, "codex-home"),
+        BRIDGE_PACK: "telegram"
       },
       async () => {
         const result = await installCodexSkill(paths);
@@ -418,7 +419,8 @@ test("installCodexSkill prefers the current checkout bundle over an older instal
 
     await withEnvironment(
       {
-        CODEX_HOME: join(root, "codex-home")
+        CODEX_HOME: join(root, "codex-home"),
+        BRIDGE_PACK: "telegram"
       },
       async () => {
         await installCodexSkill(paths);
@@ -1087,7 +1089,7 @@ test("getStatus includes the latest systemd service audit snapshot when present"
     await writeFile(join(paths.installRoot, "dist", "cli.js"), "console.log('ok');\n", "utf8");
     await mkdir(join(paths.binPath, ".."), { recursive: true });
     await writeFile(paths.binPath, process.platform === "win32" ? "@echo off\r\n" : "#!/usr/bin/env bash\n", "utf8");
-    await writeFile(paths.envPath, "TELEGRAM_BOT_TOKEN=test-token\n", "utf8");
+    await writeFile(paths.envPath, "BRIDGE_PACK=telegram\nTELEGRAM_BOT_TOKEN=test-token\n", "utf8");
     await writeServiceAuditSnapshot(paths);
 
     const output = await getStatus(paths, {
@@ -1338,7 +1340,7 @@ test("getStatus renders the expanded readiness summary fields", async () => {
     });
     await mkdir(join(paths.binPath, ".."), { recursive: true });
     await writeFile(paths.binPath, process.platform === "win32" ? "@echo off\r\n" : "#!/usr/bin/env bash\n", "utf8");
-    await writeFile(paths.envPath, "TELEGRAM_BOT_TOKEN=test-token\n", "utf8");
+    await writeFile(paths.envPath, "BRIDGE_PACK=telegram\nTELEGRAM_BOT_TOKEN=test-token\n", "utf8");
 
     const store = await BridgeStateStore.open(paths, testLogger);
     try {
@@ -1406,7 +1408,7 @@ test("runDoctor prints the expanded readiness matrix without syncing Telegram wh
       mkdir(paths.configRoot, { recursive: true }),
       mkdir(paths.cacheDir, { recursive: true })
     ]);
-    await writeFile(paths.envPath, "TELEGRAM_BOT_TOKEN=test-token\n", "utf8");
+    await writeFile(paths.envPath, "BRIDGE_PACK=telegram\nTELEGRAM_BOT_TOKEN=test-token\n", "utf8");
 
     const output = await runDoctor(paths, testLogger, {
       probeReadiness: async () => ({
@@ -1443,11 +1445,12 @@ test("authorization flows surface the active pack in operator output", async () 
       mkdir(paths.logsDir, { recursive: true }),
       mkdir(paths.configRoot, { recursive: true })
     ]);
-    await writeFile(paths.envPath, "TELEGRAM_BOT_TOKEN=test-token\n", "utf8");
+    await writeFile(paths.envPath, "BRIDGE_PACK=telegram\nTELEGRAM_BOT_TOKEN=test-token\n", "utf8");
 
     const store = await BridgeStateStore.open(paths, testLogger);
     try {
       store.upsertPendingAuthorization({
+        platform: "telegram",
         userId: "user-1",
         chatId: "chat-1",
         username: "tester",
