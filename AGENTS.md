@@ -113,6 +113,20 @@ Only go beyond that when:
 - intended behavior and implementation conflict
 - the task explicitly asks for architecture, history, or roadmap synthesis
 
+## Local MCP Helper
+
+This repo's runtime environment includes a local helper command for the Feishu developer-docs MCP:
+
+- `feishu-docs-mcp status` - report whether the `feishuDeveloperDocs` MCP block is present in `~/.codex/config.toml`
+- `feishu-docs-mcp on` - add the managed `feishuDeveloperDocs` MCP config block to `~/.codex/config.toml`
+- `feishu-docs-mcp off` - remove the managed `feishuDeveloperDocs` MCP config block from `~/.codex/config.toml`
+
+Operational notes:
+
+- after `on` or `off`, re-run `codex mcp list` locally if you need immediate CLI confirmation
+- after `on` or `off`, send `/mcp reload` in the Telegram or Feishu bridge chat so the running bridge refreshes MCP status
+- the helper manages only the Feishu developer-docs MCP, not `feishuOpenAPI`
+
 ## Conflict Rules
 
 - If the active user instruction is explicit, follow it for the active task.
