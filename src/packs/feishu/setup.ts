@@ -15,6 +15,7 @@ const FEISHU_TEXT_INGRESS_CHECK_ID = "feishu_text_ingress_observed";
 const FEISHU_INTERACTIVE_SEND_CHECK_ID = "feishu_interactive_card_delivery_observed";
 const FEISHU_CALLBACK_CHECK_ID = "feishu_card_callback_observed";
 const FEISHU_CONTENTION_CHECK_ID = "feishu_shared_app_contention_suspected";
+const FEISHU_APP_ID_METADATA_KEY = "feishuAppId";
 
 const FEISHU_OBSERVED_CHECK_IDS = new Set([
   FEISHU_TEXT_INGRESS_CHECK_ID,
@@ -114,6 +115,47 @@ export function mergeFeishuSetupMetadata(
   }
   if (patch.lastInteractiveError !== undefined) {
     next[FEISHU_SETUP_METADATA_KEYS.interactiveError] = patch.lastInteractiveError;
+  }
+
+  return next;
+}
+
+export function mergeStoredFeishuSetupMetadata(
+  metadata: PackMetadata | undefined,
+  storedMetadata: PackMetadata | undefined
+): PackMetadata {
+  const next = {
+    ...(metadata ?? {})
+  };
+  const currentAppId = readStringMetadata(next, FEISHU_APP_ID_METADATA_KEY);
+  const storedAppId = readStringMetadata(storedMetadata, FEISHU_APP_ID_METADATA_KEY);
+
+  if (!currentAppId || !storedAppId || currentAppId !== storedAppId) {
+    return next;
+  }
+
+  const current = readFeishuSetupObservations(next);
+  const stored = readFeishuSetupObservations(storedMetadata);
+  const storedEpoch = readStringMetadata(storedMetadata, FEISHU_SETUP_METADATA_KEYS.epoch);
+
+  if (!readStringMetadata(next, FEISHU_SETUP_METADATA_KEYS.epoch) && storedEpoch) {
+    next[FEISHU_SETUP_METADATA_KEYS.epoch] = storedEpoch;
+  }
+
+  if (current.lastTextIngressAt === null && stored.lastTextIngressAt !== null) {
+    next[FEISHU_SETUP_METADATA_KEYS.textIngressAt] = stored.lastTextIngressAt;
+  }
+  if (current.lastInteractiveCardSentAt === null && stored.lastInteractiveCardSentAt !== null) {
+    next[FEISHU_SETUP_METADATA_KEYS.interactiveCardSentAt] = stored.lastInteractiveCardSentAt;
+  }
+  if (current.lastCardCallbackAt === null && stored.lastCardCallbackAt !== null) {
+    next[FEISHU_SETUP_METADATA_KEYS.cardCallbackAt] = stored.lastCardCallbackAt;
+  }
+  if (current.lastInteractiveErrorCode === null && stored.lastInteractiveErrorCode !== null) {
+    next[FEISHU_SETUP_METADATA_KEYS.interactiveErrorCode] = stored.lastInteractiveErrorCode;
+  }
+  if (current.lastInteractiveError === null && stored.lastInteractiveError !== null) {
+    next[FEISHU_SETUP_METADATA_KEYS.interactiveError] = stored.lastInteractiveError;
   }
 
   return next;

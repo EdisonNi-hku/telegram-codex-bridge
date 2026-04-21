@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { CodexAppServerClient } from "./codex/app-server.js";
 import type { Logger } from "./logger.js";
 import type { BridgePaths } from "./paths.js";
+import { buildFeishuSetupHealth, mergeStoredFeishuSetupMetadata } from "./packs/feishu/setup.js";
 import { getActiveBridgePack } from "./packs/registry.js";
 import type { PackHealthReport } from "./packs/contract.js";
 import { commandExists, resolveCommand, runCommand, type CommandResult } from "./process.js";
@@ -702,7 +703,7 @@ export async function probeReadiness(options: {
     return finalizeFailure("bridge_unhealthy", details, store, persist);
   }
 
-  const packReport = await (deps.runPackHealthCheck
+  let packReport = await (deps.runPackHealthCheck
     ? deps.runPackHealthCheck({
         pack,
         config,
@@ -714,6 +715,21 @@ export async function probeReadiness(options: {
         store,
         logger
       }));
+  if (config.activePack === "feishu") {
+    const storedSnapshot = store.getReadinessSnapshot();
+    if (storedSnapshot?.details.activePack === "feishu") {
+      packReport = {
+        ...packReport,
+        ...buildFeishuSetupHealth({
+          report: {
+            ...packReport,
+            metadata: mergeStoredFeishuSetupMetadata(packReport.metadata, storedSnapshot.details.packMetadata)
+          },
+          authorized: pack.authBinding.isBound(store)
+        })
+      };
+    }
+  }
   packChecks.push(...packReport.checks);
   packIssues.push(...packReport.issues.map((issue) => normalizeIssue(issue)));
   details.issues.push(...packReport.issues.map((issue) => normalizeIssue(issue)));
