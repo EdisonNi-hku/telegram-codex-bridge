@@ -172,6 +172,15 @@ Behavior:
 - keeps the Telegram UX at the session level instead of exposing raw compact protocol detail
 - success copy names the affected session explicitly
 
+### `/clear`
+
+Behavior:
+- immediately starts a fresh replacement thread for the active bridge session
+- keeps the active session, project binding, model selection, and Plan mode
+- preserves the previous thread as an archived session snapshot so it can still be revisited later
+- clears actionable pending interactions and queued transient rich-input state for the cleared session
+- refuses while the current session is still running
+
 ### `/thread name <name>`
 
 Behavior:

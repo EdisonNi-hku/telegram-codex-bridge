@@ -32,6 +32,7 @@ export type TelegramCommandHandlerKey =
   | "handleReview"
   | "handleFork"
   | "handleRollback"
+  | "handleClear"
   | "handleCompact"
   | "handleLocalImage"
   | "handleMention"
@@ -102,6 +103,7 @@ const TELEGRAM_COMMAND_ENTRIES: LocalizedTelegramCommandEntry[] = [
   { command: "fork", handler: "handleFork", description: { zh: "分叉当前会话线程", en: "Fork the current session thread" }, helpLines: [{ zh: "/fork [名称] 分叉当前线程为新会话", en: "/fork [name] Fork the current thread into a new session" }], panel: { group: "codex", selectable: true, shortLabel: { zh: "分叉", en: "Fork" } } },
   { command: "rollback", handler: "handleRollback", description: { zh: "选择目标并回滚线程", en: "Pick a rollback target" }, helpLines: [{ zh: "/rollback 选择回滚目标；/rollback <数量> 兼容旧用法", en: "/rollback Pick a rollback target; /rollback <count> keeps the legacy form" }], panel: { group: "codex", selectable: true, shortLabel: { zh: "回滚", en: "Rollback" } } },
   { command: "compact", handler: "handleCompact", description: { zh: "压缩当前线程上下文", en: "Compact the current thread context" }, helpLines: [{ zh: "/compact 压缩当前线程上下文", en: "/compact Compact the current thread context" }], panel: { group: "codex", selectable: true, shortLabel: { zh: "压缩", en: "Compact" } } },
+  { command: "clear", handler: "handleClear", description: { zh: "清空当前会话上下文并在下次消息时重开线程", en: "Clear this session context and start a fresh thread on the next message" }, helpLines: [{ zh: "/clear 清空当前会话上下文；保留会话和项目，下次消息会新开线程", en: "/clear Clear this session context; keep the session and project, then start a fresh thread on the next message" }] },
   { command: "local_image", handler: "handleLocalImage", description: { zh: "发送服务器本地图片输入", en: "Send a local server image input" }, helpLines: [{ zh: "/local_image <路径> :: 任务说明 发送本地图片输入", en: "/local_image <path> :: <prompt> Send a local image input" }] },
   { command: "mention", handler: "handleMention", description: { zh: "发送结构化引用输入", en: "Send a structured mention input" }, helpLines: [{ zh: "/mention <path> :: 任务说明 发送结构化引用输入", en: "/mention <path> :: <prompt> Send a structured mention input" }] },
   { command: "attach", handler: "handleAttach", description: { zh: "引用最近接收的附件", en: "Reference a received attachment" }, helpLines: [{ zh: "/attach <附件ID> :: 任务说明 引用已接收附件；`::` 用来分隔附件ID和任务说明", en: "/attach <attachment-id> :: <prompt> Reference a received attachment; `::` separates the id from the prompt" }] },

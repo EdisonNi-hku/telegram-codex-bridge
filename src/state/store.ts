@@ -632,7 +632,7 @@ export class BridgeStateStore {
     this.sessions.markProjectScanCandidateMissing(projectPath);
   }
 
-  updateSessionThreadId(sessionId: string, threadId: string): void {
+  updateSessionThreadId(sessionId: string, threadId: string | null): void {
     this.sessions.updateSessionThreadId(sessionId, threadId);
   }
 

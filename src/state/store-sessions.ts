@@ -87,7 +87,7 @@ export interface StoreSessions {
     }>
   ): void;
   markProjectScanCandidateMissing(projectPath: string): void;
-  updateSessionThreadId(sessionId: string, threadId: string): void;
+  updateSessionThreadId(sessionId: string, threadId: string | null): void;
   setSessionSelectedModel(sessionId: string, selectedModel: string | null): void;
   setSessionSelectedReasoningEffort(sessionId: string, selectedReasoningEffort: ReasoningEffort | null): void;
   setSessionPlanMode(sessionId: string, planMode: boolean): void;

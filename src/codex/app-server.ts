@@ -59,6 +59,7 @@ interface ThreadStartParams {
   cwd: string;
   approvalPolicy: "never";
   sandbox: "danger-full-access";
+  sessionStartSource?: "startup" | "clear";
   model?: string;
   dynamicTools?: Array<{
     name: string;
@@ -396,6 +397,7 @@ export interface ThreadReadResult {
 export function buildThreadStartParams(options: {
   cwd: string;
   model?: string;
+  sessionStartSource?: "startup" | "clear";
   dynamicTools?: BridgeDynamicToolDeclaration[];
 }): ThreadStartParams {
   return {
@@ -403,6 +405,7 @@ export function buildThreadStartParams(options: {
     approvalPolicy: "never",
     sandbox: "danger-full-access",
     dynamicTools: options.dynamicTools ?? [],
+    ...(options.sessionStartSource ? { sessionStartSource: options.sessionStartSource } : {}),
     ...(options.model ? { model: options.model } : {})
   };
 }
@@ -539,6 +542,7 @@ export class CodexAppServerClient {
   async startThread(options: {
     cwd: string;
     model?: string;
+    sessionStartSource?: "startup" | "clear";
     dynamicTools?: BridgeDynamicToolDeclaration[];
   }): Promise<ThreadStartResult> {
     return await this.request<ThreadStartResult>("thread/start", buildThreadStartParams(options));

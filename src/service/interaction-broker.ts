@@ -46,6 +46,7 @@ export type InteractionResolutionSource =
   | "app_server_exit"
   | "interaction_delivery_failed"
   | "turn_expired"
+  | "session_clear"
   | "bridge_restart_recovery";
 
 export interface InteractionBrokerActiveTurn {

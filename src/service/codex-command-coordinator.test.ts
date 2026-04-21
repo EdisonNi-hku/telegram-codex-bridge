@@ -114,11 +114,23 @@ async function createCoordinatorContext(options: {
     mode: "default" | "review";
   }> = [];
   const clearedRecentActivity: string[] = [];
+  const syncCurrentSessionCardReasons: string[] = [];
   const appServer = options.appServer ?? {};
 
   const coordinator = new CodexCommandCoordinator({
     getStore: () => store,
     ensureAppServerAvailable: async () => appServer as never,
+    startFreshThreadForClear: async (session) => {
+      const startThread = (appServer as any).startThread;
+      if (typeof startThread !== "function") {
+        throw new Error(`missing startThread stub for ${session.sessionId}`);
+      }
+      return await startThread({
+        cwd: session.projectPath,
+        ...(session.selectedModel ? { model: session.selectedModel } : {}),
+        sessionStartSource: "clear"
+      });
+    },
     fetchAllModels: async () => options.fetchAllModels ? await options.fetchAllModels() : [],
     fetchAllApps: async () => options.fetchAllApps ? await options.fetchAllApps() : [],
     fetchAllMcpServerStatuses: async () =>
@@ -154,8 +166,13 @@ async function createCoordinatorContext(options: {
       runningCount: 0,
       limit: 10
     }),
+    resolvePendingInteractionsForSession: async () => {},
+    resetPendingTransientInputs: () => {},
     clearRecentActivity: (sessionId) => {
       clearedRecentActivity.push(sessionId);
+    },
+    syncCurrentSessionCard: async (_chatId, reason) => {
+      syncCurrentSessionCardReasons.push(reason);
     },
     safeSendMessage: async (_chatId, text) => {
       sentMessages.push(text);
@@ -190,6 +207,7 @@ async function createCoordinatorContext(options: {
     submittedInputs,
     beginActiveTurnCalls,
     clearedRecentActivity,
+    syncCurrentSessionCardReasons,
     cleanup: async () => {
       store.close();
       await rm(root, { recursive: true, force: true });
@@ -445,6 +463,61 @@ test("CodexCommandCoordinator compact requests thread compaction for the active 
 
     assert.deepEqual(compactCalls, ["thread-compact"]);
     assert.match(sentMessages.at(-1) ?? "", /已为会话「Project One」请求压缩当前线程/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("CodexCommandCoordinator clear starts a replacement thread and archives the previous one", async () => {
+  const startThreadCalls: unknown[] = [];
+  const {
+    coordinator,
+    store,
+    sentMessages,
+    clearedRecentActivity,
+    syncCurrentSessionCardReasons,
+    cleanup
+  } = await createCoordinatorContext({
+    appServer: {
+      startThread: async (payload: unknown) => {
+        startThreadCalls.push(payload);
+        return {
+          thread: {
+            id: "thread-clear-replacement"
+          }
+        };
+      }
+    }
+  });
+
+  try {
+    const session = authorizeChatWithSession(store, "1");
+    store.updateSessionThreadId(session.sessionId, "thread-clear");
+    store.updateSessionStatus(session.sessionId, "failed", {
+      lastTurnId: "turn-clear",
+      lastTurnStatus: "failed"
+    });
+
+    await coordinator.handleClear("1");
+
+    const updated = store.getSessionById(session.sessionId);
+    assert.equal(updated?.threadId, "thread-clear-replacement");
+    assert.equal(updated?.lastTurnId, null);
+    assert.equal(updated?.lastTurnStatus, null);
+    assert.equal(updated?.status, "idle");
+    assert.deepEqual(startThreadCalls, [{
+      cwd: "/tmp/project-one",
+      sessionStartSource: "clear"
+    }]);
+    assert.deepEqual(clearedRecentActivity, [session.sessionId]);
+    assert.deepEqual(syncCurrentSessionCardReasons, ["session_cleared"]);
+    assert.match(sentMessages.at(-1) ?? "", /已清空会话「Project One」的上下文/u);
+    assert.match(sentMessages.at(-1) ?? "", /立即切换到新的 Codex 线程/u);
+
+    const archived = store.listSessions("1", { archived: true });
+    assert.equal(archived.length, 1);
+    assert.equal(archived[0]?.threadId, "thread-clear");
+    assert.match(archived[0]?.displayName ?? "", /清空前：Project One/u);
   } finally {
     await cleanup();
   }

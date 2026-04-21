@@ -37,6 +37,7 @@ interface ThreadMetadataUpdate {
 interface CodexCommandCoordinatorDeps {
   getStore: () => BridgeStateStore | null;
   ensureAppServerAvailable: () => Promise<CodexAppServerClient>;
+  startFreshThreadForClear: (session: SessionRow) => Promise<Awaited<ReturnType<CodexAppServerClient["startThread"]>>>;
   fetchAllModels: () => Promise<
     NonNullable<Awaited<ReturnType<CodexAppServerClient["listModels"]>>["data"]>
   >;
@@ -75,7 +76,18 @@ interface CodexCommandCoordinatorDeps {
     runningCount: number;
     limit: number;
   };
+  resolvePendingInteractionsForSession: (
+    chatId: string,
+    sessionId: string,
+    options: {
+      state: "failed" | "expired";
+      reason: string;
+      resolutionSource: "server_response_success" | "server_response_error" | "app_server_exit" | "interaction_delivery_failed" | "turn_expired" | "session_clear" | "bridge_restart_recovery";
+    }
+  ) => Promise<void>;
+  resetPendingTransientInputs: (chatId: string) => void;
   clearRecentActivity: (sessionId: string) => void;
+  syncCurrentSessionCard: (chatId: string, reason: string) => Promise<void>;
   safeSendMessage: (
     chatId: string,
     text: string,
@@ -845,6 +857,65 @@ export class CodexCommandCoordinator {
     await this.deps.safeSendMessage(chatId, `已为会话「${activeSession.displayName}」请求压缩当前线程。`);
   }
 
+  async handleClear(chatId: string): Promise<void> {
+    const store = this.deps.getStore();
+    if (!store) {
+      return;
+    }
+
+    const activeSession = store.getActiveSession(chatId);
+    if (!activeSession) {
+      await this.deps.safeSendMessage(chatId, "当前没有活动会话。");
+      return;
+    }
+
+    if (activeSession.status === "running") {
+      await this.deps.safeSendMessage(chatId, "当前项目仍在执行，请先等待完成或停止当前操作。");
+      return;
+    }
+
+    const previousThreadId = activeSession.threadId;
+    if (previousThreadId) {
+      const archivedSnapshot = store.createSession({
+        chatId,
+        projectName: activeSession.projectName,
+        projectPath: activeSession.projectPath,
+        displayName: this.buildClearedSnapshotName(activeSession.displayName),
+        displayNameSource: "manual",
+        selectedModel: activeSession.selectedModel,
+        selectedReasoningEffort: activeSession.selectedReasoningEffort,
+        planMode: activeSession.planMode,
+        needsDefaultCollaborationModeReset: activeSession.needsDefaultCollaborationModeReset,
+        threadId: previousThreadId,
+        lastTurnId: activeSession.lastTurnId,
+        lastTurnStatus: activeSession.lastTurnStatus
+      });
+      store.archiveSession(archivedSnapshot.sessionId);
+      store.setActiveSession(chatId, activeSession.sessionId);
+    }
+
+    await this.deps.resolvePendingInteractionsForSession(chatId, activeSession.sessionId, {
+      state: "expired",
+      reason: "session_cleared",
+      resolutionSource: "session_clear"
+    });
+    this.deps.resetPendingTransientInputs(chatId);
+    store.updateSessionStatus(activeSession.sessionId, "idle", {
+      lastTurnId: null,
+      lastTurnStatus: null
+    });
+    const started = await this.deps.startFreshThreadForClear(activeSession);
+    store.updateSessionThreadId(activeSession.sessionId, started.thread.id);
+    this.deps.clearRecentActivity(activeSession.sessionId);
+    await this.deps.syncCurrentSessionCard(chatId, "session_cleared");
+    await this.deps.safeSendMessage(
+      chatId,
+      previousThreadId
+        ? `已清空会话「${activeSession.displayName}」的上下文，并立即切换到新的 Codex 线程。上一线程已保留到归档会话中，可用 /sessions archived 查看。`
+        : `已重置会话「${activeSession.displayName}」并立即启动新的 Codex 线程。`
+    );
+  }
+
   async handleThreadCommand(chatId: string, args: string): Promise<void> {
     const store = this.deps.getStore();
     if (!store) {
@@ -1124,6 +1195,10 @@ export class CodexCommandCoordinator {
         ? labels.join(" + ")
         : null;
     return summary ? truncateText(summary, HISTORY_TEXT_LIMIT) : null;
+  }
+
+  private buildClearedSnapshotName(displayName: string): string {
+    return displayName.startsWith("清空前：") ? displayName : `清空前：${displayName}`;
   }
 }
 

@@ -66,6 +66,7 @@ test("buildHelpText renders the English command surface when requested", () => {
 test("resolveTelegramCommandHandler keeps aliases and synced commands aligned", () => {
   assert.equal(resolveTelegramCommandHandler("start"), "sendHelp");
   assert.equal(resolveTelegramCommandHandler("commands"), "handleCommands");
+  assert.equal(resolveTelegramCommandHandler("clear"), "handleClear");
 
   for (const entry of TELEGRAM_COMMANDS) {
     assert.notEqual(resolveTelegramCommandHandler(entry.command), null);

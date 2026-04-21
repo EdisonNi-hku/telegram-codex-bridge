@@ -534,6 +534,15 @@ export class BridgeService {
     this.codexCommandCoordinator = new CodexCommandCoordinator({
       getStore: () => this.store,
       ensureAppServerAvailable: async () => this.requireAppServer(),
+      startFreshThreadForClear: async (session) => {
+        const appServer = await this.requireAppServer();
+        return await appServer.startThread({
+          cwd: session.projectPath,
+          ...(session.selectedModel ? { model: session.selectedModel } : {}),
+          sessionStartSource: "clear",
+          dynamicTools: this.getDynamicToolDeclarations()
+        });
+      },
       fetchAllModels: async () => this.fetchAllModels(),
       fetchAllApps: async (threadId) => this.fetchAllApps(threadId),
       fetchAllMcpServerStatuses: async () => this.fetchAllMcpServerStatuses(),
@@ -544,7 +553,11 @@ export class BridgeService {
       submitOrQueueRichInput: async (chatId, session, inputs, prompt, promptLabel) =>
         this.richInputAdapter.submitOrQueueRichInput(chatId, session, inputs, prompt, promptLabel),
       getRunningTurnCapacity: (chatId) => this.turnCoordinator.getRunningTurnCapacity(chatId),
+      resolvePendingInteractionsForSession: async (chatId, sessionId, options) =>
+        this.interactionBroker.resolveActionablePendingInteractionsForSession(chatId, sessionId, options),
+      resetPendingTransientInputs: (chatId) => this.richInputAdapter.resetPendingTransientState(chatId),
       clearRecentActivity: (sessionId) => this.turnCoordinator.clearRecentActivity(sessionId),
+      syncCurrentSessionCard: async (chatId, reason) => this.currentSessionCardController.syncForChat(chatId, reason),
       safeSendMessage: async (chatId, text, replyMarkup) => this.safeSendMessage(chatId, text, replyMarkup),
       safeSendHtmlMessage: async (chatId, text, replyMarkup) => this.safeSendHtmlMessage(chatId, text, replyMarkup),
       safeEditMessageText: async (chatId, messageId, text, replyMarkup) =>
@@ -1909,6 +1922,11 @@ export class BridgeService {
           await this.handleRollback(chatId, args);
         });
       },
+      handleClear: async () => {
+        await this.runGuardedCommand(chatId, "当前无法清空这个会话的上下文，请稍后重试。", async () => {
+          await this.handleClear(chatId);
+        });
+      },
       handleCompact: async () => {
         await this.runGuardedCommand(chatId, "当前无法压缩这个线程，请稍后重试。", async () => {
           await this.handleCompact(chatId);
@@ -2548,6 +2566,10 @@ export class BridgeService {
 
   private async handleCompact(chatId: string): Promise<void> {
     await this.codexCommandCoordinator.handleCompact(chatId);
+  }
+
+  private async handleClear(chatId: string): Promise<void> {
+    await this.codexCommandCoordinator.handleClear(chatId);
   }
 
   private async handleLocalImage(chatId: string, args: string): Promise<void> {

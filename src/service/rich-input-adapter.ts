@@ -161,6 +161,11 @@ export class RichInputAdapter {
     return this.pendingAutoAttachByChatId.delete(chatId);
   }
 
+  resetPendingTransientState(chatId: string): void {
+    this.pendingRichInputComposers.delete(chatId);
+    this.pendingAutoAttachByChatId.delete(chatId);
+  }
+
   async cancelPendingRichInputComposer(chatId: string): Promise<boolean> {
     const hadComposer = this.pendingRichInputComposers.has(chatId);
     const hadAutoAttach = this.pendingAutoAttachByChatId.has(chatId);

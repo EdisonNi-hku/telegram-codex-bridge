@@ -36,6 +36,7 @@ function createHandlers(calls: string[]) {
     handleReview: async () => { calls.push("handleReview"); },
     handleFork: async () => { calls.push("handleFork"); },
     handleRollback: async () => { calls.push("handleRollback"); },
+    handleClear: async () => { calls.push("handleClear"); },
     handleCompact: async () => { calls.push("handleCompact"); },
     handleLocalImage: async () => { calls.push("handleLocalImage"); },
     handleMention: async () => { calls.push("handleMention"); },
@@ -54,13 +55,14 @@ test("routeBridgeCommand routes every synced command through the registry", asyn
   }
 });
 
-test("routeBridgeCommand keeps help aliases and unsupported fallback aligned with the registry", async () => {
+test("routeBridgeCommand keeps aliases and unsupported fallback aligned with the registry", async () => {
   const calls: string[] = [];
   const handlers = createHandlers(calls);
 
   await routeBridgeCommand("start", handlers);
   await routeBridgeCommand("commands", handlers);
+  await routeBridgeCommand("clear", handlers);
   await routeBridgeCommand("does_not_exist", handlers);
 
-  assert.deepEqual(calls, ["sendHelp", "handleCommands", "sendUnsupported"]);
+  assert.deepEqual(calls, ["sendHelp", "handleCommands", "handleClear", "sendUnsupported"]);
 });

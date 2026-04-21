@@ -46,6 +46,19 @@ test("buildThreadStartParams requests full-access sandbox", () => {
   });
 });
 
+test("buildThreadStartParams can mark a clear-start replacement thread", () => {
+  assert.deepEqual(buildThreadStartParams({
+    cwd: "/tmp/project",
+    sessionStartSource: "clear"
+  }), {
+    cwd: "/tmp/project",
+    approvalPolicy: "never",
+    sandbox: "danger-full-access",
+    dynamicTools: [],
+    sessionStartSource: "clear"
+  });
+});
+
 test("buildTurnStartParams uses turn-level sandbox overrides", () => {
   assert.deepEqual(
     buildTurnStartParams({
