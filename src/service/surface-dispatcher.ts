@@ -10,11 +10,8 @@ import {
   type PlatformSurfaceOperationResult
 } from "../core/interaction-model/surface.js";
 import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
-import { isTelegramEditCommitted, type TelegramEditResult } from "./runtime-surface-state.js";
-
-export interface SurfaceDispatcherSendResult {
-  message_id: number;
-}
+import type { EgressMessageSendResult } from "../packs/contract.js";
+import { isTelegramEditCommitted, type EgressEditResult } from "./runtime-surface-state.js";
 
 export interface DispatchHtmlSurfaceOptions {
   intent: PlatformSurfaceIntent;
@@ -31,13 +28,13 @@ export interface DispatchHtmlSurfaceOptions {
     chatId: string,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<SurfaceDispatcherSendResult | null>;
+  ) => Promise<EgressMessageSendResult | null>;
   editHtmlMessage?: (
     chatId: string,
     messageId: number,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramEditResult>;
+  ) => Promise<EgressEditResult>;
 }
 
 export async function dispatchHtmlSurface(
@@ -87,7 +84,7 @@ export async function dispatchHtmlSurface(
         options.intent,
         "rate_limited",
         options.existingMessageId ?? null,
-        editResult.retryAfterMs
+        editResult.retryAfterMs ?? undefined
       );
     }
     if (options.sendOnEditFailure === false) {
@@ -101,7 +98,7 @@ export async function dispatchHtmlSurface(
 
   const sent = await options.sendHtmlMessage(options.chatId, options.html, options.replyMarkup);
   if (sent) {
-    return createSentSurfaceOperationResult(options.intent, sent.message_id);
+    return createSentSurfaceOperationResult(options.intent, sent.messageId);
   }
 
   return createFailedSurfaceOperationResult(

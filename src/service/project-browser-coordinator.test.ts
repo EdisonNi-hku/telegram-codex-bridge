@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -37,18 +37,6 @@ function createTestPaths(root: string): BridgePaths {
     telegramStatusCardLogPath: join(logsDir, "status-card.log"),
     telegramPlanCardLogPath: join(logsDir, "plan-card.log"),
     telegramErrorCardLogPath: join(logsDir, "error-card.log")
-  };
-}
-
-function createFakeTelegramMessage(messageId: number, text: string) {
-  return {
-    message_id: messageId,
-    chat: {
-      id: 1,
-      type: "private" as const
-    },
-    date: 0,
-    text
   };
 }
 
@@ -113,7 +101,7 @@ async function createCoordinatorContext() {
       sentHtml.push(replyMarkup
         ? { chatId, messageId, html, replyMarkup }
         : { chatId, messageId, html });
-      return createFakeTelegramMessage(messageId, html);
+      return { messageId };
     },
     safeEditHtmlMessageText: async (chatId, messageId, html, replyMarkup) => {
       editedHtml.push(replyMarkup
@@ -385,7 +373,10 @@ test("pre-session browse can create a session from the current directory with co
       token
     });
 
-    assert.equal(context.store.getActiveSession("chat-1")?.projectPath, rootPath);
+    assert.equal(
+      await realpath(context.store.getActiveSession("chat-1")?.projectPath ?? ""),
+      await realpath(rootPath)
+    );
     assert.deepEqual(context.deletedMessages, [77, 1000]);
     assert.match(context.sentHtml.at(-1)?.html ?? "", /<b>已新建会话<\/b>/u);
     assert.deepEqual(context.currentSessionCardCalls, [{ chatId: "chat-1", reason: "session_created" }]);

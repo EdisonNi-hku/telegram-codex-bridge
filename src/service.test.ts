@@ -6127,7 +6127,7 @@ test("safeSendMessageResult retries transient delivery failures before giving up
     };
 
     const sent = await (service as any).safeSendMessageResult("chat-1", "hello");
-    assert.equal(sent?.message_id, 900);
+    assert.equal(sent?.messageId, 900);
     assert.equal(attempts, 2);
   } finally {
     await cleanup();

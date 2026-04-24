@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { dirname } from "node:path";
 
+import { BridgeError } from "../errors.js";
 import type { JsonRpcRequestId } from "../codex/app-server.js";
 import type { BridgePlatform } from "../core/domain/binding.js";
 import type { Logger } from "../logger.js";
@@ -89,11 +90,14 @@ export interface StateStoreFailureRecord {
   recommendedAction: string;
 }
 
-export class StateStoreOpenError extends Error {
+export class StateStoreOpenError extends BridgeError {
   readonly failure: StateStoreFailureRecord;
 
   constructor(failure: StateStoreFailureRecord) {
-    super(`state store open failed (${failure.classification} at ${failure.stage}): ${failure.error}`);
+    super(
+      `state store open failed (${failure.classification} at ${failure.stage}): ${failure.error}`,
+      failure.classification === "transient_open_failure" ? "transient" : "fatal"
+    );
     this.name = "StateStoreOpenError";
     this.failure = failure;
   }

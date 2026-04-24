@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 
+import { BridgeError } from "../errors.js";
 import type { PerformanceRecorder } from "../perf/recorder.js";
 import type { PerformanceTransport } from "../perf/types.js";
 import { commandExists, runCommand, type CommandResult } from "../process.js";
@@ -110,7 +111,7 @@ interface TelegramResponse<T> {
   };
 }
 
-export class TelegramApiError extends Error {
+export class TelegramApiError extends BridgeError {
   readonly method: string;
   readonly description: string;
   readonly errorCode: number | null;
@@ -118,11 +119,13 @@ export class TelegramApiError extends Error {
 
   constructor(method: string, payload: TelegramResponse<unknown>) {
     const description = payload.description ?? `Telegram API request failed: ${method}`;
-    super(description);
+    const errorCode = typeof payload.error_code === "number" ? payload.error_code : null;
+    const isTransient = errorCode === 429 || (errorCode !== null && errorCode >= 500);
+    super(description, isTransient ? "transient" : "fatal");
     this.name = "TelegramApiError";
     this.method = method;
     this.description = description;
-    this.errorCode = typeof payload.error_code === "number" ? payload.error_code : null;
+    this.errorCode = errorCode;
     this.retryAfterSeconds = typeof payload.parameters?.retry_after === "number"
       ? payload.parameters.retry_after
       : null;

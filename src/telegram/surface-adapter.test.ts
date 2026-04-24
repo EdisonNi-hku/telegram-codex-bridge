@@ -35,9 +35,7 @@ test("executeTelegramHtmlSurfaceOperation falls back to send when edit does not 
     existingMessageId: 42,
     preferEdit: true,
     sendHtmlMessage: async () => ({
-      message_id: 99,
-      chat: { id: 1, type: "private" },
-      date: 0
+      messageId: 99
     }),
     editHtmlMessage: async () => ({ outcome: "failed" })
   });

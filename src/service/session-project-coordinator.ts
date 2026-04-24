@@ -6,11 +6,12 @@ import { buildFeishuStatusReplyMarkup, buildFeishuStatusText } from "../feishu/u
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import { buildProjectPicker, validateManualProjectPath } from "../project/discovery.js";
+import type { EgressMessageSendResult } from "../packs/contract.js";
 import {
   isTelegramDeleteCommitted,
   isTelegramEditCommitted,
-  type TelegramDeleteResult,
-  type TelegramEditResult
+  type EgressDeleteResult,
+  type EgressEditResult
 } from "./runtime-surface-state.js";
 import type { BridgeStateStore } from "../state/store.js";
 import {
@@ -91,7 +92,7 @@ interface SessionProjectCoordinatorDeps {
     chatId: string,
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<{ message_id: number } | null>;
+  ) => Promise<EgressMessageSendResult | null>;
   safeSendHtmlMessage: (
     chatId: string,
     text: string,
@@ -101,20 +102,20 @@ interface SessionProjectCoordinatorDeps {
     chatId: string,
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<{ message_id: number } | null>;
+  ) => Promise<EgressMessageSendResult | null>;
   safeEditMessageText: (
     chatId: string,
     messageId: number,
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramEditResult>;
+  ) => Promise<EgressEditResult>;
   safeEditHtmlMessageText: (
     chatId: string,
     messageId: number,
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramEditResult>;
-  safeDeleteMessage: (chatId: string, messageId: number) => Promise<TelegramDeleteResult>;
+  ) => Promise<EgressEditResult>;
+  safeDeleteMessage: (chatId: string, messageId: number) => Promise<EgressDeleteResult>;
   getActiveRuntimeStatusText: (chatId: string) => string | null;
   resolveSessionModelState: (session: SessionRow) => Promise<{
     configuredModel: string | null;
@@ -831,7 +832,7 @@ export class SessionProjectCoordinator {
       });
       const sent = await this.deps.safeSendHtmlMessageResult(chatId, picker.text, picker.replyMarkup);
       if (sent) {
-        this.renameSurfaceMessageIds.set(chatId, sent.message_id);
+        this.renameSurfaceMessageIds.set(chatId, sent.messageId);
       }
       return;
     }
@@ -1122,8 +1123,8 @@ export class SessionProjectCoordinator {
 
     const sent = await this.deps.safeSendMessageResult(chatId, promptText, replyMarkup);
     if (sent) {
-      await this.cleanupSupersededInteractiveMessage(chatId, messageId, sent.message_id);
-      return sent.message_id;
+      await this.cleanupSupersededInteractiveMessage(chatId, messageId, sent.messageId);
+      return sent.messageId;
     }
 
     return messageId;
@@ -1156,9 +1157,9 @@ export class SessionProjectCoordinator {
       return previousMessageId ?? null;
     }
 
-    pickerState.interactiveMessageId = sent.message_id;
-    await this.cleanupSupersededInteractiveMessage(chatId, previousMessageId, sent.message_id);
-    return sent.message_id;
+    pickerState.interactiveMessageId = sent.messageId;
+    await this.cleanupSupersededInteractiveMessage(chatId, previousMessageId, sent.messageId);
+    return sent.messageId;
   }
 
   private async recreateInteractivePickerMessage(
@@ -1182,8 +1183,8 @@ export class SessionProjectCoordinator {
       return previousMessageId ?? null;
     }
 
-    pickerState.interactiveMessageId = sent.message_id;
-    return sent.message_id;
+    pickerState.interactiveMessageId = sent.messageId;
+    return sent.messageId;
   }
 
   private async sendNewestInteractivePickerMessage(
@@ -1200,9 +1201,9 @@ export class SessionProjectCoordinator {
       ? await this.deps.safeSendHtmlMessageResult(chatId, message.text, message.replyMarkup)
       : await this.deps.safeSendMessageResult(chatId, message.text, message.replyMarkup);
     if (sent) {
-      pickerState.interactiveMessageId = sent.message_id;
-      await this.cleanupSupersededInteractiveMessage(chatId, previousMessageId, sent.message_id);
-      return sent.message_id;
+      pickerState.interactiveMessageId = sent.messageId;
+      await this.cleanupSupersededInteractiveMessage(chatId, previousMessageId, sent.messageId);
+      return sent.messageId;
     }
 
     if (previousMessageId && previousMessageId > 0) {

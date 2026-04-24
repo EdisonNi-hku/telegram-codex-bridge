@@ -15,11 +15,12 @@ import {
   type ParsedCallbackData
 } from "../telegram/ui.js";
 import type { SessionRow, UiLanguage } from "../types.js";
+import type { EgressMessageSendResult } from "../packs/contract.js";
 import {
   isTelegramDeleteCommitted,
   isTelegramEditCommitted,
-  type TelegramDeleteResult,
-  type TelegramEditResult
+  type EgressDeleteResult,
+  type EgressEditResult
 } from "./runtime-surface-state.js";
 
 const DIRECTORY_PAGE_SIZE = 6;
@@ -88,14 +89,14 @@ interface ProjectBrowserCoordinatorDeps {
     chatId: string,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramMessage | null>;
+  ) => Promise<EgressMessageSendResult | null>;
   safeEditHtmlMessageText: (
     chatId: string,
     messageId: number,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramEditResult>;
-  safeDeleteMessage: (chatId: string, messageId: number) => Promise<TelegramDeleteResult>;
+  ) => Promise<EgressEditResult>;
+  safeDeleteMessage: (chatId: string, messageId: number) => Promise<EgressDeleteResult>;
   safeAnswerCallbackQuery: (callbackQueryId: string, text?: string) => Promise<void>;
   safeSendPhoto: (
     chatId: string,
@@ -269,7 +270,7 @@ export class ProjectBrowserCoordinator {
       return;
     }
 
-    state.messageId = sent.message_id;
+    state.messageId = sent.messageId;
     this.browseStates.set(token, state);
   }
 
@@ -313,7 +314,7 @@ export class ProjectBrowserCoordinator {
       return false;
     }
 
-    state.messageId = sent.message_id;
+    state.messageId = sent.messageId;
     this.browseStates.set(token, state);
     if (sourceMessageId > 0) {
       await this.deps.safeDeleteMessage(chatId, sourceMessageId);

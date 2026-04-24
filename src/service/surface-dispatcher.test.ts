@@ -48,7 +48,7 @@ test("dispatchHtmlSurface returns sent for interaction surfaces when direct send
       requiresCallbacks: true,
       requiresRichTextPreview: true
     },
-    sendHtmlMessage: async () => ({ message_id: 99 })
+    sendHtmlMessage: async () => ({ messageId: 99 })
   });
 
   assert.deepEqual(result, {

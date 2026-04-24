@@ -7,7 +7,8 @@ import {
   type PlatformSurfaceControlRequirements
 } from "../core/interaction-model/surface.js";
 import type { TelegramInlineKeyboardMarkup } from "./api.js";
-import type { TelegramEditResult } from "../service/runtime-surface-state.js";
+import type { EgressEditResult } from "../service/runtime-surface-state.js";
+import type { EgressMessageSendResult } from "../packs/contract.js";
 import { dispatchHtmlSurface } from "../service/surface-dispatcher.js";
 
 export const TELEGRAM_SURFACE_CAPABILITY_SNAPSHOT: PlatformCapabilitySnapshot = {
@@ -38,13 +39,13 @@ export async function executeTelegramHtmlSurfaceOperation(options: {
     chatId: string,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<{ message_id: number } | null>;
+  ) => Promise<EgressMessageSendResult | null>;
   editHtmlMessage?: (
     chatId: string,
     messageId: number,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramEditResult>;
+  ) => Promise<EgressEditResult>;
 }): Promise<PlatformSurfaceOperationResult> {
   const capabilities = options.capabilities ?? TELEGRAM_SURFACE_CAPABILITY_SNAPSHOT;
   return await dispatchHtmlSurface({

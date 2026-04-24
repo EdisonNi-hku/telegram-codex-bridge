@@ -43,6 +43,7 @@ import type {
   PendingInteractionTerminalState,
   InteractionResolutionSource
 } from "./interaction-broker.js";
+import type { EgressMessageSendResult } from "../packs/contract.js";
 import type { BridgeStateStore } from "../state/store.js";
 import type { SessionRow, ReasoningEffort } from "../types.js";
 import {
@@ -218,7 +219,7 @@ interface TurnCoordinatorDeps {
     replyMarkup?: {
       inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
     }
-  ) => Promise<{ message_id: number } | null>;
+  ) => Promise<EgressMessageSendResult | null>;
   handleGlobalRuntimeNotice: (notification: GlobalRuntimeNotice) => Promise<void>;
   handleThreadArchiveNotification: (classified: ThreadArchiveNotification) => Promise<void>;
 }

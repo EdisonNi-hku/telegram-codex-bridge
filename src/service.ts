@@ -20,6 +20,7 @@ import {
   type PendingInteractionTerminalState
 } from "./service/interaction-broker.js";
 import { MediaIngressService } from "./service/media-ingress.js";
+import { SafeMessenger } from "./service/safe-messenger.js";
 import { RichInputAdapter } from "./service/rich-input-adapter.js";
 import { ProjectBrowserCoordinator } from "./service/project-browser-coordinator.js";
 import { RuntimeNoticeBroadcaster } from "./service/runtime-notice-broadcaster.js";
@@ -64,6 +65,8 @@ import { TelegramApi, TelegramApiError,
   type TelegramMessage,
   type TelegramUpdate
 } from "./telegram/api.js";
+import { TelegramEgressAdapter } from "./telegram/egress-adapter.js";
+import type { EgressMessageSendResult, PlatformEgressAdapter } from "./packs/contract.js";
 import { TelegramPoller } from "./telegram/poller.js";
 import { getActiveBridgePack } from "./packs/registry.js";
 import { applyFeishuSetupObservation } from "./packs/feishu/setup.js";
@@ -142,8 +145,6 @@ interface CommandPanelDraftState {
 
 const HISTORY_SUMMARY_LIMIT = 5;
 const MAX_RECENT_ACTIVITY_ENTRIES = 20;
-const TELEGRAM_SEND_RETRY_DELAYS_MS = [750, 2_000] as const;
-const TELEGRAM_SEND_MAX_RETRY_AFTER_MS = 10_000;
 const TELEGRAM_IMAGE_CACHE_DIRNAME = "telegram-images";
 const TELEGRAM_IMAGE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const TELEGRAM_CACHE_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
@@ -175,6 +176,7 @@ interface BridgeServiceDependencies {
   dynamicToolDeclarations?: BridgeDynamicToolDeclaration[];
   interpretPackServerRequest?: (request: JsonRpcServerRequest) => ServerRequestSupport;
   sleep?: (delayMs: number) => Promise<void>;
+  createEgressAdapter?: (api: TelegramApi) => PlatformEgressAdapter;
 }
 
 interface FeishuObservationRecorder {
@@ -237,6 +239,8 @@ export class BridgeService {
   private readonly turnCoordinator: TurnCoordinator;
   private poller: TelegramPoller | null = null;
   private api: TelegramApi | null = null;
+  private safeMessenger: SafeMessenger | null = null;
+  private safeMessengerApi: TelegramApi | null = null;
   private store: BridgeStateStore | null = null;
   private snapshot: ReadinessSnapshot | null = null;
   private appServer: CodexAppServerClient | null = null;
@@ -456,7 +460,7 @@ export class BridgeService {
             const sent = await this.safeSendPhotoResult(chatId, imagePath, {
               ...(caption ? { caption } : {})
             });
-            return sent ? { messageId: sent.message_id } : null;
+            return sent ? { messageId: sent.messageId } : null;
           }
         }),
         sendControlSurfaceFile: async (request) => await dispatchControlSurfaceFileAction({
@@ -467,7 +471,7 @@ export class BridgeService {
               ...(caption ? { caption } : {}),
               ...(fileName ? { fileName } : {})
             });
-            return sent ? { messageId: sent.message_id } : null;
+            return sent ? { messageId: sent.messageId } : null;
           }
         })
       },
@@ -737,6 +741,7 @@ export class BridgeService {
 
     const telegramConfig = getTelegramPackConfig(this.config);
     this.api = createTelegramApi(telegramConfig.botToken, telegramConfig.apiBaseUrl, this.performanceRecorder);
+    this.safeMessenger = this.createSafeMessenger(this.api);
     this.attachFeishuObservationRecorder();
     this.poller = createPoller(
       this.api,
@@ -2033,7 +2038,7 @@ export class BridgeService {
       return false;
     }
 
-    draft.messageId = sent.message_id;
+    draft.messageId = sent.messageId;
     this.commandPanelDrafts.set(token, draft);
     return true;
   }
@@ -3418,12 +3423,33 @@ export class BridgeService {
     return remaining === null ? null : Math.max(0, Math.min(100, 100 - remaining));
   }
 
+  private createSafeMessenger(api: TelegramApi): SafeMessenger {
+    this.safeMessengerApi = api;
+    return new SafeMessenger(
+      (this.deps.createEgressAdapter ?? ((platformApi) => new TelegramEgressAdapter(platformApi as TelegramApi)))(api),
+      this.loggerAdapter,
+      this.deps.sleep ? { sleep: this.deps.sleep } : undefined
+    );
+  }
+
+  private getSafeMessenger(): SafeMessenger | null {
+    if (!this.api) {
+      return null;
+    }
+
+    if (!this.safeMessenger || this.safeMessengerApi !== this.api) {
+      this.safeMessenger = this.createSafeMessenger(this.api);
+    }
+
+    return this.safeMessenger;
+  }
+
   private async safeSendHtmlMessage(
     chatId: string,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
   ): Promise<boolean> {
-    return (await this.safeSendHtmlMessageResult(chatId, html, replyMarkup)) !== null;
+    return this.getSafeMessenger()?.sendHtmlMessage(chatId, html, replyMarkup) ?? false;
   }
 
   private async safeSendMessage(
@@ -3431,21 +3457,15 @@ export class BridgeService {
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
   ): Promise<boolean> {
-    return (await this.safeSendMessageResult(chatId, text, replyMarkup)) !== null;
+    return this.getSafeMessenger()?.sendMessage(chatId, text, replyMarkup) ?? false;
   }
 
   private async safeSendMessageResult(
     chatId: string,
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ): Promise<TelegramMessage | null> {
-    return await this.safeSendTelegramMessageResult(chatId, text, {
-      parseMode: null,
-      successMessage: "telegram message sent",
-      retryMessage: "telegram message delivery retry scheduled",
-      failureMessage: "telegram message delivery failed",
-      ...(replyMarkup ? { replyMarkup } : {})
-    });
+  ): Promise<EgressMessageSendResult | null> {
+    return this.getSafeMessenger()?.sendMessageResult(chatId, text, replyMarkup) ?? null;
   }
 
   private async safeEditMessageText(
@@ -3454,52 +3474,15 @@ export class BridgeService {
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
   ): Promise<TelegramEditResult> {
-    if (!this.api?.editMessageText) {
-      return { outcome: "failed" };
-    }
-
-    try {
-      await this.api.editMessageText(chatId, messageId, text, replyMarkup ? { replyMarkup } : undefined);
-      await this.logger.info("telegram message edited", {
-        chatId,
-        messageId,
-        replyMarkup: replyMarkup ? "inline_keyboard" : null,
-        preview: summarizeTextPreview(text)
-      });
-      return { outcome: "edited" };
-    } catch (error) {
-      if (isTelegramMessageNotModifiedError(error)) {
-        await this.logger.info("telegram message edit unchanged", {
-          chatId,
-          messageId,
-          replyMarkup: replyMarkup ? "inline_keyboard" : null,
-          preview: summarizeTextPreview(text)
-        });
-        return { outcome: "unchanged" };
-      }
-
-      await this.logger.warn("telegram message edit failed", { chatId, messageId, error: `${error}` });
-      const retryAfterMs = getTelegramRetryAfterMs(error);
-      if (retryAfterMs !== null) {
-        return { outcome: "rate_limited", retryAfterMs };
-      }
-
-      return { outcome: "failed" };
-    }
+    return this.getSafeMessenger()?.editMessageText(chatId, messageId, text, replyMarkup) ?? { outcome: "failed" };
   }
 
   private async safeSendHtmlMessageResult(
     chatId: string,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ): Promise<TelegramMessage | null> {
-    return await this.safeSendTelegramMessageResult(chatId, html, {
-      parseMode: "HTML",
-      successMessage: "telegram html message sent",
-      retryMessage: "telegram HTML message delivery retry scheduled",
-      failureMessage: "telegram HTML message delivery failed",
-      ...(replyMarkup ? { replyMarkup } : {})
-    });
+  ): Promise<EgressMessageSendResult | null> {
+    return this.getSafeMessenger()?.sendHtmlMessageResult(chatId, html, replyMarkup) ?? null;
   }
 
   private async safeSendPhoto(
@@ -3510,7 +3493,7 @@ export class BridgeService {
       parseMode?: "HTML";
     }
   ): Promise<boolean> {
-    return (await this.safeSendPhotoResult(chatId, photoPath, options)) !== null;
+    return this.getSafeMessenger()?.sendPhoto(chatId, photoPath, options) ?? false;
   }
 
   private async safeSendPhotoResult(
@@ -3520,48 +3503,8 @@ export class BridgeService {
       caption?: string;
       parseMode?: "HTML";
     }
-  ): Promise<TelegramMessage | null> {
-    if (!this.api?.sendPhoto) {
-      return null;
-    }
-
-    let lastError: unknown = null;
-
-    for (let attempt = 0; attempt <= TELEGRAM_SEND_RETRY_DELAYS_MS.length; attempt += 1) {
-      try {
-        const sent = await this.api.sendPhoto(chatId, photoPath, options);
-        await this.logger.info("telegram photo sent", {
-          chatId,
-          messageId: sent.message_id,
-          path: photoPath,
-          preview: summarizeTextPreview(options?.caption),
-          attempts: attempt + 1
-        });
-        return sent;
-      } catch (error) {
-        lastError = error;
-        const retryDelayMs = getTelegramSendRetryDelayMs(error, attempt);
-        if (retryDelayMs === null) {
-          break;
-        }
-
-        await this.logger.warn("telegram photo delivery retry scheduled", {
-          chatId,
-          path: photoPath,
-          attempt: attempt + 1,
-          retryDelayMs,
-          error: `${error}`
-        });
-        await this.sleep(retryDelayMs);
-      }
-    }
-
-    await this.logger.error("telegram photo delivery failed", {
-      chatId,
-      path: photoPath,
-      error: `${lastError}`
-    });
-    return null;
+  ): Promise<EgressMessageSendResult | null> {
+    return this.getSafeMessenger()?.sendPhotoResult(chatId, photoPath, options) ?? null;
   }
 
   private async safeSendDocumentResult(
@@ -3572,48 +3515,8 @@ export class BridgeService {
       parseMode?: "HTML";
       fileName?: string;
     }
-  ): Promise<TelegramMessage | null> {
-    if (!this.api?.sendDocument) {
-      return null;
-    }
-
-    let lastError: unknown = null;
-
-    for (let attempt = 0; attempt <= TELEGRAM_SEND_RETRY_DELAYS_MS.length; attempt += 1) {
-      try {
-        const sent = await this.api.sendDocument(chatId, filePath, options);
-        await this.logger.info("telegram document sent", {
-          chatId,
-          messageId: sent.message_id,
-          path: filePath,
-          preview: summarizeTextPreview(options?.caption),
-          attempts: attempt + 1
-        });
-        return sent;
-      } catch (error) {
-        lastError = error;
-        const retryDelayMs = getTelegramSendRetryDelayMs(error, attempt);
-        if (retryDelayMs === null) {
-          break;
-        }
-
-        await this.logger.warn("telegram document delivery retry scheduled", {
-          chatId,
-          path: filePath,
-          attempt: attempt + 1,
-          retryDelayMs,
-          error: `${error}`
-        });
-        await this.sleep(retryDelayMs);
-      }
-    }
-
-    await this.logger.error("telegram document delivery failed", {
-      chatId,
-      path: filePath,
-      error: `${lastError}`
-    });
-    return null;
+  ): Promise<EgressMessageSendResult | null> {
+    return this.getSafeMessenger()?.sendDocumentResult(chatId, filePath, options) ?? null;
   }
 
   private async safeSendTelegramMessageResult(
@@ -3626,53 +3529,8 @@ export class BridgeService {
       retryMessage: string;
       failureMessage: string;
     }
-  ): Promise<TelegramMessage | null> {
-    if (!this.api) {
-      return null;
-    }
-
-    let lastError: unknown = null;
-
-    for (let attempt = 0; attempt <= TELEGRAM_SEND_RETRY_DELAYS_MS.length; attempt += 1) {
-      try {
-        const sent = await this.api.sendMessage(
-          chatId,
-          text,
-          options.parseMode === "HTML"
-            ? options.replyMarkup
-              ? { parseMode: "HTML", replyMarkup: options.replyMarkup }
-              : { parseMode: "HTML" }
-            : options.replyMarkup
-              ? { replyMarkup: options.replyMarkup }
-              : undefined
-        );
-        await this.logger.info(options.successMessage, {
-          chatId,
-          messageId: sent.message_id,
-          replyMarkup: options.replyMarkup ? "inline_keyboard" : null,
-          preview: summarizeTextPreview(text),
-          attempts: attempt + 1
-        });
-        return sent;
-      } catch (error) {
-        lastError = error;
-        const retryDelayMs = getTelegramSendRetryDelayMs(error, attempt);
-        if (retryDelayMs === null) {
-          break;
-        }
-
-        await this.logger.warn(options.retryMessage, {
-          chatId,
-          attempt: attempt + 1,
-          retryDelayMs,
-          error: `${error}`
-        });
-        await this.sleep(retryDelayMs);
-      }
-    }
-
-    await this.logger.error(options.failureMessage, { chatId, error: `${lastError}` });
-    return null;
+  ): Promise<EgressMessageSendResult | null> {
+    return this.getSafeMessenger()?.sendPlatformMessage(chatId, text, options) ?? null;
   }
 
   private async safeEditHtmlMessageText(
@@ -3681,45 +3539,7 @@ export class BridgeService {
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
   ): Promise<TelegramEditResult> {
-    if (!this.api?.editMessageText) {
-      return { outcome: "failed" };
-    }
-
-    try {
-      await this.api.editMessageText(
-        chatId,
-        messageId,
-        html,
-        replyMarkup
-          ? { parseMode: "HTML", replyMarkup }
-          : { parseMode: "HTML" }
-      );
-      await this.logger.info("telegram html message edited", {
-        chatId,
-        messageId,
-        replyMarkup: replyMarkup ? "inline_keyboard" : null,
-        preview: summarizeTextPreview(html)
-      });
-      return { outcome: "edited" };
-    } catch (error) {
-      if (isTelegramMessageNotModifiedError(error)) {
-        await this.logger.info("telegram html message edit unchanged", {
-          chatId,
-          messageId,
-          replyMarkup: replyMarkup ? "inline_keyboard" : null,
-          preview: summarizeTextPreview(html)
-        });
-        return { outcome: "unchanged" };
-      }
-
-      await this.logger.warn("telegram HTML message edit failed", { chatId, messageId, error: `${error}` });
-      const retryAfterMs = getTelegramRetryAfterMs(error);
-      if (retryAfterMs !== null) {
-        return { outcome: "rate_limited", retryAfterMs };
-      }
-
-      return { outcome: "failed" };
-    }
+    return this.getSafeMessenger()?.editHtmlMessageText(chatId, messageId, html, replyMarkup) ?? { outcome: "failed" };
   }
 
   private async replaceBridgeOwnedMessage(
@@ -3731,27 +3551,7 @@ export class BridgeService {
       replyMarkup?: TelegramInlineKeyboardMarkup;
     }
   ): Promise<boolean> {
-    if (messageId > 0) {
-      const result = options?.html
-        ? await this.safeEditHtmlMessageText(chatId, messageId, text, options.replyMarkup)
-        : await this.safeEditMessageText(chatId, messageId, text, options?.replyMarkup);
-      if (isTelegramEditCommitted(result)) {
-        return true;
-      }
-    }
-
-    const sent = options?.html
-      ? await this.safeSendHtmlMessageResult(chatId, text, options?.replyMarkup)
-      : await this.safeSendMessageResult(chatId, text, options?.replyMarkup);
-    if (!sent) {
-      return false;
-    }
-
-    if (messageId > 0 && sent.message_id !== messageId) {
-      await this.safeDeleteMessageResult(chatId, messageId);
-    }
-
-    return true;
+    return this.getSafeMessenger()?.replaceMessage(chatId, messageId, text, options) ?? false;
   }
 
   private async replaceBridgeOwnedHtmlMessageResult(
@@ -3760,38 +3560,11 @@ export class BridgeService {
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
   ): Promise<number | null> {
-    if (messageId > 0) {
-      const result = await this.safeEditHtmlMessageText(chatId, messageId, html, replyMarkup);
-      if (isTelegramEditCommitted(result)) {
-        return messageId;
-      }
-    }
-
-    const sent = await this.safeSendHtmlMessageResult(chatId, html, replyMarkup);
-    if (!sent) {
-      return null;
-    }
-
-    if (messageId > 0 && sent.message_id !== messageId) {
-      await this.safeDeleteMessageResult(chatId, messageId);
-    }
-
-    return sent.message_id;
+    return this.getSafeMessenger()?.replaceHtmlMessageResult(chatId, messageId, html, replyMarkup) ?? null;
   }
 
   private async safeAnswerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
-    if (!this.api) {
-      return;
-    }
-
-    try {
-      await this.api.answerCallbackQuery(callbackQueryId, text);
-    } catch (error) {
-      await this.logger.warn("telegram callback acknowledgement failed", {
-        callbackQueryId,
-        error: `${error}`
-      });
-    }
+    await this.getSafeMessenger()?.answerCallbackQuery(callbackQueryId, text);
   }
 
   private getUiLanguage(): UiLanguage {
@@ -3878,65 +3651,19 @@ export class BridgeService {
   }
 
   private async safeDeleteMessageResult(chatId: string, messageId: number): Promise<TelegramDeleteResult> {
-    if (!this.api?.deleteMessage) {
-      return { outcome: "failed" };
-    }
-
-    try {
-      await this.api.deleteMessage(chatId, messageId);
-      await this.logger.info("telegram message deleted", { chatId, messageId });
-      return { outcome: "deleted" };
-    } catch (error) {
-      if (isTelegramMessageDeleteNotFoundError(error)) {
-        await this.logger.info("telegram message delete skipped; message already missing", {
-          chatId,
-          messageId
-        });
-        return { outcome: "not_found" };
-      }
-
-      await this.logger.warn("telegram message delete failed", { chatId, messageId, error: `${error}` });
-      const retryAfterMs = getTelegramRetryAfterMs(error);
-      if (retryAfterMs !== null) {
-        return { outcome: "rate_limited", retryAfterMs };
-      }
-
-      return { outcome: "failed" };
-    }
+    return this.getSafeMessenger()?.deleteMessageResult(chatId, messageId) ?? { outcome: "failed" };
   }
 
   private async safeDeleteMessage(chatId: string, messageId: number): Promise<boolean> {
-    return isTelegramDeleteCommitted(await this.safeDeleteMessageResult(chatId, messageId));
+    return this.getSafeMessenger()?.deleteMessage(chatId, messageId) ?? false;
   }
 
   private async safePinChatMessage(chatId: string, messageId: number): Promise<boolean> {
-    if (!this.api?.pinChatMessage) {
-      return false;
-    }
-
-    try {
-      await this.api.pinChatMessage(chatId, messageId, { disableNotification: true });
-      await this.logger.info("telegram message pinned", { chatId, messageId });
-      return true;
-    } catch (error) {
-      await this.logger.warn("telegram message pin failed", { chatId, messageId, error: `${error}` });
-      return false;
-    }
+    return this.getSafeMessenger()?.pinChatMessage(chatId, messageId) ?? false;
   }
 
   private async safeUnpinChatMessage(chatId: string, messageId: number): Promise<boolean> {
-    if (!this.api?.unpinChatMessage) {
-      return false;
-    }
-
-    try {
-      await this.api.unpinChatMessage(chatId, messageId);
-      await this.logger.info("telegram message unpinned", { chatId, messageId });
-      return true;
-    } catch (error) {
-      await this.logger.warn("telegram message unpin failed", { chatId, messageId, error: `${error}` });
-      return false;
-    }
+    return this.getSafeMessenger()?.unpinChatMessage(chatId, messageId) ?? false;
   }
 
   private async syncCurrentSessionCardForSession(sessionId: string, reason: string): Promise<void> {
@@ -3980,7 +3707,7 @@ export class BridgeService {
       return;
     }
 
-    const sleepImpl = this.deps.sleep ?? defaultSleep;
+    const sleepImpl = this.deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     await sleepImpl(delayMs);
   }
 }
@@ -4011,79 +3738,6 @@ export async function runBridgeService(importMetaUrl: string): Promise<void> {
 
   await service.run();
 }
-
-function isTelegramMessageNotModifiedError(error: unknown): boolean {
-  if (!(error instanceof TelegramApiError)) {
-    return false;
-  }
-
-  return error.errorCode === 400 && /message is not modified/iu.test(error.description);
-}
-
-function isTelegramMessageDeleteNotFoundError(error: unknown): boolean {
-  if (!(error instanceof TelegramApiError)) {
-    return false;
-  }
-
-  return error.errorCode === 400 && /message to delete not found/iu.test(error.description);
-}
-
-function getTelegramRetryAfterMs(error: unknown): number | null {
-  if (error instanceof TelegramApiError && error.retryAfterSeconds !== null) {
-    return error.retryAfterSeconds * 1000;
-  }
-
-  const message = `${error}`;
-  const retryAfterMatch = message.match(/retry after\s+(\d+)/iu);
-  if (retryAfterMatch) {
-    const retryAfterSeconds = Number.parseInt(retryAfterMatch[1] ?? "", 10);
-    if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
-      return retryAfterSeconds * 1000;
-    }
-  }
-
-  if (/too many requests/iu.test(message)) {
-    return 30_000;
-  }
-
-  return null;
-}
-
-function getTelegramSendRetryDelayMs(error: unknown, attempt: number): number | null {
-  if (attempt >= TELEGRAM_SEND_RETRY_DELAYS_MS.length) {
-    return null;
-  }
-
-  const retryAfterMs = getTelegramRetryAfterMs(error);
-  if (retryAfterMs !== null) {
-    return retryAfterMs <= TELEGRAM_SEND_MAX_RETRY_AFTER_MS ? retryAfterMs : null;
-  }
-
-  const httpStatus = getGenericHttpResponseStatus(error);
-  if (httpStatus !== null && httpStatus >= 400 && httpStatus < 500) {
-    return null;
-  }
-
-  if (error instanceof TelegramApiError) {
-    return null;
-  }
-
-  return TELEGRAM_SEND_RETRY_DELAYS_MS[attempt] ?? null;
-}
-
-function getGenericHttpResponseStatus(error: unknown): number | null {
-  const errorRecord = asRecord(error);
-  const responseRecord = asRecord(errorRecord?.response);
-  const status = getNumber(responseRecord, "status");
-  return typeof status === "number" ? status : null;
-}
-
-function defaultSleep(delayMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, delayMs);
-  });
-}
-
 
 function buildInspectPayloadFromThreadHistory(
   turn: unknown,

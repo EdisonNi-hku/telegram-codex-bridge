@@ -1,5 +1,6 @@
 import type { ActivityStatus } from "../activity/types.js";
 import { classifyNotification } from "../codex/notification-classifier.js";
+import type { EgressDeleteResult, EgressEditResult } from "../packs/contract.js";
 import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 import { normalizeAndTruncate, normalizeNullableText, truncateText } from "../util/text.js";
 export {
@@ -11,17 +12,9 @@ export {
 const RUNTIME_CARD_THROTTLE_MS = 2000;
 const RUNTIME_COMMAND_OUTPUT_LINE_SNAPSHOT_LIMIT = 1024;
 
-export type TelegramEditResult =
-  | { outcome: "edited" }
-  | { outcome: "unchanged" }
-  | { outcome: "rate_limited"; retryAfterMs: number }
-  | { outcome: "failed" };
-
-export type TelegramDeleteResult =
-  | { outcome: "deleted" }
-  | { outcome: "not_found" }
-  | { outcome: "rate_limited"; retryAfterMs: number }
-  | { outcome: "failed" };
+export type TelegramEditResult = EgressEditResult;
+export type TelegramDeleteResult = EgressDeleteResult;
+export type { EgressDeleteResult, EgressEditResult };
 
 export function isTelegramEditCommitted(result: TelegramEditResult): boolean {
   return result.outcome === "edited" || result.outcome === "unchanged";

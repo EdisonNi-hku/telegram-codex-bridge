@@ -26,6 +26,49 @@ export interface PackHealthReport {
   setupChecklist?: string[];
 }
 
+export interface EgressMessageSendResult {
+  messageId: number;
+}
+
+export interface EgressEditResult {
+  outcome: "edited" | "unchanged" | "rate_limited" | "failed";
+  retryAfterMs?: number | null;
+}
+
+export interface EgressDeleteResult {
+  outcome: "deleted" | "not_found" | "rate_limited" | "failed";
+  retryAfterMs?: number | null;
+}
+
+export interface EgressSendMessageOptions {
+  replyMarkup?: unknown;
+  parseMode?: "HTML" | null;
+}
+
+export interface EgressSendPhotoOptions {
+  caption?: string;
+  parseMode?: "HTML";
+}
+
+export interface EgressSendDocumentOptions {
+  caption?: string;
+  parseMode?: "HTML";
+  fileName?: string;
+}
+
+export interface PlatformEgressAdapter {
+  readonly kind: "bot_api" | "open_api";
+
+  sendMessage(chatId: string, text: string, options?: EgressSendMessageOptions): Promise<EgressMessageSendResult>;
+  sendPhoto(chatId: string, photoPath: string, options?: EgressSendPhotoOptions): Promise<EgressMessageSendResult>;
+  sendDocument(chatId: string, filePath: string, options?: EgressSendDocumentOptions): Promise<EgressMessageSendResult>;
+  editMessageText(chatId: string, messageId: number, text: string, options?: EgressSendMessageOptions): Promise<EgressEditResult>;
+  deleteMessage(chatId: string, messageId: number): Promise<EgressDeleteResult>;
+  answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void>;
+  pinChatMessage(chatId: string, messageId: number): Promise<boolean>;
+  unpinChatMessage(chatId: string, messageId: number): Promise<boolean>;
+}
+
 export interface BridgePackRuntime {
   run(): Promise<void>;
   stop(context?: { source?: string; signal?: string | null }): Promise<void>;

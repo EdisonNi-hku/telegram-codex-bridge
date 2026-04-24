@@ -72,10 +72,7 @@ async function createBrokerContext(options: {
     safeSendHtmlMessageResult: async (chatId, html) => {
       sentHtml.push({ chatId, html });
       return {
-        message_id: 100 + sentHtml.length,
-        chat: { id: 1, type: "private" },
-        date: 0,
-        text: html
+        messageId: 100 + sentHtml.length
       } as never;
     },
     safeEditHtmlMessageText: async (chatId, messageId, html) => {

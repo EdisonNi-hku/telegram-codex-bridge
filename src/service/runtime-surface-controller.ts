@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ActivityStatus, CollabAgentStateSnapshot, InspectSnapshot } from "../activity/types.js";
+import type { EgressMessageSendResult } from "../packs/contract.js";
 import {
   createRecentOutputControlsView,
   createRecentOutputEntryView
@@ -68,7 +69,8 @@ import {
   summarizeRuntimeCardSurface,
   summarizeRuntimeCommands,
   type StatusCardState,
-  type TelegramDeleteResult,
+  type EgressDeleteResult,
+  type EgressEditResult,
   type TelegramEditResult
 } from "./runtime-surface-state.js";
 import { dispatchHtmlSurface } from "./surface-dispatcher.js";
@@ -241,25 +243,25 @@ interface RuntimeSurfaceControllerDeps {
     chatId: string,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramMessage | null>;
+  ) => Promise<EgressMessageSendResult | null>;
   safeSendMessageResult: (
     chatId: string,
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramMessage | null>;
+  ) => Promise<EgressMessageSendResult | null>;
   safeEditHtmlMessageText: (
     chatId: string,
     messageId: number,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramEditResult>;
+  ) => Promise<EgressEditResult>;
   safeEditMessageText: (
     chatId: string,
     messageId: number,
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramEditResult>;
-  safeDeleteMessage: (chatId: string, messageId: number) => Promise<TelegramDeleteResult>;
+  ) => Promise<EgressEditResult>;
+  safeDeleteMessage: (chatId: string, messageId: number) => Promise<EgressDeleteResult>;
   safeAnswerCallbackQuery: (callbackQueryId: string, text?: string) => Promise<void>;
   getUiLanguage: () => UiLanguage;
   capabilities: PlatformCapabilitySnapshot;
@@ -644,7 +646,7 @@ export class RuntimeSurfaceController {
     }
 
     if (deleted.outcome === "rate_limited") {
-      this.scheduleRetainedHubDeleteRetry(chatId, currentRetained, deleted.retryAfterMs);
+      this.scheduleRetainedHubDeleteRetry(chatId, currentRetained, deleted.retryAfterMs ?? undefined);
       return;
     }
 
@@ -718,9 +720,13 @@ export class RuntimeSurfaceController {
     }
 
     if (deleted.outcome === "rate_limited") {
-      this.retainHubMessage(chatId, messageId, generation, {
-        retryDelayMs: deleted.retryAfterMs
-      });
+      const retryDelayMs = deleted.retryAfterMs ?? undefined;
+      this.retainHubMessage(
+        chatId,
+        messageId,
+        generation,
+        retryDelayMs === undefined ? undefined : { retryDelayMs }
+      );
       return;
     }
 
@@ -824,7 +830,7 @@ export class RuntimeSurfaceController {
     }
 
     if (deleted.outcome === "rate_limited") {
-      this.scheduleRetainedRuntimeCardDeleteRetry(current, deleted.retryAfterMs);
+      this.scheduleRetainedRuntimeCardDeleteRetry(current, deleted.retryAfterMs ?? undefined);
       return;
     }
 
@@ -893,7 +899,7 @@ export class RuntimeSurfaceController {
       return;
     }
 
-    draft.messageId = sent.message_id;
+    draft.messageId = sent.messageId;
     this.runtimePreferenceDrafts.set(token, draft);
   }
 
@@ -2826,7 +2832,7 @@ export class RuntimeSurfaceController {
           return;
         }
 
-        surface.messageId = sent.message_id;
+        surface.messageId = sent.messageId;
         surface.lastRenderedText = text;
         surface.lastRenderedReplyMarkupKey = replyMarkupKey;
         surface.lastRenderedAtMs = Date.now();
@@ -2889,10 +2895,12 @@ export class RuntimeSurfaceController {
       surface.pendingText = text;
       surface.pendingReplyMarkup = replyMarkup ?? null;
       surface.pendingReason = reason;
+      const retryMs = editResult.outcome === "rate_limited"
+        ? (editResult.retryAfterMs ?? FAILED_EDIT_RETRY_MS)
+        : FAILED_EDIT_RETRY_MS;
       if (editResult.outcome === "rate_limited") {
-        surface.rateLimitUntilAtMs = Date.now() + editResult.retryAfterMs;
+        surface.rateLimitUntilAtMs = Date.now() + retryMs;
       }
-      const retryMs = editResult.outcome === "rate_limited" ? editResult.retryAfterMs : FAILED_EDIT_RETRY_MS;
       await this.logRuntimeCardEvent(activeTurn, surface, "edit_requeued", {
         reason,
         outcome: editResult.outcome,
@@ -2917,7 +2925,7 @@ export class RuntimeSurfaceController {
     }
 
     const replyMarkupKey = serializeReplyMarkup(rendered.replyMarkup);
-    activeTurn.statusCard.messageId = sent.message_id;
+    activeTurn.statusCard.messageId = sent.messageId;
     activeTurn.statusCard.lastRenderedText = rendered.text;
     activeTurn.statusCard.lastRenderedReplyMarkupKey = replyMarkupKey;
     activeTurn.statusCard.lastRenderedAtMs = Date.now();
@@ -2939,7 +2947,7 @@ export class RuntimeSurfaceController {
       preview: summarizeTextPreview(rendered.text)
     });
 
-    if (previousMessageId > 0 && previousMessageId !== sent.message_id) {
+    if (previousMessageId > 0 && previousMessageId !== sent.messageId) {
       await this.deps.safeDeleteMessage(activeTurn.chatId, previousMessageId);
     }
   }
@@ -2994,7 +3002,9 @@ export class RuntimeSurfaceController {
           continue;
         }
 
-        const retryMs = deleted.outcome === "rate_limited" ? deleted.retryAfterMs : FAILED_RUNTIME_CARD_DELETE_RETRY_MS;
+        const retryMs = deleted.outcome === "rate_limited"
+          ? (deleted.retryAfterMs ?? FAILED_RUNTIME_CARD_DELETE_RETRY_MS)
+          : FAILED_RUNTIME_CARD_DELETE_RETRY_MS;
         this.retainRuntimeCardDelete(activeTurn.chatId, messageId, deleted.outcome === "rate_limited"
           ? { retryDelayMs: retryMs }
           : { retryDelayMs: retryMs, failureCount: 1 });
@@ -3214,11 +3224,11 @@ export class RuntimeSurfaceController {
     }
 
     if (hubState.destroyed || generation !== hubState.requestedGeneration) {
-      await this.deleteHubMessage(hubState.chatId, sent.message_id, generation);
+      await this.deleteHubMessage(hubState.chatId, sent.messageId, generation);
       return false;
     }
 
-    hubState.messageId = sent.message_id;
+    hubState.messageId = sent.messageId;
     hubState.lastRenderedText = rendered.text;
     hubState.lastRenderedReplyMarkupKey = serializeReplyMarkup(rendered.replyMarkup);
     hubState.lastRenderedAtMs = Date.now();
@@ -3233,7 +3243,7 @@ export class RuntimeSurfaceController {
     this.commitRuntimeHubVisibleState(hubState, rendered.visibleState);
     this.syncSingleSessionHubState(hubState);
     this.notifyRecoveryHubVisible(hubState);
-    if (previousMessageId > 0 && previousMessageId !== sent.message_id) {
+    if (previousMessageId > 0 && previousMessageId !== sent.messageId) {
       await this.deleteHubMessage(hubState.chatId, previousMessageId, generation);
     }
     return true;
@@ -3618,7 +3628,7 @@ export class RuntimeSurfaceController {
       return false;
     }
 
-    if (messageId > 0 && sent.message_id !== messageId) {
+    if (messageId > 0 && sent.messageId !== messageId) {
       await this.deps.safeDeleteMessage(chatId, messageId);
     }
 
@@ -3654,8 +3664,8 @@ export class RuntimeSurfaceController {
       return;
     }
 
-    this.recentOutputMessageIds.set(chatId, sent.message_id);
-    if (previousMessageId && previousMessageId !== sent.message_id) {
+    this.recentOutputMessageIds.set(chatId, sent.messageId);
+    if (previousMessageId && previousMessageId !== sent.messageId) {
       await this.deps.safeDeleteMessage(chatId, previousMessageId);
     }
   }

@@ -1,6 +1,7 @@
 import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type { BridgeConfig } from "../config.js";
+import { isRetryable } from "../errors.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import { getFeishuPackConfig } from "../packs/feishu/config.js";
@@ -201,9 +202,16 @@ export class FeishuTelegramPollerCompat {
       try {
         await this.onUpdate(update);
       } catch (error) {
-        await this.logger.warn("feishu compat poller failed to handle translated update", {
-          error: `${error}`
-        });
+        if (isRetryable(error)) {
+          await this.logger.warn("feishu compat poller failed to handle translated update", {
+            error: `${error}`
+          });
+        } else {
+          await this.logger.error("feishu compat poller failed with fatal error handling update; stopping poller", {
+            error: `${error}`
+          });
+          this.running = false;
+        }
       }
     }
   }

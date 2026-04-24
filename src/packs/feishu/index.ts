@@ -14,6 +14,7 @@ import { extractFeishuSdkErrorDetails, FeishuTelegramApiCompat, resolveFeishuSdk
 import { FeishuTelegramPollerCompat } from "../../feishu/poller.js";
 import { BridgeService } from "../../service.js";
 import type { BridgePackDefinition, PackHealthReport } from "../contract.js";
+import { FeishuEgressAdapter } from "./egress-adapter.js";
 import {
   FEISHU_PACK_DISPLAY_NAME,
   FEISHU_PACK_SKILL_NAME,
@@ -417,6 +418,7 @@ export const FEISHU_PACK: BridgePackDefinition<FeishuPackConfig> = {
         onUpdate
       ) as never,
     dynamicToolDeclarations: createDynamicToolDeclarations(FEISHU_DYNAMIC_TOOLS),
-    interpretPackServerRequest: interpretFeishuServerRequest
+    interpretPackServerRequest: interpretFeishuServerRequest,
+    createEgressAdapter: (api) => new FeishuEgressAdapter(api as unknown as FeishuTelegramApiCompat)
   })
 };

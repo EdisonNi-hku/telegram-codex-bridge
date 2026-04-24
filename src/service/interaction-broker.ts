@@ -13,6 +13,7 @@ import {
   type QuestionnaireDraft
 } from "../core/workflow/interaction-support.js";
 import type { BridgeStateStore } from "../state/store.js";
+import type { EgressMessageSendResult } from "../packs/contract.js";
 import type { TelegramInlineKeyboardMarkup, TelegramMessage } from "../telegram/api.js";
 import {
   buildInteractionApprovalCard,
@@ -26,7 +27,7 @@ import { SKIP_QUESTION_OPTION_VALUE, type NormalizedInteraction, type Normalized
 import { parseBooleanLike } from "../util/boolean.js";
 import { asRecord, getStringArray } from "../util/untyped.js";
 import { executeTelegramHtmlSurfaceOperation } from "../telegram/surface-adapter.js";
-import { isTelegramEditCommitted, type TelegramEditResult } from "./runtime-surface-state.js";
+import { isTelegramEditCommitted, type EgressEditResult } from "./runtime-surface-state.js";
 import { nowIso } from "../util/time.js";
 
 export interface PendingInteractionTextMode {
@@ -85,13 +86,13 @@ interface InteractionBrokerDeps {
     chatId: string,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ): Promise<TelegramMessage | null>;
+  ): Promise<EgressMessageSendResult | null>;
   safeEditHtmlMessageText(
     chatId: string,
     messageId: number,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ): Promise<TelegramEditResult>;
+  ): Promise<EgressEditResult>;
   safeAnswerCallbackQuery(callbackQueryId: string, text?: string): Promise<void>;
   appendInteractionCreatedJournal(row: PendingInteractionRow): Promise<void>;
   appendInteractionResolvedJournal(

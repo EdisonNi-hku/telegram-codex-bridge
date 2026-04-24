@@ -11,6 +11,7 @@ import type {
   ControlSurfaceFileResult,
   ControlSurfaceImageResult
 } from "../core/interaction-model/platform-actions.js";
+import type { EgressMessageSendResult } from "../packs/contract.js";
 import { TELEGRAM_PACK } from "../packs/telegram/index.js";
 import { BridgeStateStore } from "../state/store.js";
 import { TurnCoordinator } from "./turn-coordinator.js";
@@ -72,7 +73,7 @@ async function createCoordinatorContext(options: {
     replyMarkup?: {
       inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
     }
-  ) => Promise<{ message_id: number } | null>;
+  ) => Promise<EgressMessageSendResult | null>;
   sendControlSurfaceFile?: (
     chatId: string,
     filePath: string,
@@ -264,7 +265,7 @@ async function createCoordinatorContext(options: {
       }
 
       sentHtmlMessages.push(replyMarkup ? { chatId, html, replyMarkup } : { chatId, html });
-      return { message_id: nextMessageId++ };
+      return { messageId: nextMessageId++ };
     },
     handleGlobalRuntimeNotice: async () => {},
     handleThreadArchiveNotification: async () => {}
@@ -1712,7 +1713,7 @@ test("TurnCoordinator leaves a deferred terminal notice when final answer delive
     },
     safeSendHtmlMessageResult: async (_chatId, _html, _replyMarkup) => {
       sendAttempt += 1;
-      return sendAttempt === 1 ? null : { message_id: 1 };
+      return sendAttempt === 1 ? null : { messageId: 1 };
     }
   });
 

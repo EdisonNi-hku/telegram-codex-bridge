@@ -173,6 +173,50 @@ export function buildConfigEnvironment(config: BridgeConfig): Record<string, str
   return env;
 }
 
+export function validateConfig(config: BridgeConfig): void {
+  const errors: string[] = [];
+
+  if (typeof config.codexBin !== "string" || config.codexBin.trim().length === 0) {
+    errors.push("CODEX_BIN is required; set it in bridge.env or as an environment variable");
+  }
+
+  function checkPositiveInt(value: number, name: string, min: number): void {
+    if (!Number.isFinite(value) || !Number.isInteger(value) || value < min) {
+      errors.push(`${name} must be an integer >= ${min} (got: ${JSON.stringify(value)})`);
+    }
+  }
+
+  checkPositiveInt(config.perfMonitorSampleIntervalMs, "PERF_MONITOR_SAMPLE_INTERVAL_MS", 100);
+  checkPositiveInt(config.perfMonitorRetentionDays, "PERF_MONITOR_RETENTION_DAYS", 1);
+
+  if (config.appServerGuardEnabled) {
+    checkPositiveInt(
+      config.appServerGuardSampleIntervalMs ?? 0,
+      "APP_SERVER_GUARD_SAMPLE_INTERVAL_MS",
+      1000
+    );
+    checkPositiveInt(
+      config.appServerGuardMcpWorkerThreshold ?? 0,
+      "APP_SERVER_GUARD_MCP_WORKER_THRESHOLD",
+      1
+    );
+    checkPositiveInt(
+      config.appServerGuardConsecutiveWindows ?? 0,
+      "APP_SERVER_GUARD_CONSECUTIVE_WINDOWS",
+      1
+    );
+    checkPositiveInt(
+      config.appServerGuardCooldownMs ?? -1,
+      "APP_SERVER_GUARD_COOLDOWN_MS",
+      0
+    );
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid configuration:\n${errors.map((e) => `  - ${e}`).join("\n")}`);
+  }
+}
+
 export async function loadConfig(paths: BridgePaths): Promise<BridgeConfig> {
   let envFile: Record<string, string> = {};
 
@@ -233,7 +277,7 @@ export async function loadConfig(paths: BridgePaths): Promise<BridgeConfig> {
     })
   ) as Partial<Record<BridgePackName, unknown>>;
 
-  return {
+  const config: BridgeConfig = {
     activePack,
     shared,
     packs,
@@ -255,6 +299,9 @@ export async function loadConfig(paths: BridgePaths): Promise<BridgeConfig> {
       shared.appServerGuardConsecutiveWindows ?? DEFAULT_SHARED_CONFIG.appServerGuardConsecutiveWindows,
     appServerGuardCooldownMs: shared.appServerGuardCooldownMs ?? DEFAULT_SHARED_CONFIG.appServerGuardCooldownMs
   };
+
+  validateConfig(config);
+  return config;
 }
 
 export async function writeConfig(paths: BridgePaths, config: BridgeConfig): Promise<void> {
@@ -304,7 +351,7 @@ export function withInstallOverrides(current: BridgeConfig, overrides: BridgeIns
     overrides.packOptions ?? {}
   );
 
-  return {
+  const config: BridgeConfig = {
     activePack,
     shared,
     packs,
@@ -326,4 +373,7 @@ export function withInstallOverrides(current: BridgeConfig, overrides: BridgeIns
       shared.appServerGuardConsecutiveWindows ?? DEFAULT_SHARED_CONFIG.appServerGuardConsecutiveWindows,
     appServerGuardCooldownMs: shared.appServerGuardCooldownMs ?? DEFAULT_SHARED_CONFIG.appServerGuardCooldownMs
   };
+
+  validateConfig(config);
+  return config;
 }

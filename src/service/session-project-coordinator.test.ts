@@ -96,7 +96,7 @@ async function createCoordinatorContext(options?: {
       const messageId = nextMessageId;
       sentMessages.push({ messageId, text, html: false, replyMarkup });
       nextMessageId += 1;
-      return { message_id: messageId };
+      return { messageId };
     },
     safeSendHtmlMessage: async (_chatId, text, replyMarkup) => {
       sentMessages.push({ messageId: nextMessageId, text, html: true, replyMarkup });
@@ -107,7 +107,7 @@ async function createCoordinatorContext(options?: {
       const messageId = nextMessageId;
       sentMessages.push({ messageId, text, html: true, replyMarkup });
       nextMessageId += 1;
-      return { message_id: messageId };
+      return { messageId };
     },
     safeEditMessageText: async (_chatId, messageId, text) => {
       editedMessages.push({ messageId, text, html: false });
@@ -449,12 +449,12 @@ test("handleArchive keeps using the original store after remote archive mirrorin
         sentMessages.push({ text, html: false });
         return true;
       },
-      safeSendMessageResult: async () => ({ message_id: 1 }),
+      safeSendMessageResult: async () => ({ messageId: 1 }),
       safeSendHtmlMessage: async (_chatId, text) => {
         sentMessages.push({ text, html: true });
         return true;
       },
-      safeSendHtmlMessageResult: async () => ({ message_id: 1 }),
+      safeSendHtmlMessageResult: async () => ({ messageId: 1 }),
       safeEditMessageText: async () => ({ outcome: "edited" }),
       safeEditHtmlMessageText: async () => ({ outcome: "edited" }),
       safeDeleteMessage: async () => ({ outcome: "deleted" }),

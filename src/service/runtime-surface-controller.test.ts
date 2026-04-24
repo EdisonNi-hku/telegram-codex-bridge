@@ -7,7 +7,8 @@ import { join } from "node:path";
 import type { ActivityStatus, InspectSnapshot } from "../activity/types.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
-import type { TelegramInlineKeyboardMarkup, TelegramMessage } from "../telegram/api.js";
+import type { EgressMessageSendResult } from "../packs/contract.js";
+import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 import { TELEGRAM_SURFACE_CAPABILITY_SNAPSHOT } from "../telegram/surface-adapter.js";
 import { parseCallbackData } from "../telegram/ui.js";
 import { BridgeStateStore } from "../state/store.js";
@@ -52,16 +53,8 @@ function createTestPaths(root: string): BridgePaths {
   };
 }
 
-function createFakeTelegramMessage(messageId: number, text: string) {
-  return {
-    message_id: messageId,
-    chat: {
-      id: 1,
-      type: "private" as const
-    },
-    date: 0,
-    text
-  };
+function createFakeEgressMessage(messageId: number): EgressMessageSendResult {
+  return { messageId };
 }
 
 function createActivityStatus(overrides: Partial<ActivityStatus> = {}): ActivityStatus {
@@ -169,7 +162,7 @@ async function createControllerContext(options: {
     chatId: string,
     html: string,
     replyMarkup?: TelegramInlineKeyboardMarkup
-  ) => Promise<TelegramMessage | null>;
+  ) => Promise<EgressMessageSendResult | null>;
   safeEditHtmlMessageText?: (
     chatId: string,
     messageId: number,
@@ -224,9 +217,9 @@ async function createControllerContext(options: {
       sentHtml.push(replyMarkup
         ? { chatId, messageId, html, replyMarkup }
         : { chatId, messageId, html });
-      return createFakeTelegramMessage(messageId, html);
+      return createFakeEgressMessage(messageId);
     },
-    safeSendMessageResult: async (chatId, text) => createFakeTelegramMessage(nextMessageId++, `${chatId}:${text}`),
+    safeSendMessageResult: async () => createFakeEgressMessage(nextMessageId++),
     safeEditHtmlMessageText: async (chatId, messageId, html, replyMarkup) => {
       editedHtml.push(replyMarkup
         ? { chatId, messageId, html, replyMarkup }
@@ -2887,7 +2880,7 @@ test("RuntimeSurfaceController compacts oversized recovery hubs before Telegram 
       if (replyMarkup) {
         deliveredReplyMarkup.push(replyMarkup);
       }
-      return createFakeTelegramMessage(1700, html);
+      return createFakeEgressMessage(1700);
     }
   });
 
@@ -2939,7 +2932,7 @@ test("RuntimeSurfaceController retries recovery hub delivery after a transient s
         return null;
       }
 
-      return createFakeTelegramMessage(1700, html);
+      return createFakeEgressMessage(1700);
     },
     handleRecoveryHubVisible: (chatId) => {
       recoveryHubVisibleChats.push(chatId);
@@ -3235,7 +3228,7 @@ test("RuntimeSurfaceController keeps the visible expanded hub actionable when co
 
       const messageId = nextMessageId++;
       sendCalls.push({ messageId, html });
-      return createFakeTelegramMessage(messageId, html);
+      return createFakeEgressMessage(messageId);
     },
     safeEditHtmlMessageText: async (_chatId, messageId, html) => {
       editCalls.push({ messageId, html });
@@ -3350,7 +3343,7 @@ test("RuntimeSurfaceController keeps expanded hub plan sections when the slimmer
     safeSendHtmlMessageResult: async (_chatId, html, replyMarkup) => {
       const messageId = nextMessageId++;
       sendCalls.push(replyMarkup ? { messageId, html, replyMarkup } : { messageId, html });
-      return createFakeTelegramMessage(messageId, html);
+      return createFakeEgressMessage(messageId);
     },
     safeEditHtmlMessageText: async (_chatId, messageId, html, replyMarkup) => {
       editCalls.push(replyMarkup ? { messageId, html, replyMarkup } : { messageId, html });

@@ -70,7 +70,7 @@ async function createControllerContext() {
     safeSendHtmlMessageResult: async (chatId, text) => {
       const messageId = nextMessageId++;
       sent.push({ chatId, text });
-      return { message_id: messageId };
+      return { messageId };
     },
     safeEditHtmlMessageText: async (chatId, messageId, text) => {
       edited.push({ chatId, messageId, text });

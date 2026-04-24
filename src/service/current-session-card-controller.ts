@@ -2,20 +2,21 @@ import type { Logger } from "../logger.js";
 import type { BridgeStateStore } from "../state/store.js";
 import { buildCurrentSessionCardText } from "../telegram/ui.js";
 import type { ReasoningEffort, SessionRow, UiLanguage } from "../types.js";
+import type { EgressMessageSendResult } from "../packs/contract.js";
 import {
   isTelegramDeleteCommitted,
   isTelegramEditCommitted,
-  type TelegramDeleteResult,
-  type TelegramEditResult
+  type EgressDeleteResult,
+  type EgressEditResult
 } from "./runtime-surface-state.js";
 
 interface CurrentSessionCardControllerDeps {
   logger: Pick<Logger, "warn">;
   getStore: () => BridgeStateStore | null;
   getUiLanguage: () => UiLanguage;
-  safeSendHtmlMessageResult: (chatId: string, html: string) => Promise<{ message_id: number } | null>;
-  safeEditHtmlMessageText: (chatId: string, messageId: number, html: string) => Promise<TelegramEditResult>;
-  safeDeleteMessage: (chatId: string, messageId: number) => Promise<TelegramDeleteResult>;
+  safeSendHtmlMessageResult: (chatId: string, html: string) => Promise<EgressMessageSendResult | null>;
+  safeEditHtmlMessageText: (chatId: string, messageId: number, html: string) => Promise<EgressEditResult>;
+  safeDeleteMessage: (chatId: string, messageId: number) => Promise<EgressDeleteResult>;
   safePinChatMessage: (chatId: string, messageId: number) => Promise<boolean>;
   safeUnpinChatMessage: (chatId: string, messageId: number) => Promise<boolean>;
   resolveSessionModelState: (session: SessionRow) => Promise<{
@@ -59,11 +60,11 @@ export class CurrentSessionCardController {
         nextMessageId = existingMessageId;
       } else {
         const sent = await this.deps.safeSendHtmlMessageResult(chatId, html);
-        nextMessageId = sent?.message_id ?? null;
+        nextMessageId = sent?.messageId ?? null;
       }
     } else {
       const sent = await this.deps.safeSendHtmlMessageResult(chatId, html);
-      nextMessageId = sent?.message_id ?? null;
+      nextMessageId = sent?.messageId ?? null;
     }
 
     if (!nextMessageId || nextMessageId <= 0) {

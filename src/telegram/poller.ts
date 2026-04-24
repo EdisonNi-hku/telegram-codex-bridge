@@ -3,9 +3,12 @@ import { dirname, basename, join } from "node:path";
 
 import type { BridgePaths } from "../paths.js";
 import type { BridgeConfig } from "../config.js";
+import { isRetryable } from "../errors.js";
 import type { Logger } from "../logger.js";
 import { getTelegramPackConfig } from "../packs/telegram/config.js";
 import { TelegramApi, type TelegramUpdate } from "./api.js";
+
+const MAX_CONSECUTIVE_TRANSIENT_ERRORS = 100;
 
 function isValidOffset(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -87,6 +90,7 @@ export class TelegramPoller {
     this.running = true;
     const telegramConfig = getTelegramPackConfig(this.config);
     let offset = await readOffset(this.paths, this.logger);
+    let consecutiveTransientErrors = 0;
 
     while (this.running) {
       try {
@@ -101,8 +105,31 @@ export class TelegramPoller {
         if (updates.length === 0) {
           await sleep(telegramConfig.pollIntervalMs);
         }
+
+        consecutiveTransientErrors = 0;
       } catch (error) {
-        await this.logger.warn("telegram polling failed", { error: `${error}` });
+        if (!isRetryable(error)) {
+          await this.logger.error("telegram polling failed with fatal error; stopping poller", {
+            error: `${error}`
+          });
+          this.running = false;
+          break;
+        }
+
+        consecutiveTransientErrors++;
+        if (consecutiveTransientErrors >= MAX_CONSECUTIVE_TRANSIENT_ERRORS) {
+          await this.logger.error(
+            "telegram polling exceeded max consecutive transient errors; stopping poller",
+            { consecutiveErrors: consecutiveTransientErrors, error: `${error}` }
+          );
+          this.running = false;
+          break;
+        }
+
+        await this.logger.warn("telegram polling failed", {
+          error: `${error}`,
+          consecutiveErrors: consecutiveTransientErrors
+        });
         await sleep(telegramConfig.pollIntervalMs);
       }
     }
