@@ -3,7 +3,7 @@ import { dirname, basename, join } from "node:path";
 
 import type { BridgePaths } from "../paths.js";
 import type { BridgeConfig } from "../config.js";
-import { isRetryable } from "../errors.js";
+import { isRetryable, TransientError } from "../errors.js";
 import type { Logger } from "../logger.js";
 import { getTelegramPackConfig } from "../packs/telegram/config.js";
 import { TelegramApi, type TelegramUpdate } from "./api.js";
@@ -113,7 +113,7 @@ export class TelegramPoller {
             error: `${error}`
           });
           this.running = false;
-          break;
+          throw error;
         }
 
         consecutiveTransientErrors++;
@@ -123,7 +123,9 @@ export class TelegramPoller {
             { consecutiveErrors: consecutiveTransientErrors, error: `${error}` }
           );
           this.running = false;
-          break;
+          throw new TransientError(
+            `telegram polling exceeded max consecutive transient errors (${consecutiveTransientErrors}); last error: ${error}`
+          );
         }
 
         await this.logger.warn("telegram polling failed", {

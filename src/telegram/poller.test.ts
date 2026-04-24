@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { BridgeConfig } from "../config.js";
+import { FatalError } from "../errors.js";
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
 import { TelegramPoller, readOffset, writeOffset } from "./poller.js";
@@ -44,15 +45,56 @@ function createTestPaths(root: string): BridgePaths {
 
 function createCollectingLogger() {
   const warnings: Array<Record<string, unknown> | undefined> = [];
+  const errors: Array<Record<string, unknown> | undefined> = [];
   const logger: Logger = {
     info: async () => {},
     warn: async (_message, meta) => {
       warnings.push(meta);
     },
-    error: async () => {}
+    error: async (_message, meta) => {
+      errors.push(meta);
+    }
   };
 
-  return { logger, warnings };
+  return { logger, warnings, errors };
+}
+
+function createPollerConfig(options: {
+  pollTimeoutSeconds?: number;
+  pollIntervalMs?: number;
+} = {}): BridgeConfig {
+  return {
+    activePack: "telegram",
+    shared: {
+      activePack: "telegram",
+      codexBin: "codex",
+      projectScanRoots: [],
+      voiceInputEnabled: false,
+      voiceOpenaiApiKey: "",
+      voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+      voiceFfmpegBin: "ffmpeg",
+      perfMonitorEnabled: false,
+      perfMonitorSampleIntervalMs: 15_000,
+      perfMonitorRetentionDays: 7
+    },
+    packs: {
+      telegram: {
+        botToken: "token",
+        apiBaseUrl: "https://api.telegram.org",
+        pollTimeoutSeconds: options.pollTimeoutSeconds ?? 1,
+        pollIntervalMs: options.pollIntervalMs ?? 0
+      }
+    },
+    codexBin: "codex",
+    projectScanRoots: [],
+    voiceInputEnabled: false,
+    voiceOpenaiApiKey: "",
+    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
+    voiceFfmpegBin: "ffmpeg",
+    perfMonitorEnabled: false,
+    perfMonitorSampleIntervalMs: 15_000,
+    perfMonitorRetentionDays: 7
+  };
 }
 
 async function createOffsetFixture(): Promise<{ paths: BridgePaths; cleanup: () => Promise<void> }> {
@@ -109,38 +151,7 @@ test("readOffset recovers from a corrupted offset file", async () => {
 test("TelegramPoller.run survives a corrupted offset file at startup", async () => {
   const { paths, cleanup } = await createOffsetFixture();
   const { logger } = createCollectingLogger();
-  const config: BridgeConfig = {
-    activePack: "telegram",
-    shared: {
-      activePack: "telegram",
-      codexBin: "codex",
-      projectScanRoots: [],
-      voiceInputEnabled: false,
-      voiceOpenaiApiKey: "",
-      voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
-      voiceFfmpegBin: "ffmpeg",
-      perfMonitorEnabled: false,
-      perfMonitorSampleIntervalMs: 15_000,
-      perfMonitorRetentionDays: 7
-    },
-    packs: {
-      telegram: {
-        botToken: "token",
-        apiBaseUrl: "https://api.telegram.org",
-        pollTimeoutSeconds: 1,
-        pollIntervalMs: 0
-      }
-    },
-    codexBin: "codex",
-    projectScanRoots: [],
-    voiceInputEnabled: false,
-    voiceOpenaiApiKey: "",
-    voiceOpenaiTranscribeModel: "gpt-4o-mini-transcribe",
-    voiceFfmpegBin: "ffmpeg",
-    perfMonitorEnabled: false,
-    perfMonitorSampleIntervalMs: 15_000,
-    perfMonitorRetentionDays: 7
-  };
+  const config = createPollerConfig();
 
   try {
     await writeFile(paths.offsetPath, "{\"offset\":", "utf8");
@@ -159,6 +170,57 @@ test("TelegramPoller.run survives a corrupted offset file at startup", async () 
     await poller.run();
 
     assert.equal(polledOffset, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TelegramPoller.run rejects on fatal polling errors so supervisors can restart or surface failure", async () => {
+  const { paths, cleanup } = await createOffsetFixture();
+  const { logger, errors } = createCollectingLogger();
+  let attempts = 0;
+  const api = {
+    getUpdates: async () => {
+      attempts += 1;
+      throw new FatalError("invalid telegram polling state");
+    }
+  } as unknown as ConstructorParameters<typeof TelegramPoller>[0];
+  const poller = new TelegramPoller(api, createPollerConfig(), paths, logger, async () => {});
+
+  try {
+    await assert.rejects(
+      poller.run(),
+      /invalid telegram polling state/u
+    );
+
+    assert.equal(attempts, 1);
+    assert.equal(errors.length, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TelegramPoller.run rejects after the transient polling retry budget is exhausted", async () => {
+  const { paths, cleanup } = await createOffsetFixture();
+  const { logger, errors } = createCollectingLogger();
+  let attempts = 0;
+  const api = {
+    getUpdates: async () => {
+      attempts += 1;
+      throw new Error("network still unavailable");
+    }
+  } as unknown as ConstructorParameters<typeof TelegramPoller>[0];
+  const poller = new TelegramPoller(api, createPollerConfig({ pollIntervalMs: 0 }), paths, logger, async () => {});
+
+  try {
+    await assert.rejects(
+      poller.run(),
+      /telegram polling exceeded max consecutive transient errors/u
+    );
+
+    assert.equal(attempts, 100);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0]?.consecutiveErrors, 100);
   } finally {
     await cleanup();
   }
