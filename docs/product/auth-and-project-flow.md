@@ -255,6 +255,27 @@ Rules:
 - background running sessions keep their own runtime card and final-answer delivery
 - subsequent free-text user input targets the newly active session
 
+### `/resume`
+
+Shows:
+- title `可恢复的 Codex 会话（第 N 页）`
+- Codex history sessions for the active session's project path
+- one numeric button per visible Codex history session
+- `上一页`, `下一页`, and `关闭` buttons when applicable
+
+Selection behavior:
+- tapping a numeric button restores the matching Codex thread into a bridge session and makes it active
+- if the Codex thread already maps to a visible or archived session in the same chat, the bridge switches to that session and unarchives it when needed
+- `/resume <n>` is a text fallback for selecting the same numbered item
+
+Rules:
+- bare `/resume` is scoped to the current active project's path, matching the default `codex resume` picker behavior
+- `/resume all` shows Codex history sessions across project paths
+- `/resume page <n>` and `/resume all page <n>` are text fallbacks for pagination
+- without an active session, bare `/resume` asks the user to choose a project first or use `/resume all`
+- if a Codex thread is already bound to another chat, the bridge refuses to attach it to the current chat
+- restored sessions preserve the resumed thread id, latest turn metadata, selected model, and selected reasoning effort when Codex provides them
+
 ### `/archive`
 
 Responses:

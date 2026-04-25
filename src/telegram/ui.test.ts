@@ -602,7 +602,7 @@ test("project browser directory message renders entries and browse callbacks", (
     entryIndex: 6
   });
   assert.deepEqual(parseCallbackData(rendered.replyMarkup.inline_keyboard.at(-2)?.[0]?.callback_data ?? ""), {
-    kind: "browse_resume",
+    kind: "browse_up",
     token: "tok123"
   });
   assert.deepEqual(parseCallbackData(rendered.replyMarkup.inline_keyboard.at(-1)?.[1]?.callback_data ?? ""), {
@@ -1633,10 +1633,7 @@ test("parseCallbackData understands compact and legacy v3 interaction callbacks"
     kind: "browse_use_current_dir_cancel",
     token: "tok123"
   });
-  assert.deepEqual(parseCallbackData("v5:br:z:tok123"), {
-    kind: "browse_resume",
-    token: "tok123"
-  });
+  assert.equal(parseCallbackData("v5:br:z:tok123"), null);
   assert.deepEqual(parseCallbackData("v7:rr:o:answer-1"), {
     kind: "recent_output_open",
     answerId: "answer-1"
