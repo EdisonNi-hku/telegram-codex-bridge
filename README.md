@@ -25,7 +25,7 @@ source_of_truth:
   <a href="https://github.com/InDreamer/telegram-codex-bridge/actions/workflows/ci.yml"><img src="https://github.com/InDreamer/telegram-codex-bridge/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI"></a>
   <a href="https://github.com/InDreamer/telegram-codex-bridge/stargazers"><img src="https://img.shields.io/github/stars/InDreamer/telegram-codex-bridge?style=flat" alt="GitHub stars"></a>
   <a href="https://github.com/InDreamer/telegram-codex-bridge/releases"><img src="https://img.shields.io/github/v/release/InDreamer/telegram-codex-bridge?include_prereleases&label=version" alt="Version"></a>
-  <img src="https://img.shields.io/badge/node-%E2%89%A525-brightgreen" alt="Node >= 25">
+  <img src="https://img.shields.io/badge/node-%E2%89%A524-brightgreen" alt="Node >= 24">
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos-blue" alt="Platform">
 </p>
 
@@ -51,7 +51,7 @@ flowchart LR
 
 ## Quick Install
 
-### Recommended: Let Codex set it up
+### Default: Telegram skill path
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/InDreamer/telegram-codex-bridge/master/scripts/install-skill-from-github.sh | bash
@@ -63,13 +63,40 @@ Then tell Codex:
 Use $telegram-codex-linker to set up my Telegram bridge.
 ```
 
-The skill handles everything — bridge install, token collection, authorization, and verification. This quick path keeps the Telegram default; pack-aware install/admin docs cover Feishu setup.
+The skill handles bridge install, token collection, authorization, and verification. This is the default quick path because Telegram is the stable first pack.
+
+### Feishu pack path
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/InDreamer/telegram-codex-bridge/master/scripts/install-skill-from-github.sh | bash -s -- --pack feishu
+```
+
+Then tell Codex:
+
+```
+Use $feishu-codex-linker to set up my Feishu bridge.
+```
+
+Feishu setup requires a Feishu self-built app, `FEISHU_APP_ID` / `FEISHU_APP_SECRET`, long connection, message receive events, and card callbacks. Use the pack-aware admin docs for the exact checklist and verification flow; do not assume every Telegram UX is equally native in Feishu.
 
 ### Alternative: Direct install
 
+Telegram default:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/InDreamer/telegram-codex-bridge/master/scripts/install-from-github.sh | bash -s -- \
+  --pack telegram \
   --telegram-token "<YOUR_BOT_TOKEN>" \
+  --project-scan-roots "$HOME/projects:$HOME/work"
+```
+
+Feishu:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/InDreamer/telegram-codex-bridge/master/scripts/install-from-github.sh | bash -s -- \
+  --pack feishu \
+  --pack-option app-id="<FEISHU_APP_ID>" \
+  --pack-option app-secret="<FEISHU_APP_SECRET>" \
   --project-scan-roots "$HOME/projects:$HOME/work"
 ```
 
@@ -78,7 +105,7 @@ curl -fsSL https://raw.githubusercontent.com/InDreamer/telegram-codex-bridge/mas
 - An always-on Linux or macOS machine
 - An existing [Codex](https://codex.new) installation
 - A Telegram bot token for the default pack (from [@BotFather](https://t.me/BotFather)), or the matching credentials for another supported pack
-- Node >= 25 (if building from source)
+- Node >= 24 (if building from source)
 
 ## Who This Is For
 
@@ -155,7 +182,7 @@ The `ctb` CLI manages your bridge:
 ```bash
 ctb service run         # Start the bridge
 ctb status              # Health check
-ctb authorize pending   # Bind your Telegram account (one-time)
+ctb authorize pending   # Bind your active-pack account (one-time)
 ctb doctor              # Run diagnostics
 ctb update              # Self-update
 ```

@@ -35,9 +35,10 @@ The bridge is not a second Codex environment, not a provider-management layer, a
 
 ## In Scope
 
-- single authorized Telegram user
-- Telegram private chat only
+- stable Telegram baseline: single authorized Telegram user
+- stable Telegram baseline: Telegram private chat only
 - one bridge service per server
+- Feishu can be selected as the active current pack, with its capability and setup completeness judged by the pack-aware docs rather than by this Telegram baseline list
 - reuse the server's existing Codex environment
 - project-aware session startup
 - read-only project file browsing for the active session, including directory navigation plus text and image preview inside the current project root

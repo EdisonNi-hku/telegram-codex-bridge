@@ -59,7 +59,7 @@ documents:
     role: domain
     layer: 2
     parent: docs/INDEX.md
-    summary: router for install, configuration, service management, update, and diagnostics docs
+    summary: router for install, active-pack selection, configuration, service management, update, and diagnostics docs
   - path: docs/research/README.md
     role: domain
     layer: 2
@@ -144,7 +144,7 @@ documents:
     role: leaf
     layer: 3
     parent: docs/operations/README.md
-    summary: current install, config, service-management, pack selection, update, and diagnostics contract for operators
+    summary: current install, config, service-management, active-pack selection, update, and diagnostics contract for operators
   - path: docs/generated/current-snapshot.md
     role: leaf
     layer: 2

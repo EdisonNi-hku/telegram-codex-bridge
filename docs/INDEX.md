@@ -33,7 +33,7 @@ Open one domain, then one leaf, then stop.
 
 - `docs/product/README.md` - current Codex Console product behavior, including Telegram-first scope, commands, and callback UX.
 - `docs/architecture/README.md` - current runtime shape, bridge-versus-platform decoupling status, state model, pack boundary, capability matrix, and code ownership.
-- `docs/operations/README.md` - install, config, service, update, and diagnostics.
+- `docs/operations/README.md` - install, active-pack selection, config, service, update, and diagnostics.
 - `docs/generated/current-snapshot.md` - exact version baselines and other high-drift facts.
 
 ## Protocol Evidence

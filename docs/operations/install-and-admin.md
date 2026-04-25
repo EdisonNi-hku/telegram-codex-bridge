@@ -41,6 +41,13 @@ Actual admin and runtime surface:
 Current pack rule:
 - `BRIDGE_PACK` defaults to `telegram`
 - current install, readiness, and skill-install flows are pack-aware even though the default shipped product truth remains Telegram-first
+- Telegram is the default quick-start pack; Feishu is a current pack with separate Feishu Open Platform setup requirements
+
+Pack setup quick reference:
+- Telegram direct install can use `--pack telegram --telegram-token <token>`; `--telegram-token` is the compatibility shortcut for the Telegram pack's bot token option
+- Feishu direct install can use `--pack feishu --pack-option app-id=<id> --pack-option app-secret=<secret>`; the equivalent persisted env keys are `FEISHU_APP_ID` and `FEISHU_APP_SECRET`
+- Feishu operators must also configure the Feishu app side: bot ability, long connection, `im.message.receive_v1`, `card.action.trigger`, upload permissions when file/image delivery is needed, and then publish the latest app version
+- for pack-specific setup beyond the options listed here, use the active pack's bundled Codex skill and `ctb doctor` output rather than inventing extra CLI flags
 
 Node requirement:
 - Node `>=24.0.0`
@@ -216,26 +223,45 @@ Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/InDre
 powershell -ExecutionPolicy Bypass -File $script
 ```
 
-Then in Codex:
+Then in Codex for the default Telegram pack:
 
 ```text
 Use $telegram-codex-linker to set up my Telegram bridge.
+```
+
+For Feishu, install the Feishu setup skill instead:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/InDreamer/telegram-codex-bridge/master/scripts/install-skill-from-github.sh | bash -s -- --pack feishu
+```
+
+Then in Codex:
+
+```text
+Use $feishu-codex-linker to set up my Feishu bridge.
 ```
 
 Pack-aware variants:
 - `install-skill-from-github.sh --pack feishu` installs the Feishu setup skill instead of the default Telegram one
 - `install-from-github.sh --pack <name>` forwards the selected pack into `ctb install`
 - repeated `--pack-option key=value` entries are forwarded into the active pack's install codec
+- current Feishu install options are `app-id`, `app-secret`, and `api-base-url`
 
 Reason:
 - install the skill once
 - let the skill take over bridge install, repair, token collection, authorization, and verification
 - interrupt the user only for unavoidable external actions such as providing platform credentials or messaging the bot once
 
-Bridge install from GitHub:
+Telegram bridge install from GitHub:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/InDreamer/telegram-codex-bridge/master/scripts/install-from-github.sh | bash -s -- --pack telegram --telegram-token "<BOT_TOKEN>" --project-scan-roots "$HOME/projects:$HOME/work"
+```
+
+Feishu bridge install from GitHub:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/InDreamer/telegram-codex-bridge/master/scripts/install-from-github.sh | bash -s -- --pack feishu --pack-option app-id="<FEISHU_APP_ID>" --pack-option app-secret="<FEISHU_APP_SECRET>" --project-scan-roots "$HOME/projects:$HOME/work"
 ```
 
 Windows bridge install from GitHub:
