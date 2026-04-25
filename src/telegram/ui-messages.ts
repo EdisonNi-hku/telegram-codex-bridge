@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+
 import type {
   ProjectCandidate,
   ProjectPickerResult,
@@ -23,7 +25,10 @@ import {
   encodePickCallback,
   encodeRenameProjectCallback,
   encodeRenameProjectClearCallback,
-  encodeRenameSessionCallback
+  encodeRenameSessionCallback,
+  encodeResumeCloseCallback,
+  encodeResumePageCallback,
+  encodeResumePickCallback
 } from "./ui-callbacks.js";
 import {
   chunkButtons,
@@ -412,6 +417,109 @@ export function buildSessionCreatedText(sessionName: string, projectPath: string
 
 export function buildSessionSwitchedText(sessionName: string, projectName: string): string {
   return buildSessionProjectContextBlock("已切换会话", sessionName, projectName);
+}
+
+export function buildSessionResumedText(sessionName: string, projectName: string): string {
+  return buildSessionProjectContextBlock("已恢复 Codex 会话", sessionName, projectName);
+}
+
+export function buildResumeThreadListText(threads: Array<{
+  name?: string | null;
+  cwd: string;
+  preview?: string;
+  updatedAt: number | string;
+}>, options: {
+  page?: number;
+  pageSize?: number;
+  hasNext?: boolean;
+  includeAll?: boolean;
+} = {}): string {
+  const page = Math.max(1, Math.trunc(options.page ?? 1));
+  const pageSize = Math.max(1, Math.trunc(options.pageSize ?? 10));
+  const includeAll = options.includeAll ?? false;
+  if (threads.length === 0) {
+    return escapeHtml(`可恢复的 Codex 会话（第 ${page} 页）\n暂无会话。${page > 1 ? `\n上一页：/resume ${includeAll ? "all " : ""}page ${page - 1}` : ""}`);
+  }
+
+  const lines = [`可恢复的 Codex 会话（第 ${page} 页）`, `发送 /resume ${includeAll ? "all " : ""}<序号> 恢复。`];
+  threads.forEach((thread, index) => {
+    const ordinal = (page - 1) * pageSize + index + 1;
+    const projectName = basename(thread.cwd);
+    const title = thread.name?.trim() || thread.preview?.trim() || projectName;
+    const preview = thread.preview?.trim() && thread.preview.trim() !== title ? ` | ${thread.preview.trim()}` : "";
+    const updatedAt = formatResumeThreadRelativeTime(thread.updatedAt);
+    lines.push(`${ordinal}. ${title} | ${projectName}${preview}${updatedAt ? ` | ${updatedAt}` : ""}`);
+  });
+  if (page > 1) {
+    lines.push(`上一页：/resume ${includeAll ? "all " : ""}page ${page - 1}`);
+  }
+  if (options.hasNext) {
+    lines.push(`下一页：/resume ${includeAll ? "all " : ""}page ${page + 1}`);
+  }
+
+  return escapeHtml(lines.join("\n"));
+}
+
+export function buildResumeThreadListMessage(threads: Array<{
+  name?: string | null;
+  cwd: string;
+  preview?: string;
+  updatedAt: number | string;
+}>, options: {
+  page?: number;
+  pageSize?: number;
+  hasNext?: boolean;
+  includeAll?: boolean;
+} = {}): {
+  text: string;
+  replyMarkup: TelegramInlineKeyboardMarkup;
+} {
+  const page = Math.max(1, Math.trunc(options.page ?? 1));
+  const pageSize = Math.max(1, Math.trunc(options.pageSize ?? 10));
+  const includeAll = options.includeAll ?? false;
+  const selectionButtons = threads.map((thread, index) => ({
+    text: String((page - 1) * pageSize + index + 1),
+    callback_data: encodeResumePickCallback(includeAll, page, index)
+  }));
+  const rows: TelegramInlineKeyboardMarkup["inline_keyboard"] = [];
+  rows.push(...chunkButtons(selectionButtons, 5));
+
+  const navigation: Array<{ text: string; callback_data: string }> = [];
+  if (page > 1) {
+    navigation.push({ text: "上一页", callback_data: encodeResumePageCallback(includeAll, page - 1) });
+  }
+  if (options.hasNext) {
+    navigation.push({ text: "下一页", callback_data: encodeResumePageCallback(includeAll, page + 1) });
+  }
+  if (navigation.length > 0) {
+    rows.push(navigation);
+  }
+  rows.push([{ text: "关闭", callback_data: encodeResumeCloseCallback() }]);
+
+  return {
+    text: buildResumeThreadListText(threads, options),
+    replyMarkup: {
+      inline_keyboard: rows
+    }
+  };
+}
+
+function formatResumeThreadRelativeTime(value: number | string): string | null {
+  if (typeof value === "string") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return formatResumeThreadRelativeTime(numeric);
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? formatRelativeTime(new Date(parsed).toISOString()) : null;
+  }
+
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  const milliseconds = value < 100_000_000_000 ? value * 1000 : value;
+  return formatRelativeTime(new Date(milliseconds).toISOString());
 }
 
 export function buildArchiveSuccessText(

@@ -88,6 +88,15 @@ function createHandlers(calls: Call[]) {
     clearProjectAlias: async (sessionId: string) => {
       calls.push({ name: "clearProjectAlias", args: [sessionId] });
     },
+    handleResumePick: async (includeAll: boolean, page: number, itemIndex: number) => {
+      calls.push({ name: "handleResumePick", args: [includeAll, page, itemIndex] });
+    },
+    handleResumePage: async (includeAll: boolean, page: number) => {
+      calls.push({ name: "handleResumePage", args: [includeAll, page] });
+    },
+    closeResumeList: async () => {
+      calls.push({ name: "closeResumeList", args: [] });
+    },
     handleModelDefault: async (sessionId: string) => {
       calls.push({ name: "handleModelDefault", args: [sessionId] });
     },

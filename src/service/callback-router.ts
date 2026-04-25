@@ -36,6 +36,9 @@ export interface BridgeCallbackRouterHandlers {
   beginSessionRename(sessionId: string): Promise<void>;
   beginProjectRename(sessionId: string): Promise<void>;
   clearProjectAlias(sessionId: string): Promise<void>;
+  handleResumePick(includeAll: boolean, page: number, itemIndex: number): Promise<void>;
+  handleResumePage(includeAll: boolean, page: number): Promise<void>;
+  closeResumeList(): Promise<void>;
   handleModelDefault(sessionId: string): Promise<void>;
   handleModelClose(sessionId: string): Promise<void>;
   handleModelPage(sessionId: string, page: number): Promise<void>;
@@ -157,6 +160,18 @@ export async function routeBridgeCallback(
     case "rename_project_clear":
       await handlers.answer();
       await handlers.clearProjectAlias(parsed.sessionId);
+      return;
+    case "resume_pick":
+      await handlers.answer();
+      await handlers.handleResumePick(parsed.includeAll, parsed.page, parsed.itemIndex);
+      return;
+    case "resume_page":
+      await handlers.answer();
+      await handlers.handleResumePage(parsed.includeAll, parsed.page);
+      return;
+    case "resume_close":
+      await handlers.answer();
+      await handlers.closeResumeList();
       return;
     case "model_default":
       await handlers.handleModelDefault(parsed.sessionId);

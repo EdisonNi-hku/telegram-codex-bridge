@@ -25,6 +25,8 @@ import {
   buildRuntimePreferencesAppliedMessage,
   buildRuntimePreferencesMessage,
   buildSessionCreatedText,
+  buildResumeThreadListMessage,
+  buildResumeThreadListText,
   buildSessionSwitchedText,
   buildUnarchiveSuccessText,
   buildWhereText,
@@ -289,6 +291,56 @@ test("buildSessionsText renders archived view with a dedicated title", async () 
   });
 });
 
+test("buildResumeThreadListText renders page metadata and seconds timestamps", async () => {
+  await withMockedNow("2026-03-10T10:10:00.000Z", () => {
+    const text = buildResumeThreadListText(
+      [
+        {
+          name: "Resume <One>",
+          cwd: "/tmp/project-one",
+          preview: "first preview",
+          updatedAt: Math.floor(Date.parse("2026-03-10T10:05:00.000Z") / 1000)
+        }
+      ],
+      { page: 2, pageSize: 10, hasNext: true, includeAll: false }
+    );
+
+    assert.match(text, /^可恢复的 Codex 会话（第 2 页）/u);
+    assert.match(text, /11\. Resume &lt;One&gt; \| project-one \| first preview \| 5分钟前/u);
+    assert.match(text, /下一页：\/resume page 3/u);
+    assert.doesNotMatch(text, /20548 天前/u);
+  });
+});
+
+test("buildResumeThreadListMessage renders numbered selection and pagination buttons", async () => {
+  await withMockedNow("2026-03-10T10:10:00.000Z", () => {
+    const message = buildResumeThreadListMessage(
+      [
+        {
+          name: "Resume <One>",
+          cwd: "/tmp/project-one",
+          preview: "first preview",
+          updatedAt: Math.floor(Date.parse("2026-03-10T10:05:00.000Z") / 1000)
+        },
+        {
+          name: "Resume Two",
+          cwd: "/tmp/project-one",
+          preview: "second preview",
+          updatedAt: "2026-03-10T10:00:00.000Z"
+        }
+      ],
+      { page: 1, pageSize: 10, hasNext: true, includeAll: false }
+    );
+
+    assert.match(message.text, /1\. Resume &lt;One&gt;/u);
+    assert.match(message.text, /2\. Resume Two/u);
+    assert.deepEqual(message.replyMarkup.inline_keyboard[0]?.map((button) => button.text), ["1", "2"]);
+    assert.deepEqual(message.replyMarkup.inline_keyboard[1]?.map((button) => button.text), ["下一页"]);
+    assert.equal(parseCallbackData(message.replyMarkup.inline_keyboard[0]?.[0]?.callback_data ?? "")?.kind, "resume_pick");
+    assert.equal(parseCallbackData(message.replyMarkup.inline_keyboard[1]?.[0]?.callback_data ?? "")?.kind, "resume_page");
+  });
+});
+
 test("buildWhereText includes stable bridge and Codex identifiers when available", () => {
   const text = buildWhereText(
     createSession({
@@ -548,6 +600,10 @@ test("project browser directory message renders entries and browse callbacks", (
     kind: "browse_open",
     token: "tok123",
     entryIndex: 6
+  });
+  assert.deepEqual(parseCallbackData(rendered.replyMarkup.inline_keyboard.at(-2)?.[0]?.callback_data ?? ""), {
+    kind: "browse_resume",
+    token: "tok123"
   });
   assert.deepEqual(parseCallbackData(rendered.replyMarkup.inline_keyboard.at(-1)?.[1]?.callback_data ?? ""), {
     kind: "browse_close",
@@ -1575,6 +1631,10 @@ test("parseCallbackData understands compact and legacy v3 interaction callbacks"
   });
   assert.deepEqual(parseCallbackData("v5:br:k:tok123"), {
     kind: "browse_use_current_dir_cancel",
+    token: "tok123"
+  });
+  assert.deepEqual(parseCallbackData("v5:br:z:tok123"), {
+    kind: "browse_resume",
     token: "tok123"
   });
   assert.deepEqual(parseCallbackData("v7:rr:o:answer-1"), {
