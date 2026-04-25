@@ -78,6 +78,7 @@ Read the smallest matching leaf doc.
 | code-derived ownership map for `src/` | `docs/architecture/current-code-organization.md` |
 | current Codex app-server adoption, supported request families, notification reduction, approvals, and rejected server requests | `docs/architecture/codex-app-server-adoption.md` |
 | current pack boundary, active pack selection, Telegram vs Feishu pack ownership, or platform capability routing | `docs/architecture/platform-pack-boundary.md` |
+| current Telegram/Feishu capability table, common capability vs platform-specific features, or future Web/App target capability rows | `docs/architecture/platform-capability-matrix.md` |
 | install flow, config keys, paths, services, update, diagnostics | `docs/operations/install-and-admin.md` |
 | exact current versions, module counts, size snapshot, other high-drift facts | `docs/generated/current-snapshot.md` |
 | authoritative Codex app-server protocol reference | `docs/research/codex-app-server-authoritative-reference.md` |

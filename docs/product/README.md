@@ -9,9 +9,9 @@ children:
   - docs/product/codex-command-reference.md
   - docs/product/runtime-and-delivery.md
   - docs/product/callback-contract.md
-summary: router for current Telegram-first product behavior and user-facing command surfaces
+summary: router for current Codex Console product behavior, including Telegram-first command surfaces
 read_when:
-  - the request is about current user-facing Telegram behavior
+  - the request is about current user-facing Codex Console behavior
   - the request is about v1 scope, command UX, or callback behavior
 skip_when:
   - the request is mainly about code ownership, install/admin, or future Core direction
@@ -27,8 +27,9 @@ source_of_truth:
 
 # Product Index
 
-Use this directory for current Telegram-first product behavior.
-Do not use it for future Core direction.
+Use this directory for current Codex Console product behavior.
+Most leaf docs still describe the Telegram-first baseline and command surfaces; Feishu-specific setup and pack boundaries live in operations and architecture docs.
+Do not use this directory for future Codex Bridge Core direction.
 
 ## Open One Leaf
 
@@ -43,4 +44,4 @@ Do not use it for future Core direction.
 
 - you need current code ownership or runtime internals
 - you need install or diagnostics behavior
-- you need the future multi-platform Core direction
+- you need the future Codex Bridge Core direction

@@ -2,7 +2,7 @@
   "name": "telegram-codex-bridge",
   "version": "0.1.0",
   "private": true,
-  "description": "Turn Telegram into a control plane for the Codex installation already running on your server.",
+  "description": "Codex Console: control the Codex installation already running on your server from supported chat platforms.",
   "type": "module",
   "homepage": "https://github.com/InDreamer/telegram-codex-bridge#readme",
   "repository": {

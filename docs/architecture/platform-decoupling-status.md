@@ -25,6 +25,7 @@ source_of_truth:
 # Platform Decoupling Status
 
 Verified against the current implementation on 2026-04-10.
+Naming reviewed on 2026-04-25.
 
 Use this file when the question is:
 
@@ -36,19 +37,28 @@ Use this file when the question is:
 This file is current implementation truth.
 It is not the future multi-platform Core PRD and it is not a historical plan snapshot.
 
+Naming baseline:
+
+- external product name is **Codex Console**
+- internal shared architecture name is **Codex Bridge Core**
+- repository/package compatibility name remains `telegram-codex-bridge`
+- Telegram is the stable first pack and default path
+- Feishu is a serious current pack, not a proof that broad multi-platform maturity is complete
+
 ## Current Truth In One Screen
 
 - the repo now has a real internal Core seam under `src/core/`
 - the repo now has a real pack boundary under `src/packs/`
 - active-pack selection, runtime startup, readiness, install, and skill installation are pack-aware
+- Telegram and Feishu are current packs
 - a first capability and surface-delivery vocabulary has landed and is already used in selected delivery paths
 - shared bridge services still contain substantial Telegram-shaped shell logic
-- Telegram remains the default shipped product truth even though the implementation is no longer purely Telegram-hardcoded
+- Telegram remains the default shipped path even though the implementation is no longer purely Telegram-hardcoded
 
 So two statements are true at the same time:
 
 - the bridge has materially moved beyond a Telegram-only internal architecture
-- the bridge is not yet a fully platform-neutral product core
+- Codex Bridge Core is not yet a fully platform-neutral product core
 
 ## What Has Already Been Decoupled
 
@@ -164,12 +174,12 @@ Safe:
 
 - the repo has a real internal bridge-versus-platform seam
 - the repo has a real pack boundary
-- a second platform has landed through the current pack model
+- Telegram is the stable first pack and Feishu has landed through the current pack model
 - current abstraction work is materially beyond Phase 1-only groundwork
 
 Not safe:
 
-- claiming the bridge is already fully platform-neutral
+- claiming Codex Console is already fully platform-neutral
 - claiming Telegram is now only a thin renderer
 - claiming future platforms will require no more shared abstraction work
 - using Feishu support as proof that all Telegram-first assumptions are gone
@@ -191,4 +201,3 @@ The most important remaining gaps are:
 - For current runtime and persistence rules: `runtime-and-state.md`
 - For operator-visible pack behavior: `../operations/install-and-admin.md`
 - For the future target beyond the current state: `../future/multi-platform-core-prd.md`
-

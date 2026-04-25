@@ -4,7 +4,7 @@ documents:
     role: entry
     layer: 1
     parent: null
-    summary: public repository entry point for the Telegram-first bridge and its documentation trees
+    summary: public repository entry point for Codex Console and its documentation trees
   - path: AGENTS.md
     role: agent
     layer: 1
@@ -44,12 +44,12 @@ documents:
     role: domain
     layer: 2
     parent: docs/INDEX.md
-    summary: router for current Telegram-first product behavior and user-facing command surfaces
+    summary: router for current Codex Console product behavior, Telegram-first baseline, and user-facing command surfaces
   - path: docs/architecture/README.md
     role: domain
     layer: 2
     parent: docs/INDEX.md
-    summary: router for the current runtime shape, decoupling status, state model, verified code ownership map, pack boundary, and app-server adoption boundary
+    summary: router for the current runtime shape, decoupling status, state model, capability matrix, pack boundary, and app-server adoption boundary
   - path: docs/architecture/platform-decoupling-status.md
     role: leaf
     layer: 3
@@ -105,11 +105,16 @@ documents:
     layer: 3
     parent: docs/architecture/README.md
     summary: current pack boundary for active-pack selection, runtime factory ownership, platform capabilities, and Telegram vs Feishu split
+  - path: docs/architecture/platform-capability-matrix.md
+    role: leaf
+    layer: 3
+    parent: docs/architecture/README.md
+    summary: current Telegram and Feishu capability matrix, common product expectations, platform-specific features, and future Web/App target rows
   - path: docs/product/v1-scope.md
     role: leaf
     layer: 3
     parent: docs/product/README.md
-    summary: current shipped v1 scope, trust model, and out-of-scope boundary for the Telegram-first bridge
+    summary: current shipped v1 scope, trust model, and out-of-scope boundary for Codex Console's Telegram-first baseline
   - path: docs/product/chat-and-project-flow.md
     role: leaf
     layer: 3
@@ -164,7 +169,7 @@ documents:
     role: leaf
     layer: 3
     parent: docs/future/README.md
-    summary: future repository direction for a broader platform-neutral Core with Telegram as the first official pack
+    summary: future product direction for Codex Console and Codex Bridge Core with Telegram as the stable first pack
   - path: docs/plans/2026-03-23-multi-platform-core-phase-1-implementation-plan.md
     role: leaf
     layer: 3

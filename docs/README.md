@@ -28,13 +28,14 @@ If you want the canonical router, open `docs/INDEX.md`.
 
 ## Fast Paths
 
-- Current Telegram product boundary: `docs/product/v1-scope.md`
+- Current Codex Console product boundary: `docs/product/v1-scope.md`
 - Current bridge-versus-platform decoupling progress: `docs/architecture/platform-decoupling-status.md`
 - Current runtime shape or ownership map: `docs/architecture/README.md`
 - Current pack boundary, active-pack behavior, or platform capability split: `docs/architecture/platform-pack-boundary.md`
+- Current Telegram/Feishu capability matrix and future Web/App target rows: `docs/architecture/platform-capability-matrix.md`
 - Install, config, service, update, diagnostics: `docs/operations/install-and-admin.md`
 - Exact Codex app-server capability or payload shape: `docs/research/README.md`
-- Future multi-platform Core direction: `docs/future/multi-platform-core-prd.md`
+- Future Codex Bridge Core direction: `docs/future/multi-platform-core-prd.md`
 - What landed in the 2026-03-23 abstraction wave and what is still deferred: `docs/plans/README.md`
 
 ## Rules That Matter

@@ -31,8 +31,8 @@ Open one domain, then one leaf, then stop.
 
 ## Current Truth
 
-- `docs/product/README.md` - current Telegram-first product behavior, scope, commands, and callback UX.
-- `docs/architecture/README.md` - current runtime shape, bridge-versus-platform decoupling status, state model, and code ownership.
+- `docs/product/README.md` - current Codex Console product behavior, including Telegram-first scope, commands, and callback UX.
+- `docs/architecture/README.md` - current runtime shape, bridge-versus-platform decoupling status, state model, pack boundary, capability matrix, and code ownership.
 - `docs/operations/README.md` - install, config, service, update, and diagnostics.
 - `docs/generated/current-snapshot.md` - exact version baselines and other high-drift facts.
 
@@ -42,7 +42,7 @@ Open one domain, then one leaf, then stop.
 
 ## Future, Planning, And History
 
-- `docs/future/README.md` - future repository direction, including the broader Core path.
+- `docs/future/README.md` - future product and architecture direction, including the broader Codex Bridge Core path.
 - `docs/plans/README.md` - active trackers, implementation sequencing, and closeout notes.
 - `docs/roadmap/README.md` - delivery ordering and acceptance intent.
 - `docs/archive/README.md` - historical material only when current sources conflict.
