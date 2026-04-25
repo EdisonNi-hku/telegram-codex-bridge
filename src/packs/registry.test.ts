@@ -61,11 +61,12 @@ test("feishu pack exposes the phase 4 pack contract surface", () => {
   const pack = getBridgePack("feishu");
 
   assert.equal(pack.name, "feishu");
+  assert.equal(pack.ingress.kind, "long_connection");
   assert.equal(pack.ingress.ownsCallbacks, true);
   assert.equal(pack.ingress.ownsRichInput, false);
   assert.equal(pack.ingress.ownsMediaIngress, false);
   assert.equal(pack.presentation.preferBridgeCommandButtons, true);
-  assert.equal(pack.egress.kind, "bot_api");
+  assert.equal(pack.egress.kind, "open_api");
   assert.equal(pack.capabilities.supportsUploads, true);
   assert.equal(pack.capabilities.canReceiveImage, true);
   assert.deepEqual(

@@ -80,7 +80,6 @@ These should work given the primitives but require live Feishu client/tenant obs
 - Feishu command/menu discovery has no automatic `setMyCommands` equivalent; `src/feishu/api.ts#setMyCommands` is a no-op, so native menu setup remains external.
 - Feishu voice/audio input is not supported by the pack capability snapshot.
 - Remote image URL input/output is not supported by the current pack.
-- Feishu pack metadata still labels ingress/egress as compatibility-shaped (`polling`, `bot_api`) even though runtime behavior is long-connection/OpenAPI; this is already called out in the capability matrix and scheduled for a later cleanup task.
 
 ## Doc/API unknown
 

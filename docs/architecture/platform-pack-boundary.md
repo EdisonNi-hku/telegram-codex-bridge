@@ -124,7 +124,7 @@ Feishu pack owners:
 - `src/packs/feishu/index.ts` - Feishu pack definition, health checks, setup-health wiring, and dynamic tools
 - `src/packs/feishu/config.ts` - Feishu pack env/config codec
 - `src/packs/feishu/setup.ts` - Feishu setup-cycle observation and readiness interpretation
-- `src/feishu/` - current Feishu API and polling compatibility adapters
+- `src/feishu/` - current Feishu OpenAPI and long-connection compatibility adapters
 
 Shared shell owners that are still not fully pack-neutral:
 

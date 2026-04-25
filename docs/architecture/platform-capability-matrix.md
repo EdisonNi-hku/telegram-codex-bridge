@@ -141,7 +141,7 @@ These rows decide how good the experience can be on a platform. They should not 
 | Skill bundle | `telegram-codex-linker` | `feishu-codex-linker` |
 | Primary credentials | `TELEGRAM_BOT_TOKEN` | `FEISHU_APP_ID`, `FEISHU_APP_SECRET` |
 | API family | Telegram Bot API | Feishu OpenAPI / long-connection via compatibility adapters |
-| Ingress | Polling | Feishu event/long-connection compatibility poller, despite pack metadata currently saying polling |
+| Ingress | Polling | Feishu event/long-connection via compatibility poller |
 | Presentation preference | Telegram-native command/buttons | Bridge command buttons and Feishu cards |
 | Dynamic tools | `send_telegram_document`, `send_telegram_image` | `send_feishu_file`, `send_feishu_image` |
 | Voice input | Supported when transcription is configured | Not supported today |
@@ -209,7 +209,6 @@ Use these rules before adding a new platform:
 
 ## Current Caveats
 
-- Feishu pack metadata currently contains compatibility-shaped labels (`polling`, `bot_api`) while actual behavior uses Feishu long-connection/OpenAPI adapters.
 - Feishu `ownsRichInput` and `ownsMediaIngress` are false even though Feishu can adapt image/file message resources through shared compatibility paths.
 - Feishu pin/unpin is not a native capability today.
 - Current product docs still describe many current flows through Telegram UX because Telegram remains the reference/default path.
