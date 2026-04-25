@@ -199,6 +199,63 @@ test("FeishuTelegramPollerCompat translates image receive events into bridge med
   }
 });
 
+test("FeishuTelegramPollerCompat translates post messages with pasted images into bridge media updates", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-feishu-poller-test-"));
+  const paths = createPaths(root);
+
+  try {
+    const api = new FeishuTelegramApiCompat({
+      appId: "cli_test",
+      appSecret: "secret",
+      apiBaseUrl: "https://open.feishu.cn"
+    }, paths);
+    const poller = new FeishuTelegramPollerCompat(
+      api,
+      createConfig(),
+      paths,
+      testLogger,
+      async () => {},
+      {
+        createWsClient: () => ({
+          start: async () => {},
+          close: () => {}
+        }),
+        createEventDispatcher: () => ({
+          register: () => {}
+        })
+      }
+    );
+
+    const update = await (poller as any).translateMessageEvent({
+      sender: {
+        sender_id: {
+          open_id: "ou_user_3"
+        }
+      },
+      message: {
+        message_id: "om_message_post_image",
+        chat_id: "oc_chat_3",
+        create_time: "1710000002000",
+        message_type: "post",
+        content: JSON.stringify({
+          title: "",
+          content: [[{
+            tag: "img",
+            image_key: "img_key_post_1"
+          }]]
+        })
+      }
+    });
+
+    assert.equal(update?.message?.bridgeMedia?.[0]?.kind, "image");
+    assert.equal(update?.message?.bridgeMedia?.[0]?.resourceId, "img_key_post_1");
+    assert.equal(update?.message?.bridgeMedia?.[0]?.platformRef.platform, "feishu");
+    assert.equal(update?.message?.text, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 test("FeishuTelegramPollerCompat accepts modern nested card callback payloads", async () => {
   const root = await mkdtemp(join(tmpdir(), "ctb-feishu-poller-test-"));
   const paths = createPaths(root);
