@@ -61,10 +61,138 @@ test("returns explicit unavailable/degraded states when injected data is absent"
   assert.deepEqual(provider.listWorkspaceViewModels().state, "unavailable");
   assert.deepEqual(provider.listWorkspaceConversationViewModels("wk_missing").state, "unavailable");
   assert.deepEqual(provider.getConversationResultViewModel("session-1").state, "unavailable");
+  assert.deepEqual(provider.getConversationArtifactCatalogViewModel("session-1").state, "unavailable");
   assert.deepEqual(provider.getRuntimeContextViewModel().state, "degraded");
   assert.deepEqual(provider.getReadinessGuardrailViewModel().state, "unavailable");
 
   assertNoForbiddenViewModelData(provider.getHomeViewModel());
+});
+
+test("returns unavailable, degraded, and empty artifact catalog states without leaking source errors", () => {
+  const unavailable = createWebReadonlyViewModelProvider({
+    now: () => fixedNow
+  }).getConversationArtifactCatalogViewModel("session-1");
+  assert.equal(unavailable.pageId, "web_conversation_artifacts");
+  assert.equal(unavailable.state, "unavailable");
+  assert.deepEqual(unavailable.artifacts, []);
+  assert.equal(unavailable.selectedArtifact, null);
+  assert.deepEqual(unavailable.warnings, ["artifact_catalog_unavailable"]);
+
+  const degraded = createWebReadonlyViewModelProvider({
+    now: () => fixedNow,
+    listArtifactDescriptors: () => {
+      throw new Error("artifact read failed /tmp/secret-result https://example.invalid/raw?messageId=123");
+    }
+  }).getConversationArtifactCatalogViewModel("session-1");
+  assert.equal(degraded.state, "degraded");
+  assert.deepEqual(degraded.artifacts, []);
+  assert.equal(degraded.selectedArtifact, null);
+  assert.deepEqual(degraded.warnings, ["artifact_catalog_degraded"]);
+
+  const empty = createWebReadonlyViewModelProvider({
+    now: () => fixedNow,
+    listArtifactDescriptors: () => []
+  }).getConversationArtifactCatalogViewModel("session-1");
+  assert.equal(empty.state, "empty");
+  assert.deepEqual(empty.artifacts, []);
+  assert.equal(empty.emptyState, "no_artifacts");
+  assert.deepEqual(empty.warnings, []);
+
+  assertNoForbiddenViewModelData({ unavailable, degraded, empty });
+});
+
+test("redacts unsafe artifact descriptors and exposes only neutral descriptor metadata", () => {
+  const provider = createWebReadonlyViewModelProvider({
+    now: () => fixedNow,
+    listArtifactDescriptors: () => [
+      {
+        id: "file:/home/ubuntu/secret-workspace/result.png?token=abc",
+        label: "Approve screenshot /home/ubuntu/secret-workspace/result.png callback_data=approve",
+        filename: "result.png",
+        kind: "image",
+        type: "image/png",
+        mediaType: "image/png",
+        sizeBytes: 2048,
+        createdAt: "2026-04-25T12:20:00.000Z",
+        updatedAt: "2026-04-25T12:21:00.000Z",
+        availability: "available",
+        previewEligible: true,
+        downloadEligible: true,
+        previewUrl: "https://example.invalid/preview/result.png?messageId=123",
+        downloadPath: "/tmp/secret-result/result.png",
+        platformResourceId: "telegram:file:abc",
+        messageId: 123,
+        rawProtocol: { callback: "approve" }
+      },
+      {
+        id: "artifact_safe_1",
+        label: "Test summary",
+        kind: "document",
+        type: "text/markdown",
+        mediaType: "text/markdown",
+        sizeBytes: 512,
+        createdAt: "2026-04-25T12:30:00.000Z",
+        updatedAt: null,
+        availability: "available",
+        previewEligible: false,
+        downloadEligible: false
+      }
+    ]
+  });
+
+  const vm = provider.getConversationArtifactCatalogViewModel("session-1");
+
+  assert.equal(vm.state, "degraded");
+  assert.equal(vm.artifacts.length, 2);
+  assert.match(vm.artifacts[0]?.artifactId ?? "", /^art_[a-f0-9]{16}$/);
+  assert.deepEqual(vm.artifacts[0], {
+    artifactId: vm.artifacts[0]?.artifactId,
+    label: "Artifact descriptor",
+    kind: "image",
+    type: "image/png",
+    mediaType: "image/png",
+    sizeBytes: 2048,
+    createdAt: "2026-04-25T12:20:00.000Z",
+    updatedAt: "2026-04-25T12:21:00.000Z",
+    availability: "degraded",
+    previewEligible: false,
+    previewLabel: "Preview unavailable",
+    downloadEligible: false,
+    downloadLabel: "Download unavailable",
+    warnings: ["artifact_descriptor_redacted"]
+  });
+  assert.deepEqual(vm.artifacts[1], {
+    artifactId: "artifact_safe_1",
+    label: "Test summary",
+    kind: "document",
+    type: "text/markdown",
+    mediaType: "text/markdown",
+    sizeBytes: 512,
+    createdAt: "2026-04-25T12:30:00.000Z",
+    updatedAt: null,
+    availability: "available",
+    previewEligible: false,
+    previewLabel: "Preview unavailable",
+    downloadEligible: false,
+    downloadLabel: "Download unavailable",
+    warnings: []
+  });
+  assert.deepEqual(vm.selectedArtifact, vm.artifacts[1]);
+  assert.deepEqual(vm.warnings, ["artifact_descriptor_redacted"]);
+  assertNoForbiddenViewModelData(vm);
+
+  const text = serialized(vm);
+  for (const forbidden of [
+    "/tmp/secret-result",
+    "https://example.invalid",
+    "platformResourceId",
+    "rawProtocol",
+    "result.png",
+    "token=abc",
+    "telegram:file"
+  ]) {
+    assert.equal(text.includes(forbidden), false, `artifact view model leaked ${forbidden}: ${text}`);
+  }
 });
 
 test("derives safe workspace rows from recent project and session stats without exposing raw paths", () => {

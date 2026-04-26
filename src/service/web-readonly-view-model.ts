@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 export type WebReadonlyAvailability = "available" | "unavailable" | "degraded";
+export type WebReadonlyCatalogState = WebReadonlyAvailability | "empty";
 export type WebReadonlyObservedState = "present" | "missing" | "unknown";
 
 export interface WebReadonlyOperatorBinding {
@@ -101,6 +102,27 @@ export interface WebReadonlyPendingInteractionInputRow {
   [key: string]: unknown;
 }
 
+export interface WebReadonlyArtifactDescriptorInputRow {
+  id?: string | number | null;
+  artifactId?: string | number | null;
+  finalResultId?: string | number | null;
+  label?: string | null;
+  title?: string | null;
+  name?: string | null;
+  filename?: string | null;
+  kind?: string | null;
+  type?: string | null;
+  mediaType?: string | null;
+  mimeType?: string | null;
+  sizeBytes?: string | number | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  availability?: string | null;
+  previewEligible?: boolean | null;
+  downloadEligible?: boolean | null;
+  [key: string]: unknown;
+}
+
 export interface WebReadonlyStoreReader {
   listRecentProjects?: () => WebReadonlyRecentProjectRow[];
   listSessionProjectStats?: () => WebReadonlySessionProjectStatsRow[];
@@ -117,6 +139,7 @@ export interface WebReadonlyViewModelDeps {
   idSalt?: string;
   listActiveTurns?: () => WebReadonlyActiveTurn[] | null | undefined;
   listPendingInteractions?: () => WebReadonlyPendingInteractionInputRow[] | null | undefined;
+  listArtifactDescriptors?: (sessionId: string) => WebReadonlyArtifactDescriptorInputRow[] | null | undefined;
   getReadinessSnapshot?: () => WebReadonlyReadinessSnapshot | null | undefined;
   getSanitizedFinalAnswerBody?: (answer: WebReadonlyFinalAnswerRow) => string | null | undefined;
 }
@@ -204,6 +227,33 @@ export interface WebReadonlyConversationResultViewModel extends WebReadonlyEnvel
   warnings: string[];
 }
 
+export interface WebReadonlyArtifactDescriptorRow {
+  artifactId: string;
+  label: string;
+  kind: string;
+  type: string | null;
+  mediaType: string | null;
+  sizeBytes: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  availability: WebReadonlyAvailability;
+  previewEligible: boolean;
+  previewLabel: string;
+  downloadEligible: boolean;
+  downloadLabel: string;
+  warnings: string[];
+}
+
+export interface WebReadonlyConversationArtifactCatalogViewModel extends WebReadonlyEnvelope {
+  pageId: "web_conversation_artifacts";
+  state: WebReadonlyCatalogState;
+  conversationId: string;
+  artifacts: WebReadonlyArtifactDescriptorRow[];
+  selectedArtifact: WebReadonlyArtifactDescriptorRow | null;
+  emptyState: string | null;
+  warnings: string[];
+}
+
 export interface WebReadonlyRuntimeTurnRow {
   sessionId: string;
   status: string;
@@ -284,6 +334,7 @@ export interface WebReadonlyViewModelProvider {
   listWorkspaceViewModels(): WebReadonlyWorkspaceListViewModel;
   listWorkspaceConversationViewModels(workspaceId: string): WebReadonlyWorkspaceConversationListViewModel;
   getConversationResultViewModel(sessionId: string): WebReadonlyConversationResultViewModel;
+  getConversationArtifactCatalogViewModel(sessionId: string, artifactId?: string): WebReadonlyConversationArtifactCatalogViewModel;
   getRuntimeContextViewModel(): WebReadonlyRuntimeContextViewModel;
   getPendingInteractionsViewModel(): WebReadonlyPendingInteractionsViewModel;
   getReadinessGuardrailViewModel(): WebReadonlyReadinessGuardrailViewModel;
@@ -542,6 +593,46 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
       };
     },
 
+    getConversationArtifactCatalogViewModel(sessionId, artifactId) {
+      if (!deps.listArtifactDescriptors) {
+        return unavailableArtifactCatalog(envelope(), sessionId, "artifact_catalog_unavailable");
+      }
+
+      const warnings: string[] = [];
+      const rawRows = callSafely(
+        () => deps.listArtifactDescriptors?.(sessionId) ?? null,
+        null as WebReadonlyArtifactDescriptorInputRow[] | null,
+        warnings,
+        "artifact_catalog_degraded"
+      );
+      if (!rawRows) {
+        return {
+          ...envelope(),
+          pageId: "web_conversation_artifacts",
+          state: warnings.length > 0 ? "degraded" : "unavailable",
+          conversationId: safeArtifactConversationId(sessionId),
+          artifacts: [],
+          selectedArtifact: null,
+          emptyState: null,
+          warnings: unique(warnings.length > 0 ? warnings : ["artifact_catalog_unavailable"])
+        };
+      }
+
+      const artifacts = rawRows.map((row, index) => normalizeArtifactDescriptor(row, index, idSalt));
+      const rowWarnings = artifacts.flatMap((row) => row.warnings);
+      const selectedArtifact = selectArtifactDescriptor(artifacts, artifactId);
+      return {
+        ...envelope(),
+        pageId: "web_conversation_artifacts",
+        state: artifacts.length === 0 ? "empty" : warnings.length > 0 || rowWarnings.length > 0 ? "degraded" : "available",
+        conversationId: safeArtifactConversationId(sessionId),
+        artifacts,
+        selectedArtifact,
+        emptyState: artifacts.length === 0 ? "no_artifacts" : null,
+        warnings: unique([...warnings, ...rowWarnings])
+      };
+    },
+
     getRuntimeContextViewModel() {
       if (!deps.listActiveTurns) {
         return {
@@ -680,6 +771,208 @@ function unavailablePendingInteractions(
     pendingInteractions: [],
     warnings: [warning]
   };
+}
+
+function unavailableArtifactCatalog(
+  envelope: WebReadonlyEnvelope,
+  sessionId: string,
+  warning: string
+): WebReadonlyConversationArtifactCatalogViewModel {
+  return {
+    ...envelope,
+    pageId: "web_conversation_artifacts",
+    state: "unavailable",
+    conversationId: safeArtifactConversationId(sessionId),
+    artifacts: [],
+    selectedArtifact: null,
+    emptyState: null,
+    warnings: [warning]
+  };
+}
+
+function normalizeArtifactDescriptor(
+  row: WebReadonlyArtifactDescriptorInputRow,
+  index: number,
+  idSalt: string
+): WebReadonlyArtifactDescriptorRow {
+  const hasRawOnlyData = rowContainsRawOnlyArtifactData(row);
+  const label = safeArtifactLabel(firstPrimitiveString(row, ["label", "title", "name"]));
+  const kind = safeArtifactKind(firstPrimitiveString(row, ["kind"]), "artifact");
+  const type = safeArtifactMediaType(firstPrimitiveString(row, ["type"]));
+  const mediaType = safeArtifactMediaType(firstPrimitiveString(row, ["mediaType", "mimeType"]));
+  const sizeBytes = safeSizeBytes(row.sizeBytes);
+  const createdAt = safeArtifactTimestamp(firstPrimitiveString(row, ["createdAt"]));
+  const updatedAt = safeArtifactTimestamp(firstPrimitiveString(row, ["updatedAt"]));
+  const warnings = unique([
+    label.safe ? "" : "artifact_descriptor_redacted",
+    kind.safe ? "" : "artifact_descriptor_redacted",
+    type.safe ? "" : "artifact_descriptor_redacted",
+    mediaType.safe ? "" : "artifact_descriptor_redacted",
+    sizeBytes.safe ? "" : "artifact_descriptor_redacted",
+    createdAt.safe ? "" : "artifact_descriptor_redacted",
+    updatedAt.safe ? "" : "artifact_descriptor_redacted",
+    hasRawOnlyData ? "artifact_descriptor_redacted" : ""
+  ]);
+  const degraded = warnings.length > 0;
+  const previewEligible = !degraded && row.previewEligible === true;
+  const downloadEligible = !degraded && row.downloadEligible === true;
+
+  return {
+    artifactId: safeArtifactId(row, index, idSalt),
+    label: label.text,
+    kind: kind.text,
+    type: type.text,
+    mediaType: mediaType.text,
+    sizeBytes: sizeBytes.value,
+    createdAt: createdAt.text,
+    updatedAt: updatedAt.text,
+    availability: degraded ? "degraded" : safeArtifactAvailability(row.availability),
+    previewEligible,
+    previewLabel: previewEligible ? "Preview eligible" : "Preview unavailable",
+    downloadEligible,
+    downloadLabel: downloadEligible ? "Download eligible" : "Download unavailable",
+    warnings
+  };
+}
+
+function selectArtifactDescriptor(
+  artifacts: WebReadonlyArtifactDescriptorRow[],
+  artifactId: string | undefined
+): WebReadonlyArtifactDescriptorRow | null {
+  if (artifacts.length === 0) {
+    return null;
+  }
+  if (artifactId && isSafePublicOpaqueId(artifactId)) {
+    const selected = artifacts.find((artifact) => artifact.artifactId === artifactId);
+    if (selected) {
+      return selected;
+    }
+  }
+  return artifacts.find((artifact) => artifact.availability === "available") ?? artifacts[0] ?? null;
+}
+
+function safeArtifactConversationId(sessionId: string): string {
+  return safePublicEntityId(sessionId) ?? "conversation";
+}
+
+function safeArtifactId(row: WebReadonlyArtifactDescriptorInputRow, index: number, idSalt: string): string {
+  const rawId = firstPrimitiveString(row, ["artifactId", "id", "finalResultId"]);
+  if (rawId && isSafePublicOpaqueId(rawId) && !containsUnsafeArtifactValue(rawId)) {
+    return rawId;
+  }
+
+  const stableKey = [
+    rawId,
+    firstPrimitiveString(row, ["label", "title", "name", "filename"]),
+    firstPrimitiveString(row, ["kind", "type", "mediaType", "mimeType"]),
+    firstPrimitiveString(row, ["createdAt"]),
+    firstPrimitiveString(row, ["updatedAt"]),
+    String(index)
+  ].join("\0");
+  return `art_${hashOpaque(idSalt, stableKey)}`;
+}
+
+function safeArtifactLabel(value: string | null): { safe: boolean; text: string } {
+  const raw = String(value ?? "").trim();
+  if (!raw || looksPathLike(raw) || containsUnsafeArtifactValue(raw)) {
+    return { safe: !raw, text: "Artifact descriptor" };
+  }
+  const stripped = stripTinySafeHtml(raw);
+  if (!stripped) {
+    return { safe: false, text: "Artifact descriptor" };
+  }
+  const text = redactText(decodeBasicHtmlEntities(stripped)).trim();
+  if (!text || looksPathLike(text) || text.includes("[redacted-") || containsUnsafeArtifactValue(text)) {
+    return { safe: false, text: "Artifact descriptor" };
+  }
+  return { safe: true, text };
+}
+
+function safeArtifactKind(value: string | null, fallback: string): { safe: boolean; text: string } {
+  const raw = String(value ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+  if (!raw) {
+    return { safe: true, text: fallback };
+  }
+  if (!/^[a-z0-9_.:-]{1,80}$/.test(raw) || looksPathLike(raw) || containsUnsafeArtifactValue(raw)) {
+    return { safe: false, text: fallback };
+  }
+  return { safe: true, text: raw };
+}
+
+function safeArtifactMediaType(value: string | null): { safe: boolean; text: string | null } {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) {
+    return { safe: true, text: null };
+  }
+  if (
+    !/^[a-z0-9][a-z0-9.+-]{0,63}\/[a-z0-9][a-z0-9.+-]{0,127}$/.test(raw)
+    || looksPathLike(raw)
+    || containsUnsafeArtifactValue(raw)
+  ) {
+    return { safe: false, text: null };
+  }
+  return { safe: true, text: raw };
+}
+
+function safeArtifactAvailability(value: string | null | undefined): WebReadonlyAvailability {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return raw === "available" || raw === "unavailable" || raw === "degraded" ? raw : "available";
+}
+
+function safeArtifactTimestamp(value: string | null): { safe: boolean; text: string | null } {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return { safe: true, text: null };
+  }
+  if (looksPathLike(raw) || containsUnsafeArtifactValue(raw)) {
+    return { safe: false, text: null };
+  }
+  return { safe: true, text: raw };
+}
+
+function safeSizeBytes(value: unknown): { safe: boolean; value: number | null } {
+  if (value === null || value === undefined || value === "") {
+    return { safe: true, value: null };
+  }
+  const size = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value.trim()) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(size) || size < 0) {
+    return { safe: false, value: null };
+  }
+  return { safe: true, value: size };
+}
+
+function rowContainsRawOnlyArtifactData(row: WebReadonlyArtifactDescriptorInputRow): boolean {
+  return [
+    "path",
+    "filePath",
+    "downloadPath",
+    "previewPath",
+    "url",
+    "uri",
+    "href",
+    "downloadUrl",
+    "previewUrl",
+    "localPath",
+    "tempPath",
+    "platformResourceId",
+    "resourceId",
+    "messageId",
+    "deliveryMessageId",
+    "callback",
+    "callback_data",
+    "chatId",
+    "telegramChatId",
+    "feishuChatId",
+    "threadId",
+    "rawJson",
+    "rawProtocol",
+    "protocol",
+    "terminal",
+    "rawTerminal",
+    "stdout",
+    "stderr",
+    "logs"
+  ].some((key) => Object.prototype.hasOwnProperty.call(row, key));
 }
 
 function normalizePendingInteraction(
@@ -844,6 +1137,17 @@ function containsUnsafePendingValue(value: string): boolean {
     || /(?:submit|approv\w*|interrupt|upload|switch|resume)/i.test(value);
 }
 
+function containsUnsafeArtifactValue(value: string): boolean {
+  return containsUnsafeControlMarkup(value)
+    || looksPathLike(value)
+    || /\b(?:https?|file|tg|javascript|callback):/i.test(value)
+    || /(?:callback|callback_data|replyMarkup|messageId|platformMessageId|deliveryMessageId|chatId|telegramChatId|threadId)/i.test(value)
+    || /(?:open_id|union_id|user_id|chat_id|message_id|thread_id|resource_id)/i.test(value)
+    || /(?:telegram|feishu|platformResourceId|rawProtocol|rawJson|protocol|rawTerminal|stdout|stderr|terminal)/i.test(value)
+    || /(?:submit|approv\w*|interrupt|upload|switch|resume)/i.test(value)
+    || /\b[\w.-]+\.(?:png|jpe?g|gif|webp|pdf|txt|md|log|json|zip|tar|gz|mp4|mov|wav|mp3)\b/i.test(value);
+}
+
 function firstPrimitiveString(row: Record<string, unknown>, keys: string[]): string | null {
   for (const key of keys) {
     const value = primitiveString(row[key]);
@@ -976,6 +1280,7 @@ function looksPathLike(value: string): boolean {
 
 function redactText(value: string): string {
   return value
+    .replace(/\b(?:https?|file):\/\/[^\s"'<>)]*/gi, "[redacted-url]")
     .replace(/\/home\/[A-Za-z0-9._-]+(?:\/[^\s"'<>)]*)*/g, "[redacted-path]")
     .replace(/\/tmp(?:\/[^\s"'<>)]*)*/g, "[redacted-path]")
     .replace(/\bchatId\b/g, "chat-id")
