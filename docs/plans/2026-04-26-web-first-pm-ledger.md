@@ -395,3 +395,16 @@ Verification passed:
 - `node --import tsx --test src/web/readonly-http-server.test.ts src/web/readonly-cli.test.ts src/service/web-readonly-live-provider.test.ts src/service/web-readonly-view-model.test.ts`
 - `npm run check`
 - `git diff --check`
+
+## Phase 3 Pending/Approvals Read-only Slice
+
+Completed on 2026-04-26 as Product Web Console MVP code slice 4.
+
+Result:
+
+- Pending/Approvals now renders owner-readable read-only cards grouped by attention, resolved/duplicate, stale/expired, and unavailable/failed states.
+- Pending cards use user-language labels/copy for question, approval, resolved, expired, stale, duplicate, failed, and unavailable-like states, with explicit response-disabled posture.
+- Conversation/task detail reuses the same pending card rendering for its pending panel.
+- No action controls, forms, POST method hints, submit/approval/question/interrupt URLs, callback payloads, raw pending IDs, platform message IDs, tokens, or local paths were added.
+
+TDD/verification evidence is recorded in `.hermes/phase3-pending-approvals-status.md`.

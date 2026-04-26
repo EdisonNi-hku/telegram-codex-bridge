@@ -8,6 +8,7 @@ import { createReadonlyHttpServer } from "./readonly-http-server.js";
 import type {
   WebReadonlyConversationRow,
   WebReadonlyConversationResultViewModel,
+  WebReadonlyPendingInteractionViewRow,
   WebReadonlyViewModelProvider
 } from "../service/web-readonly-view-model.js";
 
@@ -20,6 +21,8 @@ function makeProvider(
     homeConversations?: WebReadonlyConversationRow[];
     workspaceConversations?: WebReadonlyConversationRow[];
     detailAnswers?: WebReadonlyConversationResultViewModel["answers"];
+    pendingInteractions?: WebReadonlyPendingInteractionViewRow[];
+    detailPendingInteractions?: WebReadonlyPendingInteractionViewRow[];
   } = {}
 ): WebReadonlyViewModelProvider {
   return {
@@ -139,7 +142,10 @@ function makeProvider(
         },
         answers: options.detailAnswers ?? [],
         runtime: { state: "degraded", activeTurns: [] },
-        pendingInteractions: { state: "unavailable", pendingInteractions: [] },
+        pendingInteractions: {
+          state: options.detailPendingInteractions ? "available" : "unavailable",
+          pendingInteractions: options.detailPendingInteractions ?? []
+        },
         readiness: { state: "ready", missingGates: [] },
         warnings: []
       };
@@ -179,7 +185,7 @@ function makeProvider(
         readonly: true,
         pageId: "web_pending_interactions",
         state: "available",
-        pendingInteractions: [],
+        pendingInteractions: options.pendingInteractions ?? [],
         warnings: []
       };
     },
@@ -389,6 +395,78 @@ test("authenticated conversation detail explains rejected final-answer body sour
   });
 });
 
+test("authenticated pending interactions route renders read-only owner attention cards by status without action controls", async () => {
+  const calls: string[] = [];
+  const rows: WebReadonlyPendingInteractionViewRow[] = [
+    pendingInteractionFixture("pi_pending_question", "cv_aaaaaaaaaaaaaaaa", "awaiting_user_input", "question", "Codex needs a product decision."),
+    pendingInteractionFixture("pi_pending_approval", "cv_bbbbbbbbbbbbbbbb", "pending_approval", "codex_approval", "A safe change needs owner review."),
+    pendingInteractionFixture("pi_resolved", "cv_cccccccccccccccc", "resolved", "question", "The owner interaction was resolved."),
+    pendingInteractionFixture("pi_expired", "cv_dddddddddddddddd", "expired", "question", "This prompt is no longer current."),
+    pendingInteractionFixture("pi_stale", "cv_eeeeeeeeeeeeeeee", "stale", "approval", "The visible state may be stale."),
+    pendingInteractionFixture("pi_duplicate", "cv_ffffffffffffffff", "duplicate", "question", "A newer owner prompt replaced this one."),
+    pendingInteractionFixture("pi_failed", "cv_1111111111111111", "failed", "interaction", "The pending item could not be read safely."),
+    pendingInteractionFixture("pi_unavailable", "cv_2222222222222222", "source_unavailable", "interaction", null, "unavailable")
+  ];
+
+  await withServer({
+    provider: makeProvider(calls, { pendingInteractions: rows }),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/interactions`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["interactions"]);
+    assert.match(result.text, /Pending\/Approvals/);
+    assert.match(result.text, /Responses are not enabled in this preview\./);
+    for (const heading of ["Needs owner attention", "Resolved or duplicate", "Stale or expired", "Unavailable or failed"]) {
+      assert.match(result.text, new RegExp(`<h3>${escapeRegExp(heading)}</h3>`), `missing pending group ${heading}: ${result.text}`);
+    }
+    for (const label of ["Needs answer", "Approval needed", "Resolved", "Expired", "Stale", "Duplicate", "Failed", "Unavailable"]) {
+      assert.match(result.text, new RegExp(`class="console-badge">${escapeRegExp(label)}</span>`), `missing pending label ${label}: ${result.text}`);
+    }
+    for (const copy of [
+      "Codex asked a question; responses are not enabled in this preview.",
+      "Codex requested an approval; responses are not enabled in this preview.",
+      "This owner interaction is already resolved; no Web action is available.",
+      "This owner interaction expired or is no longer current; refresh or use the current bridge chat if needed.",
+      "This owner interaction may be stale; refresh before relying on it.",
+      "This owner interaction appears to duplicate another item; use the current item in the bridge chat if needed.",
+      "This owner interaction could not be read safely; use the current bridge chat if needed.",
+      "Pending interaction data is unavailable from the safe reader."
+    ]) {
+      assert.match(result.text, new RegExp(escapeRegExp(copy)), `missing pending copy ${copy}: ${result.text}`);
+    }
+    assert.match(result.text, /href="\/conversations\/cv_aaaaaaaaaaaaaaaa"/);
+    assert.match(result.text, /href="\/conversations\/cv_bbbbbbbbbbbbbbbb"/);
+    assertPendingSurfaceHasNoActionsOrInternals(result.text);
+    for (const raw of ["awaiting_user_input", "pending_approval", "source_unavailable", "codex_approval", "pi_pending_question", "pi_pending_approval"]) {
+      assert.equal(result.text.includes(raw), false, `raw pending value leaked ${raw}: ${result.text}`);
+    }
+  });
+});
+
+test("conversation detail pending panel shares read-only pending cards and action-disabled copy", async () => {
+  const calls: string[] = [];
+  const rows: WebReadonlyPendingInteractionViewRow[] = [
+    pendingInteractionFixture("pi_detail_question", "cv_1234567890abcdef", "awaiting_user_input", "question", "Codex needs a sizing answer.")
+  ];
+
+  await withServer({
+    provider: makeProvider(calls, { detailPendingInteractions: rows }),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["conversation:cv_1234567890abcdef"]);
+    assert.match(result.text, /Pending interactions/);
+    assert.match(result.text, /Needs owner attention/);
+    assert.match(result.text, /Codex needs a sizing answer\./);
+    assert.match(result.text, /Codex asked a question; responses are not enabled in this preview\./);
+    assert.match(result.text, /Responses are not enabled in this preview\./);
+    assertPendingSurfaceHasNoActionsOrInternals(result.text);
+    assert.equal(result.text.includes("pi_detail_question"), false, `raw pending id leaked: ${result.text}`);
+  });
+});
+
 test("home recent conversations use user-language state groups and copy", async () => {
   const calls: string[] = [];
   const rows: WebReadonlyConversationRow[] = [
@@ -503,6 +581,60 @@ function conversationFixture(
     lastTurnStatus: status,
     finalAnswerAvailable
   };
+}
+
+function pendingInteractionFixture(
+  interactionId: string,
+  conversationId: string,
+  status: string,
+  kind: string,
+  summaryText: string | null,
+  availability: "available" | "unavailable" | "degraded" = "available"
+): WebReadonlyPendingInteractionViewRow {
+  return {
+    interactionId,
+    conversationId,
+    sessionId: null,
+    status,
+    kind,
+    createdAt: "2026-04-25T10:00:00.000Z",
+    updatedAt: "2026-04-25T10:05:00.000Z",
+    blockingReason: "Safe owner attention state.",
+    summary: summaryText
+      ? { state: "available", text: summaryText }
+      : { state: "unavailable", reason: "pending_interaction_summary_not_provided" },
+    availability,
+    warnings: []
+  };
+}
+
+function assertPendingSurfaceHasNoActionsOrInternals(html: string): void {
+  const lower = html.toLowerCase();
+  for (const forbidden of [
+    "<form",
+    "<button",
+    "<input",
+    "method=\"post\"",
+    "form-action",
+    "onclick",
+    "callback_data",
+    "callback:",
+    "messageid",
+    "platformmessageid",
+    "telegramchatid",
+    "feishuchatid",
+    "token=",
+    "?token",
+    "/tmp/",
+    "/home/",
+    "/sessions/",
+    "/approval-answer",
+    "/question-answer",
+    "/submit",
+    "/interrupt"
+  ]) {
+    assert.equal(lower.includes(forbidden), false, `pending surface leaked forbidden content ${forbidden}: ${html}`);
+  }
 }
 
 function escapeRegExp(value: string): string {

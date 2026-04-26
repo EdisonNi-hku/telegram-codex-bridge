@@ -135,8 +135,8 @@ export function renderRuntimePage(vm: WebReadonlyRuntimeContextViewModel): strin
 }
 
 export function renderPendingInteractionsPage(vm: WebReadonlyPendingInteractionsViewModel): string {
-  return page("Pending", "pending", [
-    hero("Pending", "Read-only view of approvals, questions, and other owner attention states. Responses are not enabled in this preview."),
+  return page("Pending/Approvals", "pending", [
+    hero("Pending/Approvals", "Read-only view of approvals, questions, and other owner attention states. Responses are not enabled in this preview."),
     summaryPanel("Pending status", [field("State", vm.state), field("Visible items", String(vm.pendingInteractions.length))]),
     pendingPanel(vm.state, vm.pendingInteractions),
     warnings(vm.warnings)
@@ -296,13 +296,7 @@ function runtimePanel(state: string, rows: WebReadonlyRuntimeTurnRow[]): string 
 }
 
 function pendingPanel(state: string, rows: WebReadonlyPendingInteractionViewRow[]): string {
-  return cardListSection(
-    "pending-heading",
-    "Pending interactions",
-    rows,
-    (row) => pendingInteractionCard(row),
-    pendingCopy(state)
-  );
+  return pendingInteractionListSection("pending-heading", "Pending interactions", state, rows);
 }
 
 function readinessPanel(state: string, missingGates: string[]): string {
@@ -337,6 +331,33 @@ function conversationCard(row: WebReadonlyConversationRow): string {
   ].join("")}</div></article>`;
 }
 
+function pendingInteractionListSection(
+  id: string,
+  title: string,
+  state: string,
+  rows: WebReadonlyPendingInteractionViewRow[]
+): string {
+  if (rows.length === 0) {
+    return `<section class="console-section" aria-labelledby="${id}"><h2 id="${id}">${escapeHtml(title)}</h2><p class="console-empty">${escapeHtml(pendingCopy(state))}</p></section>`;
+  }
+
+  const groups = [
+    { key: "attention", title: "Needs owner attention" },
+    { key: "resolved", title: "Resolved or duplicate" },
+    { key: "stale", title: "Stale or expired" },
+    { key: "failed", title: "Unavailable or failed" }
+  ] as const;
+  const cards = groups.map((group) => {
+    const groupRows = rows.filter((row) => pendingGroup(row) === group.key);
+    if (groupRows.length === 0) {
+      return "";
+    }
+    return `<section class="console-card-group" aria-label="${escapeHtml(group.title)}"><h3>${escapeHtml(group.title)}</h3><div class="console-card-list">${groupRows.map((row) => pendingInteractionCard(row)).join("")}</div></section>`;
+  }).join("");
+
+  return `<section class="console-section" aria-labelledby="${id}"><h2 id="${id}">${escapeHtml(title)}</h2>${cards}</section>`;
+}
+
 function runtimeTurnCard(row: WebReadonlyRuntimeTurnRow): string {
   return `<article class="console-card"><h3>${escapeHtml(statusLabel(row.status))}</h3><p>${escapeHtml(row.summary ?? statusCopy(row.status))}</p><div class="console-fields">${[
     field("Blocked", row.blockedReason ?? "—")
@@ -344,15 +365,20 @@ function runtimeTurnCard(row: WebReadonlyRuntimeTurnRow): string {
 }
 
 function pendingInteractionCard(row: WebReadonlyPendingInteractionViewRow): string {
+  const label = pendingInteractionLabel(row);
   const summary = row.summary.state === "available" ? row.summary.text : "Summary is unavailable from the safe read model.";
-  return `<article class="console-card"><h3>${escapeHtml(pendingLabel(row.kind, row.status))}</h3><p>${escapeHtml(summary)}</p><div class="console-fields">${[
-    field("State", pendingLabel(row.kind, row.status)),
-    field("State note", statusCopy(row.status)),
-    field("Kind", row.kind),
+  const source = row.conversationId && /^cv_[a-f0-9]{16}$/.test(row.conversationId)
+    ? fieldHtml("Source", cellHtml(conversationLink(row.conversationId, "Open conversation/task")))
+    : field("Source", "Conversation/task unavailable");
+  return `<article class="console-card"><h3><span class="console-badge">${escapeHtml(label)}</span></h3><p>${escapeHtml(summary)}</p><div class="console-fields">${[
+    field("State", label),
+    field("State note", pendingInteractionCopy(row)),
+    field("Kind", pendingKindLabel(row.kind)),
+    source,
     field("Reason", row.blockingReason),
     field("Created", row.createdAt ?? "—"),
     field("Availability", row.availability)
-  ].join("")}</div><p class="console-muted">Read-only preview: responses are not enabled here.</p></article>`;
+  ].join("")}</div><p class="console-muted">Read-only preview: Responses are not enabled in this preview.</p></article>`;
 }
 
 function artifactCard(artifact: WebReadonlyArtifactDescriptorRow): string {
@@ -367,6 +393,10 @@ function artifactCard(artifact: WebReadonlyArtifactDescriptorRow): string {
 
 function field(label: string, value: unknown): string {
   return `<span class="console-field"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</span>`;
+}
+
+function fieldHtml(label: string, valueHtml: string): string {
+  return `<span class="console-field"><strong>${escapeHtml(label)}:</strong> ${valueHtml}</span>`;
 }
 
 function cellHtml(value: unknown | SafeHtmlCell): string {
@@ -506,6 +536,63 @@ function pendingLabel(kind: string, status: string): string {
   if (loweredKind.includes("question")) return "Needs answer";
   if (loweredKind.includes("approval")) return "Approval needed";
   return statusLabel(status);
+}
+
+function pendingInteractionLabel(row: WebReadonlyPendingInteractionViewRow): string {
+  const normalizedStatus = row.status.toLowerCase();
+  if (/resolved|complete|done/.test(normalizedStatus)) return "Resolved";
+  if (/expired|timed?_?out/.test(normalizedStatus)) return "Expired";
+  if (/stale/.test(normalizedStatus)) return "Stale";
+  if (/duplicate/.test(normalizedStatus)) return "Duplicate";
+  if (/fail|error/.test(normalizedStatus)) return "Failed";
+  if (/unavailable|unknown|missing|source/.test(normalizedStatus) || row.availability === "unavailable") return "Unavailable";
+  return pendingLabel(row.kind, row.status);
+}
+
+function pendingInteractionCopy(row: WebReadonlyPendingInteractionViewRow): string {
+  switch (pendingInteractionLabel(row)) {
+    case "Needs answer":
+      return "Codex asked a question; responses are not enabled in this preview.";
+    case "Approval needed":
+      return "Codex requested an approval; responses are not enabled in this preview.";
+    case "Resolved":
+      return "This owner interaction is already resolved; no Web action is available.";
+    case "Expired":
+      return "This owner interaction expired or is no longer current; refresh or use the current bridge chat if needed.";
+    case "Stale":
+      return "This owner interaction may be stale; refresh before relying on it.";
+    case "Duplicate":
+      return "This owner interaction appears to duplicate another item; use the current item in the bridge chat if needed.";
+    case "Failed":
+      return "This owner interaction could not be read safely; use the current bridge chat if needed.";
+    case "Unavailable":
+      return "Pending interaction data is unavailable from the safe reader.";
+    default:
+      return "Owner attention may be needed, but responses are not enabled in this preview.";
+  }
+}
+
+function pendingKindLabel(kind: string): string {
+  const loweredKind = kind.toLowerCase();
+  if (loweredKind.includes("question")) return "Question";
+  if (loweredKind.includes("approval")) return "Approval";
+  return "Owner interaction";
+}
+
+function pendingGroup(row: WebReadonlyPendingInteractionViewRow): "attention" | "resolved" | "stale" | "failed" {
+  switch (pendingInteractionLabel(row)) {
+    case "Resolved":
+    case "Duplicate":
+      return "resolved";
+    case "Expired":
+    case "Stale":
+      return "stale";
+    case "Failed":
+    case "Unavailable":
+      return "failed";
+    default:
+      return "attention";
+  }
 }
 
 function slug(value: string): string {
