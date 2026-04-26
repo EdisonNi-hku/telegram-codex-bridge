@@ -142,11 +142,23 @@ Verification after the local shell:
 - `npm run check` passed.
 - `git diff --check` passed.
 
+## Local Harness Smoke Proof
+
+The explicit local harness was smoke-tested by the controller:
+
+- Command shape: `CTB_WEB_READONLY_TOKEN=<token> node --import tsx src/cli.ts web readonly --port 0`
+- Listener observed on `127.0.0.1:<ephemeral-port>`.
+- Unauthenticated `/` returned generic 404 with no state data.
+- Authenticated `/` returned escaped read-only HTML for `Codex Console Web prototype` with no-store/CSP/nosniff headers.
+- The smoke instance was killed after proof.
+
+This is an owner-visible local proof path, but still not public, not mobile-exposed, not installed into service startup, and not a Web support claim.
+
 ## Next Gates
 
-1. Checkpoint the module-only local read-only HTTP shell plus this PM ledger.
-2. Continue toward an owner-visible Web milestone only through explicit protected/local gates.
-3. Next possible coding lanes may include CLI-local harness wiring guarded by disabled-by-default token config, screenshot harness for controller-owned proof, persisted neutral final-answer bodies, or readiness model refinement; do not add publicly reachable routes, owner/mobile URL exposure, action controls, uploads/downloads, or support claims without an explicit controller gate.
+1. Checkpoint the explicit local harness plus this PM ledger.
+2. Prepare a controller-owned screenshot/proof artifact from the local harness when needed.
+3. Next possible coding lanes may include safer visible data population for the local harness, persisted neutral final-answer bodies, readiness model refinement, or protected owner-review exposure planning; do not add publicly reachable routes, owner/mobile URL exposure, action controls, uploads/downloads, or support claims without an explicit controller gate.
 
 ## Guardrails
 
@@ -168,3 +180,20 @@ Still not implemented beyond the unintegrated module-only local shell:
 - Multi-user/team features.
 - Native App.
 
+
+## Explicit Local Read-only Harness
+
+A first explicitly invoked local-only CLI harness completed cleanly:
+
+- Status artifact: `.hermes/web-local-harness-status.md`
+- Result: `ctb web readonly` starts the existing dependency-free read-only shell with the live provider seam only when an explicit bearer token is supplied by `CTB_WEB_READONLY_TOKEN` or `--token`.
+
+The harness remains disabled by default and is not integrated into normal service startup/install/systemd. It binds to `127.0.0.1` by default, rejects CLI host binding, prints only the localhost URL plus prototype/token warning, and never prints the token.
+
+Verification after the local harness:
+
+- `node --import tsx --test src/web/readonly-cli.test.ts src/cli.test.ts src/web/readonly-http-server.test.ts src/service/web-readonly-live-provider.test.ts src/service/web-readonly-view-model.test.ts` passed with 29 tests.
+- `npm run check` passed.
+- `git diff --check` passed.
+
+Still not implemented: public/mobile URL exposure, reverse proxy/tunnel/HTTPS/DNS, service autostart, browser support claim, action controls, writes, uploads/downloads, previews, raw logs/terminal/protocol rendering, or Web support status.

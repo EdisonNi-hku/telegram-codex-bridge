@@ -6,6 +6,7 @@ import { loadConfig, parseProjectScanRootsValue, type BridgeInstallOverrides } f
 import { buildPerformanceReport, parseReportWindowMs } from "./perf/report.js";
 import { parseBridgePackName } from "./packs/catalog.js";
 import { parseBooleanLike } from "./util/boolean.js";
+import { startWebReadonlyLocalHarness } from "./web/readonly-cli.js";
 import {
   captureSystemdStopAuditCommand,
   clearAuthorization,
@@ -99,6 +100,7 @@ function printUsage(): void {
   ctb status
   ctb doctor
   ctb perf report [--window <5m|1h|24h|7d>]
+  ctb web readonly [--token <token>] [--port <port>]
   ctb start | stop | restart | update
   ctb uninstall [--purge-state]
   ctb authorize pending [--latest | --select <index> | --user-id <id> | --show-expired]
@@ -248,6 +250,29 @@ async function main(): Promise<void> {
         config,
         windowMs
       })}\n`);
+      return;
+    }
+
+    case "web": {
+      if (subcommand !== "readonly") {
+        printUsage();
+        process.exitCode = 1;
+        return;
+      }
+
+      if (flags.host !== undefined) {
+        process.stderr.write("ctb web readonly is local-only; --host is not supported\n");
+        process.exitCode = 1;
+        return;
+      }
+
+      await startWebReadonlyLocalHarness({
+        paths,
+        logger,
+        token: flags.token,
+        port: flags.port,
+        env: process.env
+      });
       return;
     }
 
