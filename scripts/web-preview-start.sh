@@ -99,6 +99,16 @@ start_readonly() {
   echo "started readonly app (pid $(cat "$pid_file"))"
 }
 
+use_live_upstream() {
+  if port_busy "$CTB_WEB_LIVE_PORT"; then
+    echo "using live bridge Web Chat upstream on 127.0.0.1:$CTB_WEB_LIVE_PORT"
+    return
+  fi
+  echo "ERROR: live bridge Web Chat is not listening on 127.0.0.1:$CTB_WEB_LIVE_PORT" >&2
+  echo "Start or restart the managed bridge service with CTB_WEB_LIVE_ENABLED=1, CTB_WEB_LIVE_PORT=$CTB_WEB_LIVE_PORT, and CTB_WEB_READONLY_TOKEN set." >&2
+  return 1
+}
+
 start_proxy() {
   local pid_file="$STATE_DIR/proxy.pid"
   if pid_alive "$pid_file"; then
@@ -146,7 +156,10 @@ start_cloudflared() {
 
 ensure_env_file
 ensure_key CTB_WEB_READONLY_PORT 45682
+ensure_key CTB_WEB_LIVE_PORT 45682
+ensure_key CTB_WEB_LIVE_HOST 127.0.0.1
 ensure_key PROXY_PORT 45683
+ensure_key CTB_WEB_PREVIEW_MODE readonly
 ensure_key CTB_WEB_READONLY_PLATFORM feishu
 ensure_key CTB_WEB_PUBLIC_URL https://codex.guicheng.xyz
 ensure_key CTB_WEB_CLOUDFLARED_CONFIG "$HOME/.cloudflared/codex-console.yml"
@@ -157,25 +170,46 @@ ensure_key CTB_WEB_SESSION_SECRET "$(secret_hex)"
 if ! has_key CTB_WEB_PREVIEW_PASS && ! has_key CTB_WEB_BASIC_PASS; then
   append_key CTB_WEB_PREVIEW_PASS "$(secret_hex)"
 fi
+if grep -Eq "^CTB_WEB_PREVIEW_MODE=live$" "$ENV_FILE"; then
+  ensure_key CTB_WEB_LIVE_ENABLED 1
+fi
 load_env
 if ! has_key UPSTREAM; then
-  append_key UPSTREAM "http://127.0.0.1:${CTB_WEB_READONLY_PORT:-45682}"
+  if [[ "${CTB_WEB_PREVIEW_MODE:-readonly}" == "live" ]]; then
+    append_key UPSTREAM "http://127.0.0.1:${CTB_WEB_LIVE_PORT:-${CTB_WEB_READONLY_PORT:-45682}}"
+  else
+    append_key UPSTREAM "http://127.0.0.1:${CTB_WEB_READONLY_PORT:-45682}"
+  fi
   load_env
 fi
 chmod 600 "$ENV_FILE"
 
 : "${CTB_WEB_READONLY_PORT:=45682}"
+: "${CTB_WEB_LIVE_PORT:=$CTB_WEB_READONLY_PORT}"
+: "${CTB_WEB_PREVIEW_MODE:=readonly}"
 : "${PROXY_PORT:=45683}"
 : "${CTB_WEB_PUBLIC_URL:=https://codex.guicheng.xyz}"
 : "${CTB_WEB_CLOUDFLARED_CONFIG:=$HOME/.cloudflared/codex-console.yml}"
 : "${CTB_WEB_CLOUDFLARED_TUNNEL:=codex-console}"
 
-start_readonly
+case "$CTB_WEB_PREVIEW_MODE" in
+  live)
+    use_live_upstream
+    ;;
+  readonly)
+    start_readonly
+    ;;
+  *)
+    echo "ERROR: CTB_WEB_PREVIEW_MODE must be readonly or live" >&2
+    exit 1
+    ;;
+esac
 start_proxy
 start_cloudflared
 
 echo
 echo "Owner preview URL: $CTB_WEB_PUBLIC_URL"
+echo "Preview mode: $CTB_WEB_PREVIEW_MODE"
 echo "Password location: $ENV_FILE (CTB_WEB_PREVIEW_PASS or CTB_WEB_BASIC_PASS)"
 echo "State/logs: $STATE_DIR"
 echo "Run smoke: $REPO_ROOT/scripts/web-preview-smoke.sh"

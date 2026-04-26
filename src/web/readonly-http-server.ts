@@ -24,6 +24,7 @@ export interface ReadonlyHttpServerOptions {
 
 type RouteResult = { status: number; html: string };
 type WebSubmitStatus = "accepted" | "blocked" | "rejected" | "unavailable";
+type WebPostRedirectStatus = WebSubmitStatus | "invalid" | "denied";
 
 export interface WebMessageSubmitRequest {
   conversationHandle: string;
@@ -126,8 +127,11 @@ async function handlePost(
 
 function resolveRoute(urlValue: string, provider: WebReadonlyViewModelProvider, options: ReadonlyHttpServerOptions): RouteResult {
   let pathname = "/";
+  let searchParams = new URLSearchParams();
   try {
-    pathname = new URL(urlValue, "http://127.0.0.1").pathname;
+    const url = new URL(urlValue, "http://127.0.0.1");
+    pathname = url.pathname;
+    searchParams = url.searchParams;
   } catch {
     return { status: 404, html: renderGenericNotFoundPage() };
   }
@@ -152,7 +156,10 @@ function resolveRoute(urlValue: string, provider: WebReadonlyViewModelProvider, 
   if (conversationMatch?.[1]) {
     return {
       status: 200,
-      html: renderConversationResultPage(provider.getConversationResultViewModel(conversationMatch[1]), renderOptions(options))
+      html: renderConversationResultPage(
+        provider.getConversationResultViewModel(conversationMatch[1]),
+        renderOptions(options, normalizedFlashStatus(searchParams.get("send")))
+      )
     };
   }
 
@@ -172,9 +179,12 @@ function send(response: ServerResponse, status: number, html: string, headOnly: 
   response.end(headOnly ? undefined : html);
 }
 
-function renderOptions(options: ReadonlyHttpServerOptions) {
+function renderOptions(options: ReadonlyHttpServerOptions, flashStatus: WebPostRedirectStatus | null = null) {
   const csrfToken = options.send ? currentCsrfToken(options.send) : null;
-  return csrfToken && options.send?.submitTextMessage ? { send: { csrfToken } } : {};
+  return {
+    ...(csrfToken && options.send?.submitTextMessage ? { send: { csrfToken } } : {}),
+    ...(flashStatus ? { flash: { status: flashStatus } } : {})
+  };
 }
 
 function sendEnabled(options: ReadonlyHttpServerOptions): boolean {
@@ -313,6 +323,17 @@ function drain(request: IncomingMessage): void {
 
 function normalizeSubmitStatus(status: string): WebSubmitStatus {
   return status === "accepted" || status === "blocked" || status === "unavailable" ? status : "rejected";
+}
+
+function normalizedFlashStatus(status: string | null): WebPostRedirectStatus | null {
+  return status === "accepted" ||
+    status === "blocked" ||
+    status === "rejected" ||
+    status === "unavailable" ||
+    status === "invalid" ||
+    status === "denied"
+    ? status
+    : null;
 }
 
 function sendPostOutcome(

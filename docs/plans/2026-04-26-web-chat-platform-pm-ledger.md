@@ -86,11 +86,11 @@ Goal: restart managed preview, smoke public URL, capture proof, update PR, mark 
 
 ## Active processes
 
-- Phase C implementation: `proc_99f79c93cc14` launched 2026-04-26 after Phase B chat-first read UI commit `0aaa9e3`.
+- Phase D live wiring: completed and accepted 2026-04-27.
 
 ## Next action
 
-Monitor Phase C Codex high implementation run. On completion, review diff, run targeted tests plus `npm run check` and `git diff --check`, then commit/push if accepted and launch Phase D refresh/live-result observation slice.
+Commit/push Phase D live Web Chat wiring, then execute Phase E: enable live managed preview, smoke owner login/home/conversation/composer/POST behavior, verify no raw internals leak, update PR body, and pause this cron when Web Chat is proven usable.
 
 ## Phase A findings
 

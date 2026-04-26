@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { basename } from "node:path";
 
 import { createLogger, type Logger } from "./logger.js";
@@ -123,6 +125,14 @@ import { asRecord, getString, getNumber, getArray } from "./util/untyped.js";
 import { normalizeAndTruncate, summarizeTextPreview, HISTORY_TEXT_LIMIT } from "./util/text.js";
 import { summarizeActivityStatus, summarizeActivityStatusList } from "./activity/serialize.js";
 import { nowIso } from "./util/time.js";
+import { createReadonlyAccessGate } from "./web/readonly-access.js";
+import { createReadonlyHttpServer } from "./web/readonly-http-server.js";
+import { createWebReadonlyLiveProvider } from "./service/web-readonly-live-provider.js";
+import type {
+  WebReadonlyActiveTurn,
+  WebReadonlyPendingInteractionInputRow,
+  WebReadonlyReadinessSnapshot
+} from "./service/web-readonly-view-model.js";
 
 interface RecentActivityEntry {
   tracker: ActivityTracker;
@@ -174,6 +184,16 @@ export type WebTextMessageSubmitResult =
   | { status: "blocked" }
   | { status: "rejected" }
   | { status: "unavailable" };
+
+export interface WebChatHttpServerOptions {
+  token: string;
+  csrfToken?: string | null;
+}
+
+export interface WebChatHttpListenOptions extends WebChatHttpServerOptions {
+  host?: string | null;
+  port: number;
+}
 
 interface BridgeServiceDependencies {
   probeReadiness?: typeof probeReadiness;
@@ -272,6 +292,7 @@ export class BridgeService {
   private performanceRecorder: PerformanceRecorder = noopPerformanceRecorder;
   private performanceSampler: PerformanceSamplerLike | null = null;
   private appServerHealthGuard: AppServerHealthGuardLike | null = null;
+  private webChatServer: Server | null = null;
   private readonly unauthorizedReplyAt = new Map<string, number>();
   private readonly feishuEntrySurfaceAt = new Map<string, number>();
   private readonly commandPanelDrafts = new Map<string, CommandPanelDraftState>();
@@ -699,6 +720,89 @@ export class BridgeService {
     return bindings.length === 1 ? bindings[0]?.chatId ?? null : null;
   }
 
+  createWebChatHttpServer(options: WebChatHttpServerOptions): Server {
+    const token = options.token.trim();
+    if (!token) {
+      throw new Error("web chat token is required");
+    }
+    const csrfToken = options.csrfToken?.trim() || deriveWebChatCsrfToken(token);
+    return createReadonlyHttpServer({
+      provider: this.createWebChatReadonlyProvider(),
+      access: createReadonlyAccessGate({ enabled: true, token }),
+      send: {
+        csrfToken,
+        submitTextMessage: (request) => this.submitWebTextMessage(request)
+      }
+    });
+  }
+
+  async startWebChatHttpServer(options: WebChatHttpListenOptions): Promise<Server> {
+    if (this.webChatServer) {
+      return this.webChatServer;
+    }
+    const host = normalizeWebChatHost(options.host);
+    const server = this.createWebChatHttpServer(options);
+    await listenWebChatServer(server, options.port, host);
+    this.webChatServer = server;
+    const address = server.address() as AddressInfo;
+    await this.bootstrapLogger.info("web chat server started", {
+      host,
+      port: address.port
+    });
+    return server;
+  }
+
+  private async maybeStartWebChatHttpServerFromEnv(): Promise<void> {
+    if (!isTruthyEnv(process.env.CTB_WEB_LIVE_ENABLED ?? process.env.CTB_WEB_CHAT_ENABLED)) {
+      return;
+    }
+
+    const token = process.env.CTB_WEB_LIVE_TOKEN ?? process.env.CTB_WEB_READONLY_TOKEN ?? "";
+    const port = parseWebChatPort(process.env.CTB_WEB_LIVE_PORT ?? process.env.CTB_WEB_READONLY_PORT ?? "45682");
+    const host = process.env.CTB_WEB_LIVE_HOST ?? "127.0.0.1";
+    await this.startWebChatHttpServer({
+      token,
+      csrfToken: process.env.CTB_WEB_CSRF_TOKEN ?? null,
+      host,
+      port
+    });
+  }
+
+  private createWebChatReadonlyProvider() {
+    return createWebReadonlyLiveProvider({
+      auth: {
+        listOperatorBindings: () =>
+          this.store?.listChatBindings(this.config.activePack).map((binding) => ({ chatId: binding.chatId })) ?? []
+      },
+      store: {
+        listRecentProjects: () => this.store?.listRecentProjects() ?? [],
+        listSessionProjectStats: () => this.store?.listSessionProjectStats() ?? [],
+        listSessions: (chatId, listOptions) => this.store?.listSessions(chatId, listOptions) ?? [],
+        getSessionById: (sessionId) => this.store?.getSessionById(sessionId) ?? null,
+        listFinalAnswerViews: (chatId) => this.store?.listFinalAnswerViews(chatId) ?? [],
+        getReadinessSnapshot: () => toWebReadonlyReadinessSnapshot(this.snapshot ?? this.store?.getReadinessSnapshot() ?? null),
+        listPendingInteractions: (chatId) => toWebReadonlyPendingInteractions(this.store?.listPendingInteractionsByChat(chatId) ?? [])
+      },
+      runtime: {
+        listActiveTurns: (chatId) => this.listWebReadonlyActiveTurns(chatId)
+      }
+    });
+  }
+
+  private listWebReadonlyActiveTurns(chatId: string): WebReadonlyActiveTurn[] {
+    return this.listActiveTurns()
+      .filter((turn) => turn.chatId === chatId)
+      .map((turn) => {
+        const status = turn.tracker.getStatus();
+        return {
+          sessionId: turn.sessionId,
+          status: status.turnStatus,
+          summary: status.latestProgress ?? status.lastHighValueTitle ?? status.activeItemLabel ?? turn.latestStatusProgressText,
+          blockedReason: status.threadBlockedReason
+        };
+      });
+  }
+
   private get pendingThreadArchiveOps(): ReadonlyMap<string, PendingThreadArchiveOp[]> {
     return this.threadArchiveReconciler.pendingOps;
   }
@@ -840,6 +944,7 @@ export class BridgeService {
       }
     }
     await this.flushRuntimeNotices();
+    await this.maybeStartWebChatHttpServerFromEnv();
     await this.poller.run();
   }
 
@@ -869,6 +974,8 @@ export class BridgeService {
     this.performanceSampler = null;
     this.appServerHealthGuard?.stop();
     this.appServerHealthGuard = null;
+    await closeWebChatServer(this.webChatServer);
+    this.webChatServer = null;
     this.poller?.stop();
     this.threadArchiveReconciler.clear();
     this.runtimeSurfaceController.disposeAllRuntimeHubs();
@@ -3789,6 +3896,63 @@ export class BridgeService {
     const sleepImpl = this.deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     await sleepImpl(delayMs);
   }
+}
+
+function deriveWebChatCsrfToken(token: string): string {
+  return `csrf_${createHash("sha256").update("web-chat-csrf:v1").update("\0").update(token).digest("hex").slice(0, 32)}`;
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  return /^(1|true|yes|on)$/iu.test(String(value ?? "").trim());
+}
+
+function parseWebChatPort(value: string): number {
+  const port = Number.parseInt(value, 10);
+  if (!Number.isInteger(port) || port < 0 || port > 65535 || String(port) !== value.trim()) {
+    throw new Error("invalid CTB_WEB_LIVE_PORT value");
+  }
+  return port;
+}
+
+function normalizeWebChatHost(value: string | null | undefined): string {
+  const host = String(value ?? "127.0.0.1").trim() || "127.0.0.1";
+  if (host !== "127.0.0.1" && host !== "localhost") {
+    throw new Error("web chat live server is local-only; external host binding is not supported");
+  }
+  return host;
+}
+
+function toWebReadonlyReadinessSnapshot(snapshot: ReadinessSnapshot | null): WebReadonlyReadinessSnapshot | null {
+  return snapshot ? { ...snapshot, details: { ...snapshot.details } } : null;
+}
+
+function toWebReadonlyPendingInteractions(rows: PendingInteractionRow[]): WebReadonlyPendingInteractionInputRow[] {
+  return rows.map((row) => ({ ...row }));
+}
+
+async function listenWebChatServer(server: Server, port: number, host: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, host);
+  });
+}
+
+async function closeWebChatServer(server: Server | null): Promise<void> {
+  if (!server?.listening) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
 }
 
 export async function runBridgeService(importMetaUrl: string): Promise<void> {

@@ -26,7 +26,12 @@ export interface WebSendRenderCapability {
 
 export interface WebReadonlyRenderOptions {
   send?: WebSendRenderCapability | null;
+  flash?: {
+    status: WebSendFlashStatus;
+  } | null;
 }
+
+type WebSendFlashStatus = "accepted" | "blocked" | "rejected" | "unavailable" | "invalid" | "denied";
 
 export function renderHomePage(vm: WebReadonlyHomeViewModel, options: WebReadonlyRenderOptions = {}): string {
   const resultRows = vm.recentConversations.filter((row) => row.finalAnswerAvailable || conversationGroup(row.status) === "completed");
@@ -102,6 +107,7 @@ export function renderConversationResultPage(vm: WebReadonlyConversationResultVi
   return page("Task page", "none", [
     hero("Conversation thread", "Read the selected Codex thread, latest result, attention state, and runtime summary."),
     `<section class="console-panel console-detail-heading" aria-labelledby="detail-heading"><p class="console-eyebrow">Read-only thread</p><h2 id="detail-heading">${escapeHtml(title)}</h2><p><span class="console-badge">${escapeHtml(statusLabel(conversation?.status ?? vm.state))}</span> ${escapeHtml(statusCopy(conversation?.status ?? vm.state))}</p><div class="console-fields">${statusRows.join("")}</div></section>`,
+    refreshPanel(conversation?.conversationHandle ?? null, conversation?.status ?? vm.state, options.flash?.status ?? null),
     composerPanel(
       vm.composer,
       conversation?.conversationHandle ?? null,
@@ -570,6 +576,40 @@ function composerPanel(
     return `<section class="console-composer" aria-label="${escapeHtml(composer.label)}"><form method="post" action="${escapeHtml(action)}"><input type="hidden" name="_csrf" value="${escapeHtml(options.send.csrfToken)}"><label class="console-composer__label" for="web-message-${escapeHtml(conversationHandle)}">${escapeHtml(composer.label)}</label><textarea id="web-message-${escapeHtml(conversationHandle)}" name="message" maxlength="8000" required placeholder="${escapeHtml(composer.placeholder)}"></textarea><button type="submit">Send message</button></form><p><span class="console-badge">Text only</span> Send a short text message to Codex for this conversation.</p></section>`;
   }
   return `<section class="console-composer" aria-label="${escapeHtml(composer.label)}" aria-disabled="true"><div class="console-composer__box" role="textbox" aria-readonly="true" aria-disabled="true"><span>${escapeHtml(composer.placeholder)}</span></div><p><span class="console-badge">Read-only</span> ${escapeHtml(composer.disabledReason)} ${escapeHtml(note)}</p></section>`;
+}
+
+function refreshPanel(conversationHandle: string | null, status: string, flashStatus: WebSendFlashStatus | null): string {
+  if (!conversationHandle || !isSafeConversationHandle(conversationHandle)) {
+    return "";
+  }
+  const refreshHref = `/conversations/${conversationHandle}`;
+  const flashCopy = flashStatus ? sendStatusCopy(flashStatus) : null;
+  const statusCopyText = conversationGroup(status) === "running"
+    ? "Codex is running. Refresh this thread to check for new runtime or result state."
+    : "Refresh this thread to check for updated runtime, attention, or result state.";
+  const fields = [
+    flashCopy ? field("Last send", flashCopy) : "",
+    fieldHtml("Refresh", `<a href="${escapeHtml(refreshHref)}">Refresh thread</a>`),
+    field("Note", statusCopyText)
+  ].filter(Boolean);
+  return `<section class="console-panel console-refresh" aria-labelledby="refresh-heading"><h2 id="refresh-heading">Thread refresh</h2><div class="console-fields">${fields.join("")}</div></section>`;
+}
+
+function sendStatusCopy(status: WebSendFlashStatus): string {
+  switch (status) {
+    case "accepted":
+      return "Message accepted. Refresh to watch running or final result state.";
+    case "blocked":
+      return "Message was blocked by current conversation state. Refresh and check pending attention.";
+    case "unavailable":
+      return "Message could not be submitted right now. Refresh before retrying.";
+    case "denied":
+      return "Message was denied by owner safety checks.";
+    case "invalid":
+      return "Message was not sent because the request was invalid.";
+    case "rejected":
+      return "Message was not accepted for this conversation.";
+  }
 }
 
 function isSafeConversationHandle(value: string): boolean {

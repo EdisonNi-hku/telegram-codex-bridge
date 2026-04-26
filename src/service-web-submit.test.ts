@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import type { AddressInfo } from "node:net";
+import type { Server } from "node:http";
 
 import { BridgeService } from "./service.js";
 import type { SessionRow } from "./types.js";
@@ -60,6 +62,21 @@ function createHarness(sessions: SessionRow[], bindings = [{ chatId: "chat-1" }]
   return { service, calls };
 }
 
+async function withListeningServer<T>(server: Server, fn: (baseUrl: string) => Promise<T>): Promise<T> {
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address() as AddressInfo;
+  try {
+    return await fn(`http://127.0.0.1:${address.port}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+}
+
 test("submitWebTextMessage resolves one owner binding and opaque conversation handle before delegating", async () => {
   const session = sessionFixture();
   const { service, calls } = createHarness([session]);
@@ -95,4 +112,60 @@ test("submitWebTextMessage rejects raw ids, archived sessions, mismatched chat, 
     });
     assert.deepEqual(result, { status: "rejected" });
   }
+});
+
+test("live web chat server renders enabled composer and POST invokes BridgeService submit seam", async () => {
+  const session = sessionFixture();
+  const service = Object.create(BridgeService.prototype) as BridgeService;
+  const rawService = service as any;
+  const submitted: unknown[] = [];
+  rawService.config = { activePack: "feishu" };
+  rawService.snapshot = null;
+  rawService.store = {
+    listChatBindings: () => [{ chatId: "chat-1" }],
+    listRecentProjects: () => [],
+    listSessionProjectStats: () => [],
+    listSessions: (chatId: string, options?: { archived?: boolean }) =>
+      [session].filter((row) => row.chatId === chatId && Boolean(row.archived) === Boolean(options?.archived)),
+    getSessionById: (sessionId: string) => sessionId === session.sessionId ? session : null,
+    listFinalAnswerViews: () => [],
+    getReadinessSnapshot: () => null,
+    listPendingInteractionsByChat: () => []
+  };
+  rawService.listActiveTurns = () => [];
+  rawService.submitWebTextMessage = async (request: unknown) => {
+    submitted.push(request);
+    return { status: "accepted" };
+  };
+
+  const csrfToken = "csrf-safe-token";
+  const server = service.createWebChatHttpServer({ token: "owner-token", csrfToken });
+  await withListeningServer(server, async (baseUrl) => {
+    const handle = conversationHandleForSessionId(session.sessionId);
+    const detail = await fetch(`${baseUrl}/conversations/${handle}`, {
+      headers: { Authorization: "Bearer owner-token" }
+    });
+    const html = await detail.text();
+    assert.equal(detail.status, 200);
+    assert.match(html, new RegExp(`action="/conversations/${handle}/messages"`));
+    assert.match(html, /<button type="submit">Send message<\/button>/);
+
+    const response = await fetch(`${baseUrl}/conversations/${handle}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer owner-token",
+        "Content-Type": "application/x-www-form-urlencoded",
+        Host: "127.0.0.1"
+      },
+      body: `_csrf=${csrfToken}&message=%20live%20hello%20&nonce=n-1`,
+      redirect: "manual"
+    });
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get("location"), `/conversations/${handle}?send=accepted`);
+    assert.deepEqual(submitted, [{
+      conversationHandle: handle,
+      text: "live hello",
+      nonce: "n-1"
+    }]);
+  });
 });

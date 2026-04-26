@@ -24,6 +24,7 @@ function makeProvider(
     homeConversations?: WebReadonlyConversationRow[];
     workspaceConversations?: WebReadonlyConversationRow[];
     detailAnswers?: WebReadonlyConversationResultViewModel["answers"];
+    detailStatus?: string;
     pendingInteractions?: WebReadonlyPendingInteractionViewRow[];
     homePendingInteractions?: WebReadonlyPendingInteractionViewRow[];
     detailPendingInteractions?: WebReadonlyPendingInteractionViewRow[];
@@ -147,7 +148,7 @@ function makeProvider(
           workspaceId: "wk_safe_1",
           title: "Readonly detail",
           workspaceLabel: "Console Core",
-          status: "completed",
+          status: options.detailStatus ?? "completed",
           failureReason: null,
           archived: false,
           createdAt: "2026-04-25T10:00:00.000Z",
@@ -776,6 +777,28 @@ test("send capability enables only the safe text composer with opaque conversati
     assert.equal(result.text.includes("chat-secret"), false);
     assert.equal(result.headers.get("content-security-policy")?.includes("form-action 'self'"), true);
     assert.deepEqual(submitted, []);
+  });
+});
+
+test("accepted and running conversation states expose safe refresh affordance", async () => {
+  const calls: string[] = [];
+  await withServer({
+    provider: makeProvider(calls, { detailStatus: "running" }),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: () => ({ status: "accepted" })
+    }
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef?send=accepted`, token);
+    assert.equal(result.status, 200);
+    assert.match(result.text, /Message accepted/);
+    assert.match(result.text, /Codex is running/);
+    assert.match(result.text, /href="\/conversations\/cv_1234567890abcdef"/);
+    assert.match(result.text, /Refresh thread/);
+    for (const forbidden of [token, "session-1", "chat-secret", "/tmp/", "/home/", "thread-1", "turn-1", "stack"]) {
+      assert.equal(result.text.includes(forbidden), false, `refresh affordance leaked ${forbidden}`);
+    }
   });
 });
 
