@@ -230,9 +230,26 @@ Gated Web actions design completed as a docs-only gate:
 - Required gates now include protected owner access passed first, explicit owner auth/session, single resolved binding/platform, CSRF or equivalent replay protection, action audit log, idempotency/action nonce, confirmation for destructive or interruptive actions, rollback path, opaque server-scoped handles, generic stale/duplicate denial, and kill-switch verification.
 - Still not implemented: no-op action capability display, approval-answer, interrupt, task submit, uploads/downloads, artifact download, raw terminal, arbitrary command execution, public/mobile URL exposure, multi-user semantics, or Web support claim.
 
+## Handoff Checkpoint: Product Web Console MVP
+
+Owner correction: the current Portal is not a user-facing Web product; it is only an owner-visible read-only debug/admin preview. This correction is accepted as the next-phase framing.
+
+Current temporary owner preview is live at `https://codex.guicheng.xyz` through Cloudflare Tunnel, form-login cookie proxy, and local Web readonly origin. It is not a supported/public service. Secrets live under `/tmp/ctb-web-access/` and must not be copied into docs or chat summaries.
+
+Handoff note written to `/tmp/codex-console-handoff-2026-04-26.md`.
+
+Next phase should be Phase 3 Product Web Console MVP:
+
+1. Define real product IA and core flows: home, conversations/tasks, detail, pending, settings.
+2. Replace table-like debug views with a readable mobile-friendly Console shell.
+3. Add safe final-answer body rendering from a Web-neutral source.
+4. Add useful live state: running turn, pending question/approval, readiness/runtime in user language.
+5. Only after read UX works, add the first gated action lane with auth/session, CSRF/replay protection, audit, idempotency, kill-switch, and rollback.
+6. Convert temporary preview into managed owner preview service.
+
 ## Guardrails
 
-Do not claim Web is shipped, supported, enabled, public, or browser-usable yet.
+Do not claim Web is shipped, supported, public, or product-complete. Current browser access is a temporary owner preview only.
 
 Still not implemented for the Web prototype:
 
@@ -281,3 +298,31 @@ The explicit local read-only Web harness now accepts a narrow operator binding f
 This does not expose raw chat/user/message IDs, does not auto-select across platforms, and does not add an operator selector UI, public/mobile exposure, service startup wiring, actions, uploads/downloads, logs/terminal/protocol rendering, or final-answer body rendering.
 
 Controller smoke proof showed `--platform feishu` can make the local authenticated page data-bearing on the current local state without exposing raw IDs: operator binding became available, `workspace_data_unavailable` disappeared, and the instance was shut down after proof.
+
+## Phase 3 Current State: Product Web Console MVP
+
+Phase 3 has started as a docs/planning landing, not runtime implementation.
+
+Durable MVP spec:
+
+- `docs/plans/2026-04-26-product-web-console-mvp.md`
+
+Current accepted scope:
+
+- Web-first, App-later.
+- Current browser preview remains an owner-visible temporary read-only debug/admin preview, not a user-facing Web product.
+- First lane remains single-operator, owner/private, denied-by-default, and read-mostly.
+- Phase 3 product direction is a real Web Console information architecture: Home, Workspaces/Projects, Conversations/Tasks, Conversation/Task Detail, Pending/Approvals, and Runtime/Readiness/Settings.
+- The MVP must make conversation/task status and final results readable from phone/desktop without raw IDs, paths, tokens, platform internals, Telegram-shaped copy, or table-only debug pages.
+- Final-answer body rendering may use only sanitized Web-neutral sources. If none exists, the UI must show an explicit unavailable/degraded state and must not scrape Telegram/Feishu/debug HTML.
+- Action controls remain deferred. The later action lane must be separately gated, with approval/question answer or submit draft chosen explicitly after the read UX is useful.
+
+Next implementation slices, in order:
+
+1. Build the first real Console shell and readable conversation/task detail UI using existing safe read-only data; this is the immediate next code slice and should not drift back into substrate-only work.
+2. Refine final-answer body rendering from sanitized Web-neutral sources, with explicit unavailable/degraded copy when absent.
+3. Add conversation/task list grouping and user-language states for running, blocked, pending question, pending approval, done, failed, degraded, and unavailable.
+4. Add a Pending/Approvals read-only page or section, with no active action controls.
+5. Add Runtime/Readiness/Settings read page in safe owner language.
+6. Produce owner-reviewable screenshot/HTML proof after readable UI lands.
+7. Decide the first gated action lane only after the read UX and proof pass.

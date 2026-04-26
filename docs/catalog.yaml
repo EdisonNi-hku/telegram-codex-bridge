@@ -200,6 +200,11 @@ documents:
     layer: 3
     parent: docs/plans/README.md
     summary: PR-ready Phase 2 closeout note with commits, user-visible impact, known gaps, and verification commands
+  - path: docs/plans/2026-04-26-product-web-console-mvp.md
+    role: leaf
+    layer: 3
+    parent: docs/plans/README.md
+    summary: Phase 3 Product Web Console MVP information architecture, core flows, acceptance criteria, guardrails, and next implementation slices
   - path: docs/plans/2026-04-26-web-first-project-command-board.md
     role: leaf
     layer: 3

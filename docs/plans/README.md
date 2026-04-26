@@ -3,6 +3,7 @@ role: domain
 layer: 2
 parent: docs/INDEX.md
 children:
+  - docs/plans/2026-04-26-product-web-console-mvp.md
   - docs/plans/2026-04-26-web-viewmodel-inventory.md
   - docs/plans/2026-04-26-web-readonly-prototype-implementation-plan.md
   - docs/plans/2026-04-26-web-first-phase-1-closeout.md
@@ -41,6 +42,7 @@ For new continuation work, start with `../roadmap/codex-console-continuation-bri
 
 ## Active Or Recently Relevant Leaves
 
+- `2026-04-26-product-web-console-mvp.md` - Phase 3 Product Web Console MVP information architecture, core flows, acceptance criteria, guardrails, and next implementation slices; use before coding the first readable Console shell/detail UI.
 - `2026-04-26-web-viewmodel-inventory.md` - implementation-facing inventory of read-only Core/state/source facades, the landed first adapter seam, and remaining read-only gaps for the future Web prototype.
 - `2026-04-26-web-readonly-prototype-implementation-plan.md` - PM-readable guardrails and future-work route for the read-only Web prototype; the first service adapter seam has landed, while routes/UI/auth/actions remain unimplemented.
 - `2026-04-26-web-first-phase-1-closeout.md` - closeout and next-stage tracker for the landed local read-only Web prototype, including commits, verification, smoke proof, and Phase 2A/2B/2C task lanes.
