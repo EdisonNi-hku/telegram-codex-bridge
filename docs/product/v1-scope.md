@@ -3,7 +3,7 @@ role: leaf
 layer: 3
 parent: docs/product/README.md
 children: []
-summary: current shipped v1 scope, trust model, and out-of-scope boundary for the Telegram-first bridge
+summary: current shipped v1 scope, trust model, and out-of-scope boundary for Codex Console's Telegram-first baseline
 read_when:
   - the task is about what v1 includes, excludes, or deliberately does not promise
   - the task needs the current trust model before implementation or docs changes
@@ -14,25 +14,31 @@ source_of_truth:
   - docs/future/multi-platform-core-prd.md
 -->
 
-# Telegram Codex Bridge v1 Scope
+# Codex Console v1 Scope
 
 Current truth note:
-- this file describes the **current shipped Telegram-first product**
-- future repository direction beyond Telegram belongs in `docs/future/multi-platform-core-prd.md`
+- external product name is **Codex Console**
+- internal architecture name is **Codex Bridge Core**
+- this file describes the **current Telegram-first baseline and trust model**
+- Telegram remains the stable first pack and default install path
+- Feishu is a serious current pack, but broad multi-platform production maturity is not claimed here
+- the in-scope list below is the stable Telegram baseline; Feishu current-pack capability and readiness are covered by the pack boundary, operations docs, and platform capability matrix
+- future product direction belongs in `docs/future/multi-platform-core-prd.md`
 
 ## Goal
 
-Build a VPS-hosted Telegram bridge that wakes and controls the Codex installation that already exists on the server.
+Build a VPS-hosted Codex Console that wakes and controls the Codex installation that already exists on the server.
 
-Telegram is the control surface.
+Telegram is the stable first control surface.
 Codex remains the execution engine.
 The bridge is not a second Codex environment, not a provider-management layer, and not a second permission system.
 
 ## In Scope
 
-- single authorized Telegram user
-- Telegram private chat only
+- stable Telegram baseline: single authorized Telegram user
+- stable Telegram baseline: Telegram private chat only
 - one bridge service per server
+- Feishu can be selected as the active current pack, with its capability and setup completeness judged by the pack-aware docs rather than by this Telegram baseline list
 - reuse the server's existing Codex environment
 - project-aware session startup
 - read-only project file browsing for the active session, including directory navigation plus text and image preview inside the current project root
@@ -54,7 +60,7 @@ The bridge is not a second Codex environment, not a provider-management layer, a
 - optional Telegram voice-message adaptation into transcribed text input when voice input is enabled
 - one-line install plus local self-check
 - operator-managed full-access runtime with adapted Telegram UX instead of a raw terminal
-- current repository direction may later grow into a broader Core, but that is not part of shipped v1 behavior
+- current repository direction is Codex Console powered by Codex Bridge Core, but this v1 baseline does not claim every surface is fully platform-neutral
 
 ## Out Of Scope
 
@@ -72,7 +78,7 @@ The bridge is not a second Codex environment, not a provider-management layer, a
 - client-managed ChatGPT token refresh via `account/chatgptAuthTokens/refresh`, because the bridge does not own ChatGPT access tokens or workspace ids and Telegram is not the provider-setup UX
 - `command/exec*`, `feedback/upload`, `fuzzyFileSearch*`, and `externalAgentConfig/*`
 - a first-class Telegram transport inside Codex core
-- multi-platform packs such as Slack or Discord
+- broad additional platform packs such as Slack or Discord
 - a first-class Web or App control console
 
 ## Runtime Assumption

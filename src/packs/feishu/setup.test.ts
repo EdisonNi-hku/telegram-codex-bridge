@@ -6,6 +6,7 @@ import {
   applyFeishuSetupObservation,
   applyFeishuSetupToSnapshot,
   FEISHU_SETUP_CHECKLIST,
+  mergeStoredFeishuSetupMetadata,
   resetFeishuSetupCycle
 } from "./setup.js";
 
@@ -73,6 +74,40 @@ test("resetFeishuSetupCycle clears previous Feishu observations", () => {
   assert.equal(reset.details.packMetadata?.feishuLastTextIngressAt, null);
   assert.equal(reset.details.packMetadata?.feishuLastInteractiveCardSentAt, null);
   assert.equal(reset.details.packMetadata?.feishuLastCardCallbackAt, null);
+});
+
+test("mergeStoredFeishuSetupMetadata preserves stored observations when the fresh report omits them", () => {
+  const merged = mergeStoredFeishuSetupMetadata({
+    feishuAppId: "cli_test"
+  }, {
+    feishuAppId: "cli_test",
+    feishuSetupEpoch: "2026-04-09T00:00:00.000Z",
+    feishuLastTextIngressAt: "2026-04-09T00:01:00.000Z",
+    feishuLastInteractiveCardSentAt: "2026-04-09T00:02:00.000Z",
+    feishuLastCardCallbackAt: "2026-04-09T00:03:00.000Z"
+  });
+
+  assert.equal(merged.feishuSetupEpoch, "2026-04-09T00:00:00.000Z");
+  assert.equal(merged.feishuLastTextIngressAt, "2026-04-09T00:01:00.000Z");
+  assert.equal(merged.feishuLastInteractiveCardSentAt, "2026-04-09T00:02:00.000Z");
+  assert.equal(merged.feishuLastCardCallbackAt, "2026-04-09T00:03:00.000Z");
+});
+
+test("mergeStoredFeishuSetupMetadata does not reuse stored observations when the Feishu app changes", () => {
+  const merged = mergeStoredFeishuSetupMetadata({
+    feishuAppId: "new_app"
+  }, {
+    feishuAppId: "old_app",
+    feishuSetupEpoch: "2026-04-09T00:00:00.000Z",
+    feishuLastTextIngressAt: "2026-04-09T00:01:00.000Z",
+    feishuLastInteractiveCardSentAt: "2026-04-09T00:02:00.000Z",
+    feishuLastCardCallbackAt: "2026-04-09T00:03:00.000Z"
+  });
+
+  assert.equal(merged.feishuSetupEpoch, undefined);
+  assert.equal(merged.feishuLastTextIngressAt, undefined);
+  assert.equal(merged.feishuLastInteractiveCardSentAt, undefined);
+  assert.equal(merged.feishuLastCardCallbackAt, undefined);
 });
 
 test("feishu setup checklist includes upload scopes for file sending", () => {

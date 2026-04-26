@@ -1,9 +1,11 @@
 # Telegram Codex Bridge V2 Engineering Evaluation
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 Status: Evaluated
 For: V2 engineering evaluation response
-Related PRD: `docs/future/v2-prd.md`
-Related template: `docs/future/v2-engineering-evaluation-template.md`
+Related PRD: `docs/archive/future/v2-prd.md`
+Related template: `docs/archive/future/v2-engineering-evaluation-template.md`
 Related v1 docs: `docs/product/v1-scope.md`, `docs/product/chat-and-project-flow.md`, `docs/architecture/runtime-and-state.md`, `docs/operations/install-and-admin.md`, `docs/research/app-server-phase-0-verification.md`
 
 > Truth status:
@@ -73,14 +75,14 @@ Engineering reviewed the requested sources plus current implementation evidence.
   - official pages fetched successfully on 2026-03-10 via `markdown.new` mirror because the direct browser capture was incomplete
 - Path note:
   - the user message referenced `docs/telegram-codex-bridge-v2-prd.md` and `docs/telegram-codex-bridge-v2-engineering-eval-template.md`
-  - in the current repo information architecture, the live future-scope sources are `docs/future/v2-prd.md`, `docs/future/v2-engineering-evaluation-template.md`, and this document at `docs/future/v2-engineering-evaluation.md`
+  - in the current repo information architecture, the live future-scope sources are `docs/archive/future/v2-prd.md`, `docs/archive/future/v2-engineering-evaluation-template.md`, and this document at `docs/archive/future/v2-engineering-evaluation.md`
 
 ### Evidence register
 
 | Evidence type | Link / path / command | Key finding |
 |---|---|---|
 | v1 planning baseline | `docs/archive/legacy-v1-engineering-plan-draft.md` | The earlier monolithic draft was retired; the split v1 docs preserve the same frozen trust boundary |
-| PRD | `docs/future/v2-prd.md` | Priority order is fixed: activity visibility > session management > platform/stability |
+| PRD | `docs/archive/future/v2-prd.md` | Priority order is fixed: activity visibility > session management > platform/stability |
 | current code | `src/service.ts`, `src/state/store.ts`, `src/install.ts`, `src/readiness.ts`, `src/telegram/ui.ts` | Current implementation is solid v1 infrastructure but still final-answer-centric |
 | tests | `npm test` on 2026-03-10 | 12/12 tests passed; current baseline is stable for evaluation |
 | protocol/schema | `docs/research/app-server-phase-0-verification.md`; `/tmp/codex-app-schema/json/codex_app_server_protocol.v2.schemas.json`; `/tmp/codex-app-ts/v2/` | Local runtime confirms legacy event mix and generated v2 schema exposes the richer event surface needed for V2 |

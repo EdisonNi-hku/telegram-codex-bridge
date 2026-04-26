@@ -303,7 +303,7 @@ export const FEISHU_PACK: BridgePackDefinition<FeishuPackConfig> = {
   skillName: FEISHU_PACK_SKILL_NAME,
   capabilities: FEISHU_SURFACE_CAPABILITY_SNAPSHOT,
   ingress: {
-    kind: "polling",
+    kind: "long_connection",
     ownsCallbacks: true,
     ownsRichInput: false,
     ownsMediaIngress: false
@@ -312,7 +312,7 @@ export const FEISHU_PACK: BridgePackDefinition<FeishuPackConfig> = {
     preferBridgeCommandButtons: true
   },
   egress: {
-    kind: "bot_api",
+    kind: "open_api",
     syncControlSurface: async () => {}
   },
   authBinding: {

@@ -54,7 +54,7 @@ Protocol evidence is **not** the same thing as shipped Telegram UX.
 
 Use this tier only for future direction, implementation sequencing, or conflict reconstruction.
 
-- `docs/roadmap/`
+- `docs/roadmap/` (start with `docs/roadmap/codex-console-continuation-brief.md` for new continuation tasks)
 - `docs/future/`
 - `docs/plans/`
 - `docs/archive/`
@@ -78,11 +78,13 @@ Read the smallest matching leaf doc.
 | code-derived ownership map for `src/` | `docs/architecture/current-code-organization.md` |
 | current Codex app-server adoption, supported request families, notification reduction, approvals, and rejected server requests | `docs/architecture/codex-app-server-adoption.md` |
 | current pack boundary, active pack selection, Telegram vs Feishu pack ownership, or platform capability routing | `docs/architecture/platform-pack-boundary.md` |
+| current Telegram/Feishu capability table, common capability vs platform-specific features, or future Web/App target capability rows | `docs/architecture/platform-capability-matrix.md` |
 | install flow, config keys, paths, services, update, diagnostics | `docs/operations/install-and-admin.md` |
 | exact current versions, module counts, size snapshot, other high-drift facts | `docs/generated/current-snapshot.md` |
 | authoritative Codex app-server protocol reference | `docs/research/codex-app-server-authoritative-reference.md` |
 | method-by-method protocol lookup | `docs/research/codex-app-server-api-quick-reference.md` |
 | earlier protocol verification details | `docs/research/app-server-phase-0-verification.md` |
+| new Codex Console continuation task, archive/noise decision, or context-budget decision | `docs/roadmap/codex-console-continuation-brief.md` |
 | future multi-platform Core direction, platform packs, Web/App control surface goals | `docs/future/multi-platform-core-prd.md` |
 | roadmap or future-phase intent | the smallest relevant file under `docs/roadmap/` or `docs/future/` |
 | active implementation planning or handoff context | the smallest relevant file under `docs/plans/` |
@@ -150,4 +152,4 @@ Stop after one leaf doc unless the task shows a real need for:
 - one protocol doc in Tier 2
 - one planning/history doc in Tier 3
 
-Do not read the entire docs tree.
+Do not read the entire docs tree. Do not read `docs/archive/` unless current sources conflict or the task explicitly asks for history.

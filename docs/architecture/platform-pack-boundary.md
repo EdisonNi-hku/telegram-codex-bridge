@@ -28,6 +28,7 @@ source_of_truth:
 # Platform Pack Boundary
 
 Verified against the current implementation on 2026-04-09.
+Naming reviewed on 2026-04-25.
 
 Use this file for the answer to:
 
@@ -38,6 +39,14 @@ Use this file for the answer to:
 
 This file is about the current implementation boundary.
 It is not the future multi-platform product PRD.
+For the owner-facing Telegram/Feishu capability table and future Web/App target rows, use `platform-capability-matrix.md`.
+
+Product/architecture naming:
+
+- external product name: **Codex Console**
+- internal architecture name: **Codex Bridge Core**
+- current repository/package compatibility name: `telegram-codex-bridge`
+- current supported packs: Telegram and Feishu
 
 ## Current Truth In One Screen
 
@@ -45,12 +54,12 @@ It is not the future multi-platform product PRD.
 - `BRIDGE_PACK` selects the active pack at config load time; default is still `telegram`
 - runtime startup, readiness checks, install-time skill selection, and dynamic tool declarations are pack-aware
 - the shared service shell is still largely Telegram-shaped
-- Feishu support exists as a current runtime and setup boundary, but that does not override the repo's Telegram-first shipped-product docs
+- Feishu support exists as a current runtime and setup boundary, but that does not erase Telegram-first history or the default Telegram install path
 
 That means two statements are true at the same time:
 
 - current implementation is no longer purely Telegram-hardcoded
-- current default product truth should still be read as Telegram-first unless the task is explicitly about pack internals or Feishu setup
+- Codex Console is currently Telegram-first by default path while also having a serious Feishu pack
 
 ## What The Pack Contract Owns
 
@@ -90,6 +99,7 @@ Current install-facing implications:
 - `ctb install` accepts `--pack <name>` and repeated `--pack-option key=value`
 - `ctb install-skill` also accepts `--pack <name>`
 - GitHub install shortcuts resolve the pack through `pack-manifest.json` and forward it into the CLI
+- Telegram remains the default when no pack is selected
 
 ## Current Owner Split
 
@@ -114,7 +124,7 @@ Feishu pack owners:
 - `src/packs/feishu/index.ts` - Feishu pack definition, health checks, setup-health wiring, and dynamic tools
 - `src/packs/feishu/config.ts` - Feishu pack env/config codec
 - `src/packs/feishu/setup.ts` - Feishu setup-cycle observation and readiness interpretation
-- `src/feishu/` - current Feishu API and polling compatibility adapters
+- `src/feishu/` - current Feishu OpenAPI and long-connection compatibility adapters
 
 Shared shell owners that are still not fully pack-neutral:
 
@@ -151,6 +161,6 @@ Needs extra caution:
 
 - changing `BridgePackDefinition` in ways that ripple into `src/service.ts`, readiness, and install
 - claiming a pack capability in docs before the corresponding runtime and UI path exist
-- treating Feishu setup coverage as proof that Telegram-first product docs no longer apply
+- treating Feishu setup coverage as proof that all Telegram-shaped service assumptions are gone
 
 Escalate to the future-direction docs when the change is about a fully platform-neutral product core rather than today's pack-aware runtime boundary.

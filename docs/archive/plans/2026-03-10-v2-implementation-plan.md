@@ -1,5 +1,7 @@
 # Telegram Codex Bridge V2 实施计划
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > Truth status:
 > - Current truth? No
 > - Use for: implementation rationale, sequencing, and handoff history
@@ -13,9 +15,9 @@
 
 相关文档：
 - 当前 v1 基线：`docs/product/v1-scope.md`、`docs/product/chat-and-project-flow.md`、`docs/architecture/runtime-and-state.md`、`docs/operations/install-and-admin.md`、`docs/research/app-server-phase-0-verification.md`
-- V2 PRD：`docs/future/v2-prd.md`
-- V2 工程评估：`docs/future/v2-engineering-evaluation.md`
-- 2A 详细设计：`docs/plans/2026-03-10-v2-2a-detailed-design.md`
+- V2 PRD：`docs/archive/future/v2-prd.md`
+- V2 工程评估：`docs/archive/future/v2-engineering-evaluation.md`
+- 2A 详细设计：`docs/archive/plans/2026-03-10-v2-2a-detailed-design.md`
 
 ---
 

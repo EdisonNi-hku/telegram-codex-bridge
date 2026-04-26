@@ -8,6 +8,7 @@ import type { BridgeConfig } from "./config.js";
 import type { Logger } from "./logger.js";
 import type { BridgePaths } from "./paths.js";
 import type { PackHealthReport } from "./packs/contract.js";
+import { buildFeishuSetupHealth } from "./packs/feishu/setup.js";
 import { probeReadiness } from "./readiness.js";
 import { BridgeStateStore } from "./state/store.js";
 
@@ -58,6 +59,22 @@ const testConfig: BridgeConfig = {
   appServerGuardMcpWorkerThreshold: 6,
   appServerGuardConsecutiveWindows: 3,
   appServerGuardCooldownMs: 900_000
+};
+const feishuTestConfig: BridgeConfig = {
+  ...testConfig,
+  activePack: "feishu",
+  shared: {
+    ...testConfig.shared,
+    activePack: "feishu"
+  },
+  packs: {
+    ...testConfig.packs,
+    feishu: {
+      appId: "cli_test",
+      appSecret: "secret",
+      apiBaseUrl: "https://open.feishu.cn"
+    }
+  }
 };
 const REQUIRED_CLIENT_REQUESTS = [
   "thread/list",
@@ -172,6 +189,77 @@ function createTelegramPackHealthReport(
     },
     ...overrides
   };
+}
+
+function createFeishuPackHealthReport(
+  overrides?: Partial<PackHealthReport>
+): PackHealthReport {
+  const report: PackHealthReport = {
+    state: "ready",
+    checks: [
+      { id: "feishu_credentials", ok: true, summary: "feishu credentials configured" },
+      { id: "feishu_tenant_token_validation", ok: true, summary: "feishu tenant access token validated" },
+      { id: "feishu_authorization_binding", ok: true, summary: "feishu authorization is bound" }
+    ],
+    issues: [],
+    metadata: {
+      feishuAppId: "cli_test"
+    }
+  };
+
+  return {
+    ...report,
+    ...buildFeishuSetupHealth({
+      report,
+      authorized: true
+    }),
+    ...overrides
+  };
+}
+
+function createSuccessfulProbeDeps(runPackHealthCheck: () => Promise<PackHealthReport>) {
+  return {
+    nodeVersion: process.version,
+    detectServiceManager: async () => ({
+      manager: "none" as const,
+      health: "warning" as const,
+      issues: []
+    }),
+    commandExists: async () => true,
+    runCommand: async (_command: string, args: string[]) => {
+      if (args[0] === "--version") {
+        return { exitCode: 0, stdout: "codex-cli 0.114.0", stderr: "" };
+      }
+      if (args[0] === "login") {
+        return { exitCode: 0, stdout: "Logged in", stderr: "" };
+      }
+      throw new Error(`unexpected command: ${args.join(" ")}`);
+    },
+    runPackHealthCheck,
+    createAppServer: () => ({
+      pid: 123,
+      initializeAndProbe: async () => {},
+      stop: async () => {}
+    }),
+    evaluateCapabilities: async () => ({
+      ok: true,
+      source: "cache" as const,
+      issues: []
+    })
+  };
+}
+
+function authorizeFeishu(store: BridgeStateStore): void {
+  store.upsertPendingAuthorization({
+    platform: "feishu",
+    userId: "feishu-user",
+    chatId: "feishu-chat",
+    username: "feishu-user",
+    displayName: "Feishu User"
+  });
+  const candidate = store.listPendingAuthorizations({ platform: "feishu" })[0];
+  assert.ok(candidate);
+  store.confirmPendingAuthorization(candidate);
 }
 
 async function writeCapabilitySchemas(
@@ -831,6 +919,138 @@ test("probeReadiness caches capability mismatches that come from a successful sc
     assert.equal(second.snapshot.details.capabilityCheckSource, "cache");
     assert.match(second.snapshot.details.issues.join("\n"), /thread\/archived/u);
     assert.equal(schemaAttempts, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("probeReadiness preserves stored Feishu setup observations during non-persistent recomputation", async () => {
+  const { paths, store, cleanup } = await createReadinessContext();
+
+  try {
+    authorizeFeishu(store);
+    store.writeReadinessSnapshot({
+      state: "ready",
+      checkedAt: "2026-04-21T00:03:00.000Z",
+      details: {
+        activePack: "feishu",
+        codexInstalled: true,
+        codexAuthenticated: true,
+        appServerAvailable: true,
+        packState: "ready",
+        setupState: "complete",
+        packMetadata: {
+          feishuAppId: "cli_test",
+          feishuSetupEpoch: "2026-04-21T00:00:00.000Z",
+          feishuLastTextIngressAt: "2026-04-21T00:01:00.000Z",
+          feishuLastInteractiveCardSentAt: "2026-04-21T00:02:00.000Z",
+          feishuLastCardCallbackAt: "2026-04-21T00:03:00.000Z"
+        },
+        authorizedUserBound: true,
+        issues: [],
+        sharedIssues: [],
+        packIssues: [],
+        packChecks: []
+      },
+      appServerPid: null
+    });
+
+    const result = await probeReadiness({
+      config: feishuTestConfig,
+      store,
+      paths,
+      logger: testLogger,
+      persist: false,
+      deps: createSuccessfulProbeDeps(async () => createFeishuPackHealthReport())
+    } as any);
+
+    assert.equal(result.snapshot.details.setupState, "complete");
+    assert.deepEqual(result.snapshot.details.packIssues, []);
+    assert.equal(result.snapshot.details.packMetadata?.feishuSetupEpoch, "2026-04-21T00:00:00.000Z");
+    assert.equal(result.snapshot.details.packMetadata?.feishuLastTextIngressAt, "2026-04-21T00:01:00.000Z");
+    assert.equal(result.snapshot.details.packMetadata?.feishuLastInteractiveCardSentAt, "2026-04-21T00:02:00.000Z");
+    assert.equal(result.snapshot.details.packMetadata?.feishuLastCardCallbackAt, "2026-04-21T00:03:00.000Z");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("probeReadiness does not reuse stored Feishu setup observations when the Feishu app changes", async () => {
+  const { paths, store, cleanup } = await createReadinessContext();
+
+  try {
+    authorizeFeishu(store);
+    store.writeReadinessSnapshot({
+      state: "ready",
+      checkedAt: "2026-04-21T00:03:00.000Z",
+      details: {
+        activePack: "feishu",
+        codexInstalled: true,
+        codexAuthenticated: true,
+        appServerAvailable: true,
+        packState: "ready",
+        setupState: "complete",
+        packMetadata: {
+          feishuAppId: "old_app",
+          feishuSetupEpoch: "2026-04-21T00:00:00.000Z",
+          feishuLastTextIngressAt: "2026-04-21T00:01:00.000Z",
+          feishuLastInteractiveCardSentAt: "2026-04-21T00:02:00.000Z",
+          feishuLastCardCallbackAt: "2026-04-21T00:03:00.000Z"
+        },
+        authorizedUserBound: true,
+        issues: [],
+        sharedIssues: [],
+        packIssues: [],
+        packChecks: []
+      },
+      appServerPid: null
+    });
+
+    const result = await probeReadiness({
+      config: feishuTestConfig,
+      store,
+      paths,
+      logger: testLogger,
+      persist: false,
+      deps: createSuccessfulProbeDeps(async () => createFeishuPackHealthReport({
+        metadata: {
+          feishuAppId: "new_app"
+        }
+      }))
+    } as any);
+
+    assert.equal(result.snapshot.details.setupState, "incomplete");
+    assert.equal(result.snapshot.details.packMetadata?.feishuSetupEpoch, undefined);
+    assert.equal(result.snapshot.details.packMetadata?.feishuLastTextIngressAt, undefined);
+    assert.equal(result.snapshot.details.packMetadata?.feishuLastInteractiveCardSentAt, undefined);
+    assert.equal(result.snapshot.details.packMetadata?.feishuLastCardCallbackAt, undefined);
+    const packIssues = result.snapshot.details.packIssues ?? [];
+    assert.match(packIssues.join("\n"), /text ingress has not been observed/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("probeReadiness still reports missing Feishu observations when none are stored", async () => {
+  const { paths, store, cleanup } = await createReadinessContext();
+
+  try {
+    authorizeFeishu(store);
+
+    const result = await probeReadiness({
+      config: feishuTestConfig,
+      store,
+      paths,
+      logger: testLogger,
+      persist: false,
+      deps: createSuccessfulProbeDeps(async () => createFeishuPackHealthReport())
+    } as any);
+
+    assert.equal(result.snapshot.details.setupState, "incomplete");
+    assert.match(result.snapshot.details.issues.join("\n"), /text ingress has not been observed/u);
+    assert.match(result.snapshot.details.issues.join("\n"), /interactive card delivery has not been observed/u);
+    assert.match(result.snapshot.details.issues.join("\n"), /card callback has not been observed/u);
+    assert.match(result.snapshot.details.issues.join("\n"), /another long-connection client may be consuming events/u);
   } finally {
     await cleanup();
   }

@@ -1,5 +1,7 @@
 # Telegram Runtime V4.5 Design
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > Truth status:
 > - Current truth? No
 > - Use for: implementation rationale, sequencing, and handoff history
@@ -16,8 +18,8 @@ Approved design capturing the current discussion decisions. This is a planning d
 
 - `docs/architecture/runtime-and-state.md`
 - `docs/product/chat-and-project-flow.md`
-- `docs/plans/2026-03-16-telegram-runtime-card-rollback-voice-decisions.md`
-- `docs/plans/2026-03-17-plan-mode-runtime-design.md`
+- `docs/archive/plans/2026-03-16-telegram-runtime-card-rollback-voice-decisions.md`
+- `docs/archive/plans/2026-03-17-plan-mode-runtime-design.md`
 
 ## 1. Purpose
 

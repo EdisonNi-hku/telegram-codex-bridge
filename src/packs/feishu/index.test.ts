@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { validateFeishuUploadScopes } from "./index.js";
+import { FEISHU_PACK, validateFeishuUploadScopes } from "./index.js";
+
+test("feishu pack metadata reflects long-connection ingress and OpenAPI egress", () => {
+  assert.equal(FEISHU_PACK.ingress.kind, "long_connection");
+  assert.equal(FEISHU_PACK.egress.kind, "open_api");
+});
 
 test("validateFeishuUploadScopes reports missing upload scopes clearly", async () => {
   const result = await validateFeishuUploadScopes({

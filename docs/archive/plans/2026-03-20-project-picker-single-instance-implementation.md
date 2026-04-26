@@ -1,5 +1,7 @@
 # Project Picker Single-Instance Implementation Plan
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > Truth status:
 > - Current truth? No
 > - Use for: implementation rationale, sequencing, and handoff history
@@ -20,7 +22,7 @@
 
 **Files:**
 - Modify: `docs/product/chat-and-project-flow.md`
-- Reference: `docs/plans/2026-03-20-project-picker-single-instance-design.md`
+- Reference: `docs/archive/plans/2026-03-20-project-picker-single-instance-design.md`
 
 **Step 1: Write the failing doc expectation**
 
@@ -48,7 +50,7 @@ Expected: the updated sections mention recreating a fresh picker and keeping one
 **Step 5: Commit**
 
 ```bash
-git add docs/product/chat-and-project-flow.md docs/plans/2026-03-20-project-picker-single-instance-design.md
+git add docs/product/chat-and-project-flow.md docs/archive/plans/2026-03-20-project-picker-single-instance-design.md
 git commit -m "docs: define single-instance project picker lifecycle"
 ```
 

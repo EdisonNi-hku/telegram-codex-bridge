@@ -1,5 +1,7 @@
 # Runtime Hub Slot-Model Implementation Plan
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > Truth status:
 > - Current truth? No
 > - Use for: implementation rationale, sequencing, and handoff history for the runtime-hub slot model
@@ -11,7 +13,7 @@
 Implemented later and retained as historical planning context. This document captures the runtime-hub redesign agreed for the hub-card optimization discussion on 2026-03-21.
 
 Follow-up changes to latest-hub reuse, middle-hole admission after archive removal, live-hub cap/eviction, and archive/unarchive hub lifecycle are tracked in:
-- `docs/plans/2026-03-21-runtime-hub-reuse-refresh-cap-archive-plan.md`
+- `docs/archive/plans/2026-03-21-runtime-hub-reuse-refresh-cap-archive-plan.md`
 
 ## Problem
 

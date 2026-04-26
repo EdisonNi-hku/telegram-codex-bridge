@@ -12,6 +12,7 @@ import type {
   TelegramUser
 } from "../telegram/api.js";
 import { parseCallbackData } from "../telegram/ui-callbacks.js";
+import { normalizeWhitespace } from "../util/text.js";
 import { resolveFeishuSdkDomain, type FeishuTelegramApiCompat } from "./api.js";
 
 interface PendingQueueWaiter {
@@ -63,6 +64,159 @@ function parseFeishuTextContent(content: string): string | null {
   } catch {
     return null;
   }
+}
+
+function buildFeishuImageBridgeMedia(
+  imageKey: string,
+  refs: {
+    messageId: string;
+    chatId: string;
+  }
+): NonNullable<TelegramMessage["bridgeMedia"]>[number] {
+  return {
+    kind: "image",
+    resourceId: imageKey,
+    platformRef: {
+      platform: "feishu",
+      conversationId: refs.chatId,
+      messageId: refs.messageId,
+      resourceType: "image"
+    }
+  };
+}
+
+function buildFeishuFileBridgeMedia(
+  fileKey: string,
+  refs: {
+    messageId: string;
+    chatId: string;
+  },
+  fileName?: string
+): NonNullable<TelegramMessage["bridgeMedia"]>[number] {
+  return {
+    kind: "file",
+    resourceId: fileKey,
+    ...(typeof fileName === "string" && fileName.trim() ? { fileName } : {}),
+    platformRef: {
+      platform: "feishu",
+      conversationId: refs.chatId,
+      messageId: refs.messageId,
+      resourceType: "file"
+    }
+  };
+}
+
+function parseFeishuPostContent(
+  parsed: {
+    title?: string;
+    content?: Array<Array<{
+      tag?: string;
+      text?: string;
+      image_key?: string;
+    }>>;
+  },
+  refs: {
+    messageId: string;
+    chatId: string;
+  }
+): {
+  text: string | null;
+  bridgeMedia: NonNullable<TelegramMessage["bridgeMedia"]>;
+} {
+  const textLines: string[] = [];
+  const bridgeMedia: NonNullable<TelegramMessage["bridgeMedia"]> = [];
+
+  if (typeof parsed.title === "string" && parsed.title.trim()) {
+    textLines.push(parsed.title);
+  }
+
+  for (const line of parsed.content ?? []) {
+    if (!Array.isArray(line)) {
+      continue;
+    }
+
+    const inlineText: string[] = [];
+    for (const element of line) {
+      if (element?.tag === "img" && typeof element.image_key === "string" && element.image_key.trim()) {
+        bridgeMedia.push(buildFeishuImageBridgeMedia(element.image_key, refs));
+        continue;
+      }
+
+      if (typeof element?.text === "string" && element.text.trim()) {
+        inlineText.push(element.text);
+      }
+    }
+
+    if (inlineText.length > 0) {
+      textLines.push(inlineText.join(" "));
+    }
+  }
+
+  return {
+    text: textLines.length > 0 ? normalizeWhitespace(textLines.join("\n")) : null,
+    bridgeMedia
+  };
+}
+
+function parseFeishuMessageContent(
+  messageType: string,
+  content: string,
+  refs: {
+    messageId: string;
+    chatId: string;
+  }
+): {
+  text: string | null;
+  bridgeMedia: NonNullable<TelegramMessage["bridgeMedia"]>;
+} {
+  if (messageType === "text") {
+    return {
+      text: parseFeishuTextContent(content),
+      bridgeMedia: []
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(content) as {
+      image_key?: string;
+      file_key?: string;
+      file_name?: string;
+      title?: string;
+      content?: Array<Array<{
+        tag?: string;
+        text?: string;
+        image_key?: string;
+      }>>;
+    };
+
+    if (messageType === "image" && typeof parsed.image_key === "string" && parsed.image_key.trim()) {
+      return {
+        text: null,
+        bridgeMedia: [buildFeishuImageBridgeMedia(parsed.image_key, refs)]
+      };
+    }
+
+    if (messageType === "file" && typeof parsed.file_key === "string" && parsed.file_key.trim()) {
+      return {
+        text: null,
+        bridgeMedia: [buildFeishuFileBridgeMedia(parsed.file_key, refs, parsed.file_name)]
+      };
+    }
+
+    if (messageType === "post") {
+      return parseFeishuPostContent(parsed, refs);
+    }
+  } catch {
+    return {
+      text: null,
+      bridgeMedia: []
+    };
+  }
+
+  return {
+    text: null,
+    bridgeMedia: []
+  };
 }
 
 function extractFeishuCallbackData(event: {
@@ -270,26 +424,11 @@ export class FeishuTelegramPollerCompat {
       date: Math.floor(Number.parseInt(event.message.create_time, 10) / 1000)
     };
 
-    if (event.message.message_type === "text") {
-      const text = parseFeishuTextContent(event.message.content);
-      if (!text) {
-        return null;
-      }
-
-      return {
-        update_id: this.nextUpdateId++,
-        message: {
-          ...messageBase,
-          text
-        }
-      };
-    }
-
-    const bridgeMedia = parseFeishuMediaContent(event.message.message_type, event.message.content, {
+    const parsedContent = parseFeishuMessageContent(event.message.message_type, event.message.content, {
       messageId: event.message.message_id,
       chatId: event.message.chat_id
     });
-    if (bridgeMedia.length === 0) {
+    if (!parsedContent.text && parsedContent.bridgeMedia.length === 0) {
       return null;
     }
 
@@ -297,7 +436,8 @@ export class FeishuTelegramPollerCompat {
       update_id: this.nextUpdateId++,
       message: {
         ...messageBase,
-        bridgeMedia
+        ...(parsedContent.text ? { text: parsedContent.text } : {}),
+        ...(parsedContent.bridgeMedia.length > 0 ? { bridgeMedia: parsedContent.bridgeMedia } : {})
       }
     };
   }
@@ -523,51 +663,4 @@ export class FeishuTelegramPollerCompat {
     this.wsClient = wsClient;
     this.eventDispatcher = eventDispatcher;
   }
-}
-
-function parseFeishuMediaContent(
-  messageType: string,
-  content: string,
-  refs: {
-    messageId: string;
-    chatId: string;
-  }
-): NonNullable<TelegramMessage["bridgeMedia"]> {
-  try {
-    const parsed = JSON.parse(content) as {
-      image_key?: string;
-      file_key?: string;
-      file_name?: string;
-    };
-    if (messageType === "image" && typeof parsed.image_key === "string" && parsed.image_key.trim()) {
-      return [{
-        kind: "image",
-        resourceId: parsed.image_key,
-        platformRef: {
-          platform: "feishu",
-          conversationId: refs.chatId,
-          messageId: refs.messageId,
-          resourceType: "image"
-        }
-      }];
-    }
-
-    if (messageType === "file" && typeof parsed.file_key === "string" && parsed.file_key.trim()) {
-      return [{
-        kind: "file",
-        resourceId: parsed.file_key,
-        ...(typeof parsed.file_name === "string" && parsed.file_name.trim() ? { fileName: parsed.file_name } : {}),
-        platformRef: {
-          platform: "feishu",
-          conversationId: refs.chatId,
-          messageId: refs.messageId,
-          resourceType: "file"
-        }
-      }];
-    }
-  } catch {
-    return [];
-  }
-
-  return [];
 }

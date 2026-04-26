@@ -1,5 +1,7 @@
 # Telegram Codex Bridge V2 PRD
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 Status: Draft for engineering evaluation
 Owner: Product
 Last updated: 2026-03-10
@@ -630,7 +632,7 @@ The following topics are explicitly deferred to V3 or later unless product re-op
 
 Current V3 follow-up document:
 
-- `docs/future/v3-prd.md`
+- `docs/archive/future/v3-prd.md`
 
 ---
 
