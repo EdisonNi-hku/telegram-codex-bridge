@@ -220,6 +220,16 @@ documents:
     layer: 3
     parent: docs/plans/README.md
     summary: guardrails and future-work route for the read-only workspace/session-centric Web prototype after the first service adapter seam landed, including page skeletons, redacted data contracts, auth assumptions, validation flow, and forbidden first-lane scope
+  - path: docs/plans/2026-04-26-web-first-phase-1-closeout.md
+    role: leaf
+    layer: 3
+    parent: docs/plans/README.md
+    summary: phase-1 closeout for the local token-gated read-only Web prototype, including commits, verification, smoke proof, non-claims, and next-stage task board
+  - path: docs/plans/2026-04-26-web-first-pm-ledger.md
+    role: leaf
+    layer: 3
+    parent: docs/plans/README.md
+    summary: detailed PM/controller ledger for delegated Codex Console Web-first implementation runs, smoke evidence, guardrails, and recovery state
   - path: docs/plans/2026-04-26-codex-console-phase2-plan.md
     role: leaf
     layer: 3

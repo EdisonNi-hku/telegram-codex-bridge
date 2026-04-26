@@ -48,19 +48,23 @@ Routine Codex launches, audits, doc cleanup, and passing intermediate tests shou
 
 ## Current Checkpoint
 
-Committed checkpoint:
+Latest committed Phase 1 Web-first checkpoints:
 
 - `61d2f10 feat: add Web-first read-only view-model seam`
+- `0a590f6 feat: add Web artifact descriptor view models`
+- `93fa360 feat: add Web read-only live provider seam`
+- `eee1273 feat: add local read-only Web shell module`
+- `bceff02 feat: add local Web readonly harness`
+- `6a77f8d feat: populate Web rows from scoped sessions`
+- `39f31cb feat: add Web readonly platform binding filter`
 
-That commit includes:
+These commits include:
 
-- Web/App pre-implementation contract.
-- Web MVP scope/readiness docs.
+- Web/App pre-implementation contract and MVP/readiness docs.
 - VPS/mobile access/security plan.
-- Web read-only prototype implementation plan.
-- Web view-model inventory.
-- Initial read-only Web view-model adapter and tests.
-- Closeout wording updates after Gap2.
+- Web read-only prototype implementation plan and view-model inventory.
+- Read-only Web ViewModel/provider seams with redaction, final-answer metadata, pending interactions, artifacts, runtime, and readiness surfaces.
+- Dependency-free local-only HTTP shell, explicit token-gated CLI harness, scoped session-backed rows, and platform-only binding filter.
 
 Scratch/status artifacts under `.hermes/` are not product artifacts and should stay out of product commits unless intentionally promoted.
 
