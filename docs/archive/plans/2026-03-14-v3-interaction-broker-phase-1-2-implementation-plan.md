@@ -1,5 +1,7 @@
 # V3 Interaction Broker And Blocked Turn Recovery Implementation Plan
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > Truth status:
 > - Current truth? No
 > - Use for: implementation rationale, sequencing, and handoff history
@@ -878,16 +880,16 @@ git commit -m "feat: recover and inspect pending interactions"
 ## Task 10: Final Verification And V3 Doc Sync
 
 **Files:**
-- Modify: `docs/future/v3-prd.md`
-- Modify: `docs/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
-- Modify: `docs/plans/2026-03-14-codex-cli-capability-alignment-design.md`
+- Modify: `docs/archive/future/v3-prd.md`
+- Modify: `docs/archive/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
+- Modify: `docs/archive/plans/2026-03-14-codex-cli-capability-alignment-design.md`
 
 **Step 1: Update the docs**
 
 Add a short implementation-progress reference from:
 
-- `docs/future/v3-prd.md`
-- `docs/plans/2026-03-14-codex-cli-capability-alignment-design.md`
+- `docs/archive/future/v3-prd.md`
+- `docs/archive/plans/2026-03-14-codex-cli-capability-alignment-design.md`
 
 to this plan file.
 
@@ -935,7 +937,7 @@ Expected:
 **Step 5: Commit**
 
 ```bash
-git add src/codex/app-server.ts src/codex/app-server.test.ts src/interactions/normalize.ts src/interactions/normalize.test.ts src/state/store.ts src/state/store.test.ts src/types.ts src/telegram/ui.ts src/telegram/ui.test.ts src/service.ts src/service.test.ts docs/future/v3-prd.md docs/plans/2026-03-14-codex-cli-capability-alignment-design.md docs/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md
+git add src/codex/app-server.ts src/codex/app-server.test.ts src/interactions/normalize.ts src/interactions/normalize.test.ts src/state/store.ts src/state/store.test.ts src/types.ts src/telegram/ui.ts src/telegram/ui.test.ts src/service.ts src/service.test.ts docs/archive/future/v3-prd.md docs/archive/plans/2026-03-14-codex-cli-capability-alignment-design.md docs/archive/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md
 git commit -m "feat: implement v3 interaction broker and blocked turn recovery"
 ```
 

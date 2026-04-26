@@ -1,5 +1,7 @@
 # Telegram Codex Bridge V2 Phase 2A Detailed Design
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > Truth status:
 > - Current truth? No
 > - Use for: implementation rationale, sequencing, and handoff history
@@ -19,9 +21,9 @@ Related documents:
   - `docs/operations/install-and-admin.md`
   - `docs/research/app-server-phase-0-verification.md`
 - Future-scope product/evaluation docs:
-  - `docs/future/v2-prd.md`
-  - `docs/future/v2-engineering-evaluation-template.md`
-  - `docs/future/v2-engineering-evaluation.md`
+  - `docs/archive/future/v2-prd.md`
+  - `docs/archive/future/v2-engineering-evaluation-template.md`
+  - `docs/archive/future/v2-engineering-evaluation.md`
 
 ---
 
@@ -60,8 +62,8 @@ Use the following path convention going forward:
 ### 2.2 Practical rule for references in this design
 
 To avoid more path drift in the current round:
-- treat `docs/future/v2-prd.md` as the only product source for V2 intent
-- treat `docs/future/v2-engineering-evaluation.md` as the current evaluated engineering output
+- treat `docs/archive/future/v2-prd.md` as the only product source for V2 intent
+- treat `docs/archive/future/v2-engineering-evaluation.md` as the current evaluated engineering output
 - place this 2A design under `docs/plans/`
 
 ### 2.3 Maintenance rule after this cleanup

@@ -1,5 +1,7 @@
 # Performance Monitoring Tool Implementation Plan
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Add a Linux-first, low-overhead, always-on performance monitoring tool to `telegram-codex-bridge` that records bridge and `codex app-server` performance data and exposes recent summaries through the CLI.

@@ -1,5 +1,7 @@
 # Systemd Service Audit Implementation Plan
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Capture actionable Linux/systemd stop diagnostics so the next bridge outage clearly shows whether the service was stopped intentionally, failed, received a signal, or was terminated by resource pressure.

@@ -1,5 +1,7 @@
 # Telegram Codex Bridge V2 Engineering Evaluation Template
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > Truth status:
 > - Current truth? No
 > - Use for: future direction, PM intent, or dated evaluation
@@ -8,7 +10,7 @@
 
 Status: Template
 For: Engineering evaluation response
-Related PRD: `docs/future/v2-prd.md`
+Related PRD: `docs/archive/future/v2-prd.md`
 Related v1 docs: `AGENTS.md`, `docs/product/v1-scope.md`, `docs/roadmap/phase-1-delivery.md`
 
 ---

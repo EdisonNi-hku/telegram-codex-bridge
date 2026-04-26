@@ -1,13 +1,15 @@
 # Telegram Codex Bridge V3 PRD
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 Status: Active direction; Phase 1 and Phase 2 baseline partially implemented
 Owner: Product
 Last updated: 2026-03-15
 Related docs:
-- `docs/future/v2-prd.md`
+- `docs/archive/future/v2-prd.md`
 - `docs/future/multi-platform-core-prd.md`
-- `docs/plans/2026-03-14-codex-cli-capability-alignment-design.md`
-- `docs/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
+- `docs/archive/plans/2026-03-14-codex-cli-capability-alignment-design.md`
+- `docs/archive/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
 
 > Truth status:
 > - Current truth? No
@@ -303,11 +305,11 @@ Engineering should return:
 
 The current engineering input document for this is:
 
-- `docs/plans/2026-03-14-codex-cli-capability-alignment-design.md`
+- `docs/archive/plans/2026-03-14-codex-cli-capability-alignment-design.md`
 
 The current implementation handoff for the first V3 build slice is:
 
-- `docs/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
+- `docs/archive/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
 
 ---
 

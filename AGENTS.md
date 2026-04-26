@@ -88,6 +88,7 @@ Do not treat protocol capability as proof that Telegram UX already exposes it.
 | current Telegram/Feishu capability matrix or future Web/App target capability rows | `docs/AGENTS.md` | `docs/architecture/platform-capability-matrix.md` |
 | where ownership lives in `src/` today | `docs/AGENTS.md` or `src/AGENTS.md` | `docs/architecture/current-code-organization.md` |
 | current internal Core seam, semantic view contracts, or workflow adapters | `src/AGENTS.md` | one narrow file under `src/core/` |
+| new Codex Console continuation task or context-budget decision | `docs/AGENTS.md` | `docs/roadmap/codex-console-continuation-brief.md` |
 | future multi-platform Core direction, platform packs, Web/App control surface goals | `docs/AGENTS.md` | `docs/future/multi-platform-core-prd.md` |
 | install, config, service, update, diagnostics | `docs/AGENTS.md` | `docs/operations/install-and-admin.md` |
 | volatile versions, counts, current size snapshot | `docs/AGENTS.md` | `docs/generated/current-snapshot.md` |

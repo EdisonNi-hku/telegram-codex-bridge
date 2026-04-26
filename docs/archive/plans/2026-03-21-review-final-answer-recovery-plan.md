@@ -1,5 +1,7 @@
 # Review Final Answer Recovery Implementation Plan
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Ensure `/review` always delivers the actual review result to Telegram instead of the fallback "no final answer" message.

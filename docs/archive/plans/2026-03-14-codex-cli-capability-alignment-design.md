@@ -1,5 +1,7 @@
 # V3 Codex CLI Capability Alignment Design
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > Truth status:
 > - Current truth? No
 > - Use for: implementation rationale, sequencing, and handoff history
@@ -14,9 +16,9 @@ Planning document with Phase 1 and Phase 2 baseline partially implemented as of 
 
 **Related docs**
 
-- `docs/future/v2-prd.md`
-- `docs/future/v3-prd.md`
-- `docs/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
+- `docs/archive/future/v2-prd.md`
+- `docs/archive/future/v3-prd.md`
+- `docs/archive/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
 
 **Goal**
 
@@ -33,7 +35,7 @@ This document is the engineering design input for V3, not V2.
 
 Reason:
 
-- `docs/future/v2-prd.md` explicitly keeps Telegram approval flow and similar major protocol-surface expansion out of V2 scope
+- `docs/archive/future/v2-prd.md` explicitly keeps Telegram approval flow and similar major protocol-surface expansion out of V2 scope
 - the capability gaps analyzed here are therefore a V3 planning concern
 
 **Target Boundary**
@@ -552,7 +554,7 @@ After this design document, the next implementation documents should be:
 
 Current first implementation plan:
 
-- `docs/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
+- `docs/archive/plans/2026-03-14-v3-interaction-broker-phase-1-2-implementation-plan.md`
 
 Current main pending follow-up after the first implementation slice:
 

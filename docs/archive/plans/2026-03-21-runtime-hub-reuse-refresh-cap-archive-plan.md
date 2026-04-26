@@ -1,5 +1,7 @@
 # Runtime Hub Reuse, Immediate Refresh, And Archive Lifecycle Plan
 
+> Archived material: historical reconstruction only. Do not treat this file as current truth or an executable task prompt. Start from current docs or `docs/roadmap/codex-console-continuation-brief.md` instead.
+
 > Truth status:
 > - Current truth? No
 > - Use for: implementation scope, source-change handoff, and doc follow-up for the next hub UX adjustment
@@ -16,8 +18,8 @@ Current product docs and current code now outrank this plan for shipped behavior
 
 This follow-up intentionally changes parts of two older task plans:
 
-- `docs/plans/2026-03-21-runtime-hub-slot-model-implementation-plan.md`
-- `docs/plans/2026-03-21-runtime-hub-refresh-command-plan.md`
+- `docs/archive/plans/2026-03-21-runtime-hub-slot-model-implementation-plan.md`
+- `docs/archive/plans/2026-03-21-runtime-hub-refresh-command-plan.md`
 
 What changes from those older plans:
 
