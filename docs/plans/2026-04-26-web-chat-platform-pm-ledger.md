@@ -86,11 +86,11 @@ Goal: restart managed preview, smoke public URL, capture proof, update PR, mark 
 
 ## Active processes
 
-- Phase B implementation: `proc_3a89c065bbf3` launched 2026-04-26 after Phase A contract commit `6cac234`.
+- Phase C implementation: `proc_99f79c93cc14` launched 2026-04-26 after Phase B chat-first read UI commit `0aaa9e3`.
 
 ## Next action
 
-Monitor Phase B Codex high implementation run. On completion, review diff, run targeted tests plus `npm run check` and `git diff --check`, then commit/push if accepted and launch Phase C send-path tests/implementation.
+Monitor Phase C Codex high implementation run. On completion, review diff, run targeted tests plus `npm run check` and `git diff --check`, then commit/push if accepted and launch Phase D refresh/live-result observation slice.
 
 ## Phase A findings
 

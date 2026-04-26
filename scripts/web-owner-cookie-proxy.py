@@ -3,8 +3,9 @@
 
 This is intentionally small and personal-use oriented. It accepts an owner
 password at /owner-login, sets a signed HttpOnly/Secure/SameSite=Lax cookie,
-and forwards authenticated GET/HEAD traffic to the localhost read-only Web app
-with the bearer token injected from the environment.
+and forwards authenticated GET/HEAD traffic plus the narrow Web message POST
+endpoint to the localhost Web app with the bearer token injected from the
+environment.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ DEFAULT_SESSION_MAX_AGE = 6 * 60 * 60
 DEFAULT_THROTTLE_LIMIT = 5
 DEFAULT_THROTTLE_SECONDS = 60
 MAX_FORM_BYTES = 4096
+MAX_UPSTREAM_POST_BYTES = 32 * 1024
 
 LOGIN_PAGE = """<!doctype html>
 <html lang="en">
@@ -139,10 +141,21 @@ class OwnerCookieProxyHandler(BaseHTTPRequestHandler):
         self._forward_authenticated(head_only=True)
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        if self.path_only != "/owner-login":
+        if self.path_only == "/owner-login":
+            self._handle_owner_login_post()
+            return
+
+        if not self._authenticated() or not is_conversation_message_path(self.path_only):
             self._send_not_found()
             return
 
+        body = self._read_upstream_post_body()
+        if body is None:
+            self._send_not_found()
+            return
+        self._forward_authenticated(head_only=False, method="POST", body=body)
+
+    def _handle_owner_login_post(self) -> None:
         client_key = self._client_key()
         if self.server.throttle.is_locked(client_key):
             self._send_plain(HTTPStatus.TOO_MANY_REQUESTS, "try again later")
@@ -242,23 +255,53 @@ class OwnerCookieProxyHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Content-Type-Options", "nosniff")
 
-    def _forward_authenticated(self, *, head_only: bool) -> None:
+    def _read_upstream_post_body(self) -> Optional[bytes]:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return None
+        if length < 0 or length > MAX_UPSTREAM_POST_BYTES:
+            return None
+        return self.rfile.read(length)
+
+    def _forward_authenticated(self, *, head_only: bool, method: str = "GET", body: bytes = b"") -> None:
         upstream = urllib.parse.urlsplit(self.server.config.upstream)
         path = self.path if self.path.startswith("/") else "/"
         connection_cls = http.client.HTTPSConnection if upstream.scheme == "https" else http.client.HTTPConnection
         port = upstream.port or (443 if upstream.scheme == "https" else 80)
         host = upstream.hostname or "127.0.0.1"
+        request_method = "HEAD" if head_only else method
+        headers = {
+            "Authorization": f"Bearer {self.server.config.readonly_token}",
+            "Accept": self.headers.get("Accept", "text/html,application/xhtml+xml"),
+            "User-Agent": "codex-web-owner-cookie-proxy",
+            "Host": upstream.netloc,
+            "X-Forwarded-Host": self.headers.get("Host", ""),
+            "X-Forwarded-Proto": self.headers.get("X-Forwarded-Proto", "https"),
+        }
+        content_type = safe_forward_content_type(self.headers.get("Content-Type", ""))
+        if request_method == "POST":
+            if content_type is None:
+                self._send_not_found()
+                return
+            headers["Content-Type"] = content_type
+            headers["Content-Length"] = str(len(body))
+            csrf_header = self.headers.get("X-CSRF-Token")
+            if csrf_header:
+                headers["X-CSRF-Token"] = csrf_header
+            origin = self.headers.get("Origin")
+            if origin:
+                headers["Origin"] = origin
+            referer = self.headers.get("Referer")
+            if referer:
+                headers["Referer"] = referer
         try:
             connection = connection_cls(host, port, timeout=10)
             connection.request(
-                "HEAD" if head_only else "GET",
+                request_method,
                 path,
-                headers={
-                    "Authorization": f"Bearer {self.server.config.readonly_token}",
-                    "Accept": self.headers.get("Accept", "text/html,application/xhtml+xml"),
-                    "User-Agent": "codex-web-owner-cookie-proxy",
-                    "Host": upstream.netloc,
-                },
+                body=body if request_method == "POST" else None,
+                headers=headers,
             )
             upstream_response = connection.getresponse()
             body = b"" if head_only else upstream_response.read()
@@ -319,6 +362,21 @@ def parse_cookie_header(header: str) -> Dict[str, str]:
         name, value = item.split("=", 1)
         result[name.strip()] = value.strip()
     return result
+
+
+def is_conversation_message_path(path: str) -> bool:
+    parts = path.strip("/").split("/")
+    if len(parts) != 3 or parts[0] != "conversations" or parts[2] != "messages":
+        return False
+    handle = parts[1]
+    return len(handle) == 19 and handle.startswith("cv_") and all(ch in "0123456789abcdef" for ch in handle[3:])
+
+
+def safe_forward_content_type(value: str) -> Optional[str]:
+    content_type = value.split(";", 1)[0].strip().lower()
+    if content_type in {"application/x-www-form-urlencoded", "application/json", "text/plain"}:
+        return value[:200]
+    return None
 
 
 def read_config(env: Mapping[str, str]) -> ProxyConfig:
@@ -410,6 +468,20 @@ def run_self_test() -> int:
             self.send_header("Content-Length", "0")
             self.end_headers()
 
+        def do_POST(self) -> None:  # noqa: N802
+            seen["post_authorization"] = self.headers.get("Authorization", "")
+            seen["post_content_type"] = self.headers.get("Content-Type", "")
+            seen["post_origin"] = self.headers.get("Origin", "")
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length)
+            seen["post_body_len"] = str(len(body))
+            response_body = b'{"status":"accepted"}\n'
+            self.send_response(202)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(response_body)))
+            self.end_headers()
+            self.wfile.write(response_body)
+
         def log_message(self, fmt: str, *args: object) -> None:
             return
 
@@ -450,6 +522,31 @@ def run_self_test() -> int:
         status, _, body = request(proxy_port, "GET", "/interactions", headers={"Cookie": cookie})
         assert status == 200 and body == b"upstream-interactions"
         assert seen["authorization"] == "Bearer readonly-token"
+        status, _, _ = request(
+            proxy_port,
+            "POST",
+            "/conversations/cv_1234567890abcdef/messages",
+            body="_csrf=csrf-token&message=hello",
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Origin": "https://preview.example.test"},
+        )
+        assert status == 404 and "post_authorization" not in seen
+        status, _, body = request(
+            proxy_port,
+            "POST",
+            "/conversations/cv_1234567890abcdef/messages",
+            body="_csrf=csrf-token&message=hello",
+            headers={
+                "Cookie": cookie,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "https://preview.example.test",
+                "Host": "preview.example.test",
+            },
+        )
+        assert status == 202 and body == b'{"status":"accepted"}\n'
+        assert seen["post_authorization"] == "Bearer readonly-token"
+        assert seen["post_content_type"].startswith("application/x-www-form-urlencoded")
+        assert seen["post_origin"] == "https://preview.example.test"
+        assert seen["post_body_len"] == str(len("_csrf=csrf-token&message=hello"))
         status, _, _ = request(
             proxy_port,
             "POST",

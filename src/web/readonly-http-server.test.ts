@@ -241,6 +241,24 @@ async function get(url: string, bearer?: string): Promise<{ status: number; text
   return { status: response.status, text: await response.text(), headers: response.headers };
 }
 
+async function post(
+  url: string,
+  bearer: string | undefined,
+  body: string,
+  headers: Record<string, string> = {}
+): Promise<{ status: number; text: string; headers: Headers }> {
+  const response = await fetch(url, {
+    method: "POST",
+    body,
+    redirect: "manual",
+    headers: {
+      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+      ...headers
+    }
+  });
+  return { status: response.status, text: await response.text(), headers: response.headers };
+}
+
 test("disabled or missing token denies generically and does not invoke provider", async () => {
   for (const access of [
     createReadonlyAccessGate({ enabled: false, token }),
@@ -732,6 +750,170 @@ test("phase B pages expose disabled composer posture without enabled write contr
       }
     }
   });
+});
+
+test("send capability enables only the safe text composer with opaque conversation action and csrf", async () => {
+  const calls: string[] = [];
+  const submitted: unknown[] = [];
+  await withServer({
+    provider: makeProvider(calls),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: (request) => {
+        submitted.push(request);
+        return { status: "accepted" };
+      }
+    }
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef`, token);
+    assert.equal(result.status, 200);
+    assert.match(result.text, /<form method="post" action="\/conversations\/cv_1234567890abcdef\/messages">/);
+    assert.match(result.text, /name="_csrf" value="csrf-safe-token"/);
+    assert.match(result.text, /<textarea[^>]*name="message"[^>]*maxlength="8000"[^>]*required/);
+    assert.match(result.text, /<button type="submit">Send message<\/button>/);
+    assert.equal(result.text.includes("session-1"), false);
+    assert.equal(result.text.includes("chat-secret"), false);
+    assert.equal(result.headers.get("content-security-policy")?.includes("form-action 'self'"), true);
+    assert.deepEqual(submitted, []);
+  });
+});
+
+test("POST message denies unauthorized, CSRF-denied, invalid handle, blank, and oversize without submit", async () => {
+  const calls: string[] = [];
+  const submitted: unknown[] = [];
+  await withServer({
+    provider: makeProvider(calls),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: (request) => {
+        submitted.push(request);
+        return { status: "accepted" };
+      }
+    }
+  }, async (baseUrl) => {
+    const validPath = `${baseUrl}/conversations/cv_1234567890abcdef/messages`;
+    const unauthorized = await post(validPath, undefined, "_csrf=csrf-safe-token&message=hello", {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json"
+    });
+    assert.equal(unauthorized.status, 404);
+    const wrongBearer = await post(validPath, "wrong-token", "_csrf=csrf-safe-token&message=hello", {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json"
+    });
+    assert.equal(wrongBearer.status, 404);
+    const missingCsrf = await post(validPath, token, "message=hello", {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json"
+    });
+    assert.equal(missingCsrf.status, 400);
+    assert.deepEqual(JSON.parse(missingCsrf.text), { status: "invalid" });
+    const wrongCsrfHeader = await post(validPath, token, "_csrf=csrf-safe-token&message=hello", {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-CSRF-Token": "wrong-token",
+      Accept: "application/json"
+    });
+    assert.equal(wrongCsrfHeader.status, 403);
+    assert.deepEqual(JSON.parse(wrongCsrfHeader.text), { status: "denied" });
+    const wrongOrigin = await post(validPath, token, "_csrf=csrf-safe-token&message=hello", {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Origin: "https://evil.example.test",
+      Host: "owner.example.test",
+      Accept: "application/json"
+    });
+    assert.equal(wrongOrigin.status, 403);
+    assert.deepEqual(JSON.parse(wrongOrigin.text), { status: "denied" });
+    const invalidHandle = await post(`${baseUrl}/conversations/session-1/messages`, token, "_csrf=csrf-safe-token&message=hello", {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json"
+    });
+    assert.equal(invalidHandle.status, 404);
+    assert.equal(invalidHandle.text.includes("session-1"), false);
+    const blank = await post(validPath, token, "_csrf=csrf-safe-token&message=%20%20", {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json"
+    });
+    assert.equal(blank.status, 400);
+    const oversize = await post(validPath, token, `_csrf=csrf-safe-token&message=${"a".repeat(8001)}`, {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json"
+    });
+    assert.equal(oversize.status, 400);
+    const attachment = await post(validPath, token, JSON.stringify({ _csrf: "csrf-safe-token", message: "hello", attachments: [] }), {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    });
+    assert.equal(attachment.status, 400);
+    assert.deepEqual(submitted, []);
+  });
+});
+
+test("POST message invokes submit dependency once and returns safe redirect or JSON outcome", async () => {
+  const calls: string[] = [];
+  const submitted: unknown[] = [];
+  await withServer({
+    provider: makeProvider(calls),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: (request) => {
+        submitted.push(request);
+        return { status: "accepted" };
+      }
+    }
+  }, async (baseUrl) => {
+    const html = await post(`${baseUrl}/conversations/cv_1234567890abcdef/messages`, token, "_csrf=csrf-safe-token&message=%20hello%20&nonce=nonce-1", {
+      "Content-Type": "application/x-www-form-urlencoded"
+    });
+    assert.equal(html.status, 303);
+    assert.equal(html.headers.get("location"), "/conversations/cv_1234567890abcdef?send=accepted");
+    assert.equal(html.text, "");
+    assert.deepEqual(submitted, [{
+      conversationHandle: "cv_1234567890abcdef",
+      text: "hello",
+      nonce: "nonce-1"
+    }]);
+    assert.equal(JSON.stringify({ headers: Object.fromEntries(html.headers), body: html.text }).includes("session-1"), false);
+
+    const json = await post(`${baseUrl}/conversations/cv_1234567890abcdef/messages`, token, JSON.stringify({ _csrf: "csrf-safe-token", text: "from json" }), {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    });
+    assert.equal(json.status, 202);
+    assert.deepEqual(JSON.parse(json.text), { status: "accepted" });
+    assert.deepEqual(submitted.at(-1), {
+      conversationHandle: "cv_1234567890abcdef",
+      text: "from json",
+      nonce: null
+    });
+  });
+});
+
+test("POST message maps blocked, missing, archived, or unavailable submit outcomes safely", async () => {
+  const calls: string[] = [];
+  const statuses = ["blocked", "rejected", "unavailable"] as const;
+  for (const status of statuses) {
+    await withServer({
+      provider: makeProvider(calls),
+      access: createReadonlyAccessGate({ enabled: true, token }),
+      send: {
+        csrfToken: "csrf-safe-token",
+        submitTextMessage: () => ({ status })
+      }
+    }, async (baseUrl) => {
+      const result = await post(`${baseUrl}/conversations/cv_1234567890abcdef/messages`, token, "_csrf=csrf-safe-token&message=hello", {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json"
+      });
+      assert.equal(result.status, status === "blocked" ? 409 : status === "unavailable" ? 503 : 400);
+      assert.deepEqual(JSON.parse(result.text), { status });
+      for (const forbidden of [token, "session-1", "chat-secret", "/home/", "/tmp/", "thread", "turn", "stack"]) {
+        assert.equal(result.text.includes(forbidden), false, `${status} leaked ${forbidden}: ${result.text}`);
+      }
+    });
+  }
 });
 
 test("home recent conversations use user-language state groups and copy", async () => {

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
 import { createLogger, type Logger } from "./logger.js";
@@ -159,6 +159,21 @@ const VOICE_REALTIME_POLL_INTERVAL_MS = 1_000;
 const VOICE_REALTIME_TRANSCRIPTION_PROMPT = "请逐字转写收到的语音，只返回转写文本，不要解释。";
 const CODEX_CLI_STATUS_LINE_BASELINE_TOKENS = 12_000;
 const FEISHU_ENTRY_SURFACE_COOLDOWN_MS = 60_000;
+const WEB_CONVERSATION_HANDLE_ID_SALT = "web-readonly-view-model:v1";
+
+export interface WebTextMessageSubmitInput {
+  conversationHandle: string;
+  text: string;
+  chatId?: string | null;
+  nonce?: string | null;
+  idSalt?: string;
+}
+
+export type WebTextMessageSubmitResult =
+  | { status: "accepted" }
+  | { status: "blocked" }
+  | { status: "rejected" }
+  | { status: "unavailable" };
 
 interface BridgeServiceDependencies {
   probeReadiness?: typeof probeReadiness;
@@ -218,6 +233,14 @@ function displayName(message: TelegramMessage): string | null {
 
   const parts = [message.from.first_name, message.from.last_name].filter(Boolean);
   return parts.join(" ").trim() || message.from.username || null;
+}
+
+function webConversationHandleForSessionId(idSalt: string, sessionId: string): string {
+  return `cv_${createHash("sha256").update(idSalt).update("\0").update(sessionId).digest("hex").slice(0, 16)}`;
+}
+
+function isSafeWebConversationHandle(value: string): boolean {
+  return /^cv_[a-f0-9]{16}$/.test(value);
 }
 
 export class BridgeService {
@@ -628,6 +651,52 @@ export class BridgeService {
 
   private get activeTurn(): ActiveTurnState | null {
     return this.turnCoordinator.getActiveTurn() as ActiveTurnState | null;
+  }
+
+  async submitWebTextMessage(input: WebTextMessageSubmitInput): Promise<WebTextMessageSubmitResult> {
+    if (!this.store || !isSafeWebConversationHandle(input.conversationHandle)) {
+      return { status: "rejected" };
+    }
+
+    const chatId = input.chatId?.trim() || this.resolveSingleWebOwnerChatId();
+    if (!chatId) {
+      return { status: "rejected" };
+    }
+
+    const text = input.text.trim();
+    if (!text) {
+      return { status: "rejected" };
+    }
+
+    const idSalt = input.idSalt ?? WEB_CONVERSATION_HANDLE_ID_SALT;
+    const sessions = [
+      ...this.store.listSessions(chatId, { archived: false, limit: 100 }),
+      ...this.store.listSessions(chatId, { archived: true, limit: 100 })
+    ];
+    const session = sessions.find((row) => webConversationHandleForSessionId(idSalt, row.sessionId) === input.conversationHandle);
+    if (!session || session.chatId !== chatId || session.archived) {
+      return { status: "rejected" };
+    }
+
+    try {
+      await this.flushRuntimeNotices(chatId);
+      return await this.submitNormalTextToSession(chatId, session, text);
+    } catch (error) {
+      await this.logger.warn("web text submit failed", {
+        chatId,
+        conversationHandle: input.conversationHandle,
+        error: `${error}`
+      });
+      return { status: "unavailable" };
+    }
+  }
+
+  private resolveSingleWebOwnerChatId(): string | null {
+    if (!this.store) {
+      return null;
+    }
+    const bindings = this.store.listChatBindings();
+    return bindings.length === 1 ? bindings[0]?.chatId ?? null : null;
   }
 
   private get pendingThreadArchiveOps(): ReadonlyMap<string, PendingThreadArchiveOp[]> {
@@ -2331,8 +2400,16 @@ export class BridgeService {
       return;
     }
 
-    if (activeSession.status === "running") {
-      const steerAvailability = this.turnCoordinator.getBlockedTurnSteerAvailability(chatId, activeSession);
+    await this.submitNormalTextToSession(chatId, activeSession, text ?? "");
+  }
+
+  private async submitNormalTextToSession(
+    chatId: string,
+    session: SessionRow,
+    text: string
+  ): Promise<WebTextMessageSubmitResult> {
+    if (session.status === "running") {
+      const steerAvailability = this.turnCoordinator.getBlockedTurnSteerAvailability(chatId, session);
       if (text && steerAvailability.kind === "available") {
         try {
           await this.ensureAppServerAvailable();
@@ -2341,28 +2418,29 @@ export class BridgeService {
             expectedTurnId: steerAvailability.activeTurn.turnId,
             input: [{ type: "text", text }]
           });
-          await this.reanchorRuntimeAfterBridgeReply(chatId, "accepted_turn_continue", activeSession.sessionId);
+          await this.reanchorRuntimeAfterBridgeReply(chatId, "accepted_turn_continue", session.sessionId);
         } catch (error) {
           await this.logger.warn("turn steer failed", {
             chatId,
-            sessionId: activeSession.sessionId,
+            sessionId: session.sessionId,
             threadId: steerAvailability.activeTurn.threadId,
             turnId: steerAvailability.activeTurn.turnId,
             error: `${error}`
           });
           await this.safeSendMessage(chatId, "Codex 服务暂时不可用，请稍后重试。");
+          return { status: "unavailable" };
         }
-        return;
+        return { status: "accepted" };
       }
 
       if (steerAvailability.kind === "interaction_pending") {
         await this.interactionBroker.sendPendingInteractionBlockNotice(chatId);
-        return;
+        return { status: "blocked" };
       }
 
       const reminder = this.runtimeSurfaceController.consumeHubCommandReminderForTurn(
         chatId,
-        this.getActiveTurnForSession(activeSession.sessionId)?.turnId ?? null
+        this.getActiveTurnForSession(session.sessionId)?.turnId ?? null
       );
       await this.safeSendMessage(
         chatId,
@@ -2371,15 +2449,16 @@ export class BridgeService {
           : "当前项目仍在执行，请等待完成或发送 /interrupt。",
         this.buildBusyTurnReplyMarkup(Boolean(reminder))
       );
-      return;
+      return { status: "blocked" };
     }
 
     if (!text) {
-      await this.safeSendHtmlMessage(chatId, buildProjectSelectedText(this.projectDisplayName(activeSession)));
-      return;
+      await this.safeSendHtmlMessage(chatId, buildProjectSelectedText(this.projectDisplayName(session)));
+      return { status: "rejected" };
     }
 
-    await this.startRealTurn(chatId, activeSession, text);
+    await this.startRealTurn(chatId, session, text);
+    return { status: "accepted" };
   }
 
   private async showProjectPicker(chatId: string): Promise<void> {

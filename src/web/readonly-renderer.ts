@@ -20,11 +20,19 @@ interface SafeHtmlCell {
 
 type NavKey = "home" | "workspaces" | "pending" | "runtime" | "readiness" | "none";
 
-export function renderHomePage(vm: WebReadonlyHomeViewModel): string {
+export interface WebSendRenderCapability {
+  csrfToken: string;
+}
+
+export interface WebReadonlyRenderOptions {
+  send?: WebSendRenderCapability | null;
+}
+
+export function renderHomePage(vm: WebReadonlyHomeViewModel, options: WebReadonlyRenderOptions = {}): string {
   const resultRows = vm.recentConversations.filter((row) => row.finalAnswerAvailable || conversationGroup(row.status) === "completed");
   return page("Web Chat", "home", [
     hero("Web Chat", "Conversation work queue for Codex Bridge. Sending from Web is landing next; this slice is a safe read-only thread view."),
-    chatHomeSection(vm),
+    chatHomeSection(vm, options),
     homeOwnerAttentionSection(vm.pendingInteractions.state, vm.pendingInteractions.pendingInteractions),
     cardListSection(
       "home-active-attention",
@@ -78,7 +86,7 @@ export function renderWorkspaceConversationListPage(vm: WebReadonlyWorkspaceConv
   ]);
 }
 
-export function renderConversationResultPage(vm: WebReadonlyConversationResultViewModel): string {
+export function renderConversationResultPage(vm: WebReadonlyConversationResultViewModel, options: WebReadonlyRenderOptions = {}): string {
   const conversation = vm.conversation;
   const title = conversation?.title ?? "Conversation unavailable";
   const statusRows = conversation
@@ -94,7 +102,12 @@ export function renderConversationResultPage(vm: WebReadonlyConversationResultVi
   return page("Task page", "none", [
     hero("Conversation thread", "Read the selected Codex thread, latest result, attention state, and runtime summary."),
     `<section class="console-panel console-detail-heading" aria-labelledby="detail-heading"><p class="console-eyebrow">Read-only thread</p><h2 id="detail-heading">${escapeHtml(title)}</h2><p><span class="console-badge">${escapeHtml(statusLabel(conversation?.status ?? vm.state))}</span> ${escapeHtml(statusCopy(conversation?.status ?? vm.state))}</p><div class="console-fields">${statusRows.join("")}</div></section>`,
-    disabledComposerPanel(vm.composer, conversation ? "This Web thread is read-only for Phase B." : "Choose an available conversation before sending from Web."),
+    composerPanel(
+      vm.composer,
+      conversation?.conversationHandle ?? null,
+      options,
+      conversation ? "This Web thread is read-only until sending is enabled." : "Choose an available conversation before sending from Web."
+    ),
     statusPanel(conversation?.status ?? vm.state),
     resultPanel(vm.answers),
     detailPendingPanel(vm.pendingInteractions.state, vm.pendingInteractions.pendingInteractions),
@@ -448,6 +461,34 @@ a {
 .console-composer p {
   margin: 0;
 }
+.console-composer form {
+  display: grid;
+  gap: 0.65rem;
+}
+.console-composer__label {
+  font-weight: 800;
+}
+.console-composer textarea {
+  min-height: 6rem;
+  resize: vertical;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--console-border);
+  border-radius: 16px;
+  background: #ffffff;
+  color: var(--console-text);
+  font: inherit;
+}
+.console-composer button {
+  min-height: 44px;
+  justify-self: start;
+  padding: 0.65rem 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--console-primary);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+}
 .console-list {
   margin: 0;
   padding-left: 1.25rem;
@@ -497,7 +538,7 @@ function cardListSection<T>(id: string, title: string, rows: T[], render: (row: 
   return `<section class="console-section" aria-labelledby="${id}"><h2 id="${id}">${escapeHtml(title)}</h2>${body}</section>`;
 }
 
-function chatHomeSection(vm: WebReadonlyHomeViewModel): string {
+function chatHomeSection(vm: WebReadonlyHomeViewModel, options: WebReadonlyRenderOptions): string {
   const selected = vm.recentConversations[0] ?? null;
   const queue = vm.recentConversations.length > 0
     ? conversationListSection(
@@ -512,17 +553,27 @@ function chatHomeSection(vm: WebReadonlyHomeViewModel): string {
       field("Last updated", selected.lastActivityAt),
       field("Result", selected.finalAnswerAvailable ? "Available" : "Not ready yet"),
       fieldHtml("Thread", cellHtml(conversationLink(selected.conversationHandle, "Open durable thread")))
-    ].join("")}</div></article>${disabledComposerPanel(vm.composer, "Open a thread to review more result, pending, and runtime details.")}</section>`
-    : `<section class="console-panel console-thread-preview" aria-labelledby="selected-thread"><p class="console-eyebrow">Thread</p><h2 id="selected-thread">Selected thread preview</h2><p class="console-empty">No thread selected. Conversation threads will appear here as Codex work is captured.</p>${disabledComposerPanel(vm.composer, "Choose a conversation when one is available.")}</section>`;
+    ].join("")}</div></article>${composerPanel(vm.composer, selected.conversationHandle, options, "Open a thread to review more result, pending, and runtime details.")}</section>`
+    : `<section class="console-panel console-thread-preview" aria-labelledby="selected-thread"><p class="console-eyebrow">Thread</p><h2 id="selected-thread">Selected thread preview</h2><p class="console-empty">No thread selected. Conversation threads will appear here as Codex work is captured.</p>${composerPanel(vm.composer, null, options, "Choose a conversation when one is available.")}</section>`;
 
   return `<section class="console-chat-layout" aria-label="Web Chat work queue">${queue}${selectedPanel}</section>`;
 }
 
-function disabledComposerPanel(
+function composerPanel(
   composer: WebReadonlyHomeViewModel["composer"],
+  conversationHandle: string | null,
+  options: WebReadonlyRenderOptions,
   note: string
 ): string {
+  if (conversationHandle && isSafeConversationHandle(conversationHandle) && options.send?.csrfToken) {
+    const action = `/conversations/${conversationHandle}/messages`;
+    return `<section class="console-composer" aria-label="${escapeHtml(composer.label)}"><form method="post" action="${escapeHtml(action)}"><input type="hidden" name="_csrf" value="${escapeHtml(options.send.csrfToken)}"><label class="console-composer__label" for="web-message-${escapeHtml(conversationHandle)}">${escapeHtml(composer.label)}</label><textarea id="web-message-${escapeHtml(conversationHandle)}" name="message" maxlength="8000" required placeholder="${escapeHtml(composer.placeholder)}"></textarea><button type="submit">Send message</button></form><p><span class="console-badge">Text only</span> Send a short text message to Codex for this conversation.</p></section>`;
+  }
   return `<section class="console-composer" aria-label="${escapeHtml(composer.label)}" aria-disabled="true"><div class="console-composer__box" role="textbox" aria-readonly="true" aria-disabled="true"><span>${escapeHtml(composer.placeholder)}</span></div><p><span class="console-badge">Read-only</span> ${escapeHtml(composer.disabledReason)} ${escapeHtml(note)}</p></section>`;
+}
+
+function isSafeConversationHandle(value: string): boolean {
+  return /^cv_[a-f0-9]{16}$/.test(value);
 }
 
 function utilityLinksPanel(): string {
