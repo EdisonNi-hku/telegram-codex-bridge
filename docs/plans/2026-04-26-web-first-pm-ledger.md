@@ -326,3 +326,31 @@ Next implementation slices, in order:
 5. Add Runtime/Readiness/Settings read page in safe owner language.
 6. Produce owner-reviewable screenshot/HTML proof after readable UI lands.
 7. Decide the first gated action lane only after the read UX and proof pass.
+
+## Phase 3 Console Shell Code Slice 1
+
+Completed on 2026-04-26 as the first Product Web Console MVP implementation slice after `f2f6050`.
+
+Result:
+
+- Replaced the read-only renderer's table-first debug feel with a shared `Codex Console` owner-preview/read-only shell.
+- Home now uses orientation cards plus workspace, recent conversation/task, and active-turn card lists.
+- Conversation/task detail now separates status, final answer/result, pending interactions, runtime, readiness, and warnings.
+- Missing Web-safe final-answer bodies now render explicit unavailable copy instead of an empty table.
+- Existing token-gated HTTP routes, opaque `wk_...` / `cv_...` links, escaping/scrubbing, generic unauthenticated 404 denial, and security headers were preserved.
+
+TDD/verification evidence is recorded in `.hermes/phase3-console-shell-status.md`.
+
+Verification passed:
+
+- `node --import tsx --test src/web/readonly-http-server.test.ts src/web/readonly-cli.test.ts src/service/web-readonly-live-provider.test.ts src/service/web-readonly-view-model.test.ts`
+- `npm run check`
+- `git diff --check`
+
+Controller smoke proof after the code slice:
+
+- Started local harness with command shape `CTB_WEB_READONLY_TOKEN=*** node --import tsx src/cli.ts web readonly --platform feishu --port 45684`.
+- Unauthenticated `/` returned 404.
+- Authenticated `/` returned 200, included the shared Console shell/nav, and did not contain the temporary bearer token, raw `/sessions/` links, local absolute paths, callback payload labels, or message-id labels.
+- Authenticated first `/conversations/:handle` returned 200, included the result panel, and passed the same leak checks.
+- Smoke HTML files were deleted and the local harness process was killed after proof.

@@ -259,8 +259,25 @@ test("authenticated HTML escapes hostile strings and emits no raw script/action/
     const result = await get(`${baseUrl}/`, token);
     assert.equal(result.status, 200);
     assert.deepEqual(calls, ["home"]);
-    assert.match(result.text, /prototype/i);
+    assert.match(result.text, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
+    assert.match(result.text, /Codex Console/);
+    assert.match(result.text, /Owner preview/);
     assert.match(result.text, /read-only/i);
+    assert.match(result.text, /<header class="console-shell__header">/);
+    assert.match(result.text, /<nav class="console-shell__nav" aria-label="Console navigation">/);
+    for (const [href, label] of [
+      ["/", "Home"],
+      ["/workspaces", "Workspaces"],
+      ["/interactions", "Pending"],
+      ["/runtime", "Runtime"],
+      ["/readiness", "Readiness"]
+    ] as const) {
+      assert.match(result.text, new RegExp(`<a[^>]*href="${href.replace("/", "\\/")}"[^>]*>${label}</a>`), `missing nav link ${href}: ${result.text}`);
+    }
+    assert.match(result.text, /class="console-card"/);
+    assert.match(result.text, /Recent conversations/);
+    assert.match(result.text, /Active turns/);
+    assert.equal(result.text.includes("<table"), false, `home should use card/list shell, not primary tables: ${result.text}`);
     assert.equal(result.text.includes("<script>"), false);
     assert.equal(result.text.includes("<img"), false);
     assert.match(result.text, /&lt;script&gt;alert/);
@@ -283,7 +300,14 @@ test("authenticated conversation detail route uses only opaque handles and keeps
     const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef`, token);
     assert.equal(result.status, 200);
     assert.deepEqual(calls, ["conversation:cv_1234567890abcdef"]);
-    assert.match(result.text, /Conversation result/);
+    assert.match(result.text, /Conversation\/task detail/);
+    assert.match(result.text, /<section class="console-panel console-result" aria-labelledby="result-heading">/);
+    assert.match(result.text, /Final answer\/result/);
+    assert.match(result.text, /Final answer body unavailable: this run has no sanitized Web-readable answer source yet\./);
+    assert.match(result.text, /Pending interactions/);
+    assert.match(result.text, /Runtime/);
+    assert.match(result.text, /Readiness/);
+    assert.match(result.text, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
     assert.match(result.text, /Readonly detail/);
     assert.equal(result.text.includes("/sessions/"), false);
     assert.equal(result.text.includes("session-1"), false);
