@@ -20,6 +20,7 @@ source_of_truth:
   - docs/operations/web-vps-mobile-access-and-security.md
   - docs/architecture/web-app-preimplementation-contract.md
   - docs/plans/2026-04-26-web-first-phase-1-closeout.md
+  - docs/plans/2026-04-26-web-protected-owner-access-plan.md
 -->
 
 # Codex Console Continuation Brief
@@ -36,7 +37,7 @@ Use this as the first task handoff for future Codex Console / multi-platform bri
 - Internal shared direction is **Codex Bridge Core**.
 - Telegram is the stable first/default pack.
 - Feishu is a serious current pack with explicit setup/readiness caveats.
-- Web has a local, explicit, token-gated read-only prototype substrate on this branch; do not claim current support, public availability, mobile readiness, or action capability.
+- Web has a local, explicit, token-gated read-only prototype substrate on this branch with workspace rows, recent conversations, and opaque `cv_...` conversation detail handles; do not claim current support, public availability, mobile readiness, or action capability.
 - App is alive but deferred until Web proves the shared contract path.
 - Recent Phase 2 work is captured in `docs/plans/2026-04-26-codex-console-phase2-release-note.md`.
 
@@ -65,6 +66,7 @@ Do not read the old dated plan archive by default. It is for archaeology, not ac
 | Web/App pre-implementation contract and readiness gates | `docs/architecture/web-app-preimplementation-contract.md` |
 | Web-first Phase 1 local prototype closeout and next-stage tracker | `docs/plans/2026-04-26-web-first-phase-1-closeout.md` |
 | detailed PM/controller ledger for delegated implementation runs | `docs/plans/2026-04-26-web-first-pm-ledger.md` |
+| protected owner-only access design gate, threat model, auth/session requirements, rollback, and acceptance checklist | `docs/plans/2026-04-26-web-protected-owner-access-plan.md` |
 | future read-only Web prototype implementation planning | `docs/plans/2026-04-26-web-readonly-prototype-implementation-plan.md` |
 | future read-only Web view-model inventory and first adapter seam | `docs/plans/2026-04-26-web-viewmodel-inventory.md` |
 | official-API-backed Feishu audit and live-smoke caveat | `docs/plans/2026-04-26-feishu-official-capability-audit.md` |
@@ -103,12 +105,13 @@ Kept outside archive because they still help the current direction:
 4. **Web prototype implementation planning — complete/landed.** Use the read-only prototype implementation plan for page skeletons, candidate Core/state surfaces, redacted data contracts, auth assumptions, validation flow, forbidden scope, and future coding milestones.
 5. **W9 read-only Web view-model inventory — complete/landed.** Use the inventory for the service-level adapter seam and remaining read-only gaps, not routes, auth middleware, task submission, or action controls.
 6. **Web-first Phase 1 local read-only prototype — complete/landed on branch.** Use the closeout leaf for the exact commits, source files, smoke proof, verification, and current non-claims.
-7. **Phase 2A owner-reviewable screenshot/recording proof — next.** Capture local Web Home/workspace/conversation/result/runtime/readiness proof without exposing a public URL.
-8. **Phase 2B useful read-only data depth.** Add Web-safe final-answer readability and owner-comprehensible conversation detail while keeping Telegram/Feishu delivery artifacts hidden.
-9. **Phase 2C protected owner URL gate.** Only after screenshot proof and auth/session design are accepted; no unauthenticated URL or service-default Web exposure.
-10. **Live Feishu tenant smoke.** Verify text, cards, callbacks, file/image upload/download, long output, status/inspect, project/session selection, and degraded recovery as a separate current-pack readiness track.
-11. **Feishu UX hardening.** Convert smoke results into specific pack/readiness fixes; keep non-native pin/menu/audio/image-url limits explicit.
-12. **Docs context budget enforcement and PR hygiene.** Keep routers pointing to this brief plus one leaf; archive or demote temporary plan files after closeout, and include verification commands in each continuation PR.
+7. **Phase 2A owner-reviewable proof — complete/landed as sanitized controller evidence.** Use the PM ledger for the local proof notes; do not expose a public URL for proof review.
+8. **Phase 2B useful read-only data depth — partial/landed.** Conversation detail now uses opaque `cv_...` handles; final-answer body readability remains gated on a safe source.
+9. **Phase 2C protected owner access design — complete/landed as docs-only gate.** Use the protected owner access plan before any URL exposure; no unauthenticated URL, action controls, service-default Web exposure, or support claim.
+10. **Protected owner access implementation slices.** Later work should start with config seam, explicit command flag, auth/session hardening, one private-network/tunnel wrapper, health/shutdown check, and smoke proof.
+11. **Live Feishu tenant smoke.** Verify text, cards, callbacks, file/image upload/download, long output, status/inspect, project/session selection, and degraded recovery as a separate current-pack readiness track.
+12. **Feishu UX hardening.** Convert smoke results into specific pack/readiness fixes; keep non-native pin/menu/audio/image-url limits explicit.
+13. **Docs context budget enforcement and PR hygiene.** Keep routers pointing to this brief plus one leaf; archive or demote temporary plan files after closeout, and include verification commands in each continuation PR.
 
 ## Noise Checks Before Adding A New Doc
 

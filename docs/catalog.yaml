@@ -230,6 +230,11 @@ documents:
     layer: 3
     parent: docs/plans/README.md
     summary: detailed PM/controller ledger for delegated Codex Console Web-first implementation runs, smoke evidence, guardrails, and recovery state
+  - path: docs/plans/2026-04-26-web-protected-owner-access-plan.md
+    role: leaf
+    layer: 3
+    parent: docs/plans/README.md
+    summary: protected owner-only access design gate for the local token-gated read-only Web prototype, including threat model, auth/session requirements, rollback drill, and acceptance checklist
   - path: docs/plans/2026-04-26-codex-console-phase2-plan.md
     role: leaf
     layer: 3

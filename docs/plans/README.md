@@ -7,6 +7,7 @@ children:
   - docs/plans/2026-04-26-web-readonly-prototype-implementation-plan.md
   - docs/plans/2026-04-26-web-first-phase-1-closeout.md
   - docs/plans/2026-04-26-web-first-pm-ledger.md
+  - docs/plans/2026-04-26-web-protected-owner-access-plan.md
   - docs/plans/2026-04-26-web-first-project-command-board.md
   - docs/plans/2026-04-26-web-mvp-controller-triage.md
   - docs/plans/2026-04-26-codex-console-phase2-release-note.md
@@ -43,6 +44,7 @@ For new continuation work, start with `../roadmap/codex-console-continuation-bri
 - `2026-04-26-web-readonly-prototype-implementation-plan.md` - PM-readable guardrails and future-work route for the read-only Web prototype; the first service adapter seam has landed, while routes/UI/auth/actions remain unimplemented.
 - `2026-04-26-web-first-phase-1-closeout.md` - closeout and next-stage tracker for the landed local read-only Web prototype, including commits, verification, smoke proof, and Phase 2A/2B/2C task lanes.
 - `2026-04-26-web-first-pm-ledger.md` - detailed PM/controller ledger for delegated Codex runs, smoke evidence, and guardrails; use after the closeout only when detailed process history is needed.
+- `2026-04-26-web-protected-owner-access-plan.md` - protected owner-only access design gate for the local read-only Web prototype, including recommended private-network path, threat model, auth/session requirements, rollback drill, and acceptance checklist.
 - `2026-04-26-web-first-project-command-board.md` - PM command board for the Web-first continuation; closeout state points to prototype planning, not completed W2/W5 work.
 - `2026-04-26-web-mvp-controller-triage.md` - controller-approved Web MVP scope cut that keeps the first lane read-mostly and Web-only.
 - `2026-04-26-codex-console-phase2-release-note.md` - PR-ready summary of the install path, Feishu audit, metadata cleanup, Web/App sketch, and verification work.

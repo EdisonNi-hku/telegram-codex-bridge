@@ -177,7 +177,7 @@ Active todo list:
 1. PR #16 review/merge path: keep the Draft PR tracked, keep Ubuntu-pass/Windows-baseline context documented, and do not let existing Windows baseline failures block Web-specific progress unless a new Web regression appears.
 2. Owner-visible proof artifact: run the local token-gated Web prototype with `--platform feishu`, capture a safe screenshot/recording or HTML proof that can be reviewed without exposing token, raw IDs, local paths, terminal logs, or platform internals.
 3. More useful read-only dashboard: add safe conversation detail, sanitized final-answer body where a safe source exists, runtime/readiness panels, and pending-interaction read-only visibility.
-4. Protected owner access plan: design the narrow path from localhost-only to owner phone/browser preview, including auth/session, binding, threat model, and rollback; no public/mobile exposure until this gate is explicit.
+4. Protected owner access plan: completed as a docs-only design gate; use the protected owner access plan before any owner phone/browser URL exposure. No public/mobile exposure is implemented.
 5. Gated actions design: separately design submit/approval/interrupt with audit and scope controls; do not implement actions in the read-only MVP lane.
 
 Phase 2B investigation completed:
@@ -212,6 +212,14 @@ Owner-visible proof artifact completed by controller:
   - `/tmp/codex-console-web-proof-safe.png`
 - Vision verification confirmed the sanitized screenshot shows title/workspace/recent-conversation tables and does not show bearer token, raw paths, raw IDs, or conversation text.
 - The local server was killed after proof and the temporary token file was removed.
+
+Protected owner access design completed as a docs-only gate:
+
+- Status artifact: `.hermes/protected-owner-access-status.md`
+- Durable artifact: `docs/plans/2026-04-26-web-protected-owner-access-plan.md`
+- Result: owner-only protected access is specified as a future preview path, not shipped support. The recommended first path is a WireGuard/Tailscale/VPN-style private network plus app-level auth/session gates, with SSH forwarding kept for controller-only proof and public reverse proxy/tunnel paths deferred or fallback-only.
+- Required gates now include short-lived non-URL secrets, localhost default, explicit enable flag/env, platform binding filter, audit trail, rate/lockout or ingress allowlist, rollback/shutdown drill, and acceptance proof before any real protected URL.
+- Still not implemented: public URL, owner/mobile URL, reverse proxy, tunnel, VPN wrapper, HTTPS/DNS, service auto-start, browser session login, actions, uploads/downloads, raw terminal/logs, or support claim.
 
 ## Guardrails
 
