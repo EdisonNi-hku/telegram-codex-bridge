@@ -31,6 +31,8 @@ Use this as the first low-context task handoff for future Codex Console / multi-
 
 ## One-Screen Current State
 
+**Owner direction, do not miss:** this is a personal owner project. The Web Console should now move toward a real, useful Web app experience, not a security/admin/readiness dashboard. Keep only right-sized safety guardrails in the background: token gate, no secret/token leaks, no raw local paths or platform IDs by default, and no destructive/write actions until explicitly approved. Product work should prioritize dashboard, workspace/conversation browsing, readable task/detail pages, recent results, and owner attention flows.
+
 - Compatibility names stay unchanged: repo/package `telegram-codex-bridge`, CLI `ctb`, existing service/config/state paths.
 - Product language is **Codex Console**.
 - Internal shared direction is **Codex Bridge Core**.

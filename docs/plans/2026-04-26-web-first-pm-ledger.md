@@ -26,12 +26,15 @@ Last updated: 2026-04-26
 
 ## Mission
 
-Push Codex Console toward a real Web-first control surface without drifting into fake support claims.
+Push Codex Console toward a real Web-first personal control surface without drifting into fake support claims.
+
+**Owner direction, reinforced 2026-04-26:** this is a personal project. The Web UI should feel like an app the owner can actually use, not a security/readiness/admin dashboard. Future agents should prioritize product workflows — dashboard, continue-working list, workspace/conversation/task browsing, readable results, and attention cards — while keeping only right-sized safety guardrails in the background.
 
 Web-first means:
 
 - Web before native App.
 - First lane is single-operator, non-public, read-mostly/prototype-only.
+- Security/readiness/access posture is secondary utility context, not the main product surface.
 - Web should be workspace/session/conversation/result centered, not a fake Telegram/Feishu chat shell.
 - Shared Codex Bridge Core semantics must remain the source of product meaning.
 

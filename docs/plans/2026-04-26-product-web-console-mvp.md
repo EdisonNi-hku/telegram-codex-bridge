@@ -27,7 +27,9 @@ Last updated: 2026-04-26
 
 The current browser preview is an owner-visible temporary read-only debug/admin preview. It is useful proof that a browser can reach sanitized Bridge state, but it is not a user-facing Web product, not public, and not supported Web Console behavior.
 
-Phase 3 shifts the lane from substrate/security plumbing toward a real Product Web Console MVP: Web first, App later; single high-trust operator first; owner/private; denied-by-default; read-mostly until the read experience is useful.
+**Important owner correction:** this is a personal project. Do not let future agents turn the Web Console into a security/readiness/admin product. Safety is a background guardrail, not the main user experience. The next Web work should make the Console feel like a real personal Web app: dashboard, continue-working flows, workspace/conversation/task browsing, readable results, attention cards, and friendly empty states.
+
+Phase 3 shifts the lane from substrate/security plumbing toward a real Product Web Console MVP: Web first, App later; single high-trust operator first; owner/private; read-mostly until the read experience is useful. Keep token-gated access and no-leak/no-destructive-action constraints, but avoid centering the UI around denied-by-default/security-posture copy.
 
 ## Product Goal
 
@@ -39,24 +41,24 @@ The MVP should let the owner open a browser on phone or desktop and immediately 
 - What was the final useful result, shown in a readable Web layout?
 - What needs my attention, without exposing raw platform internals or unsafe controls?
 
-A usable Web Console is not a debug portal. It should feel like a workspace/conversation/task product surface: clear navigation, readable details, human status copy, safe degraded states, and mobile-first result reading. Runtime, readiness, and access information support the product experience; they are not the product by themselves.
+A usable Web Console is not a debug portal and not a security center. It should feel like a workspace/conversation/task product surface: clear navigation, readable details, human status copy, friendly empty states, recent results, and mobile-first result reading. Runtime, readiness, and access information support the product experience; they are secondary utilities, not the product by themselves.
 
 ## MVP Navigation And Information Architecture
 
 ### 1. Home
 
-Purpose: fast orientation.
+Purpose: fast orientation and continuation, like a personal work console home screen.
 
 Content:
 
-- Product header: `Codex Console` plus environment label such as `Owner preview` or `Read-only prototype`.
-- Compact system state cards:
-  - current runtime state: idle, running, blocked, degraded, failed, or unavailable;
-  - pending attention count: approvals/questions needing review, shown read-only in this lane;
-  - readiness summary: ready, degraded, setup needed, or unavailable.
-- Active workspace/project card, if known: safe label, last activity, active conversation/task summary.
-- Recent conversations/tasks list: title or safe summary, workspace label, state, last update, and link to detail.
-- Empty/degraded states when data is absent: explain what is unavailable and what the owner can still do.
+- Product header: `Codex Console` plus a concise personal-console subtitle and at most one subtle `view-only preview` label.
+- Primary workflow sections:
+  - `Continue working`: active or recent conversations/tasks with clear open links;
+  - `Needs attention`: blocked turns, pending questions/approvals, failed/degraded tasks, shown as read-only cards in this lane;
+  - `Recent results`: recent completed conversations/tasks and whether a readable result is available;
+  - `Projects / workspaces`: safe workspace cards with counts and last activity.
+- Secondary utility links/cards for Runtime, Readiness, and Settings. These must not dominate the Home page.
+- Friendly empty states when data is absent: explain what will appear here once the bridge has conversations/results, rather than leading with scary degraded/security language.
 
 Must not show raw chat IDs, session IDs, local paths, tokens, callback payloads, terminal logs, or platform-shaped copy.
 
