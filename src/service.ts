@@ -716,7 +716,7 @@ export class BridgeService {
     if (!this.store) {
       return null;
     }
-    const bindings = this.store.listChatBindings();
+    const bindings = this.store.listChatBindings(this.config.activePack);
     return bindings.length === 1 ? bindings[0]?.chatId ?? null : null;
   }
 

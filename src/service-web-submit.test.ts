@@ -44,8 +44,11 @@ function createHarness(sessions: SessionRow[], bindings = [{ chatId: "chat-1" }]
   const service = Object.create(BridgeService.prototype) as BridgeService;
   const rawService = service as any;
   const calls: unknown[] = [];
+  rawService.config = { activePack: "feishu" };
   rawService.store = {
-    listChatBindings: () => bindings,
+    listChatBindings: (platform?: string) => platform
+      ? bindings.filter((binding) => !("platform" in binding) || binding.platform === platform)
+      : bindings,
     listSessions: (chatId: string, options?: { archived?: boolean }) => {
       calls.push({ type: "listSessions", chatId, archived: options?.archived });
       return sessions.filter((session) => session.chatId === chatId && Boolean(session.archived) === Boolean(options?.archived));
