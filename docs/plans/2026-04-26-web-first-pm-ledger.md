@@ -110,11 +110,27 @@ Controller verification after Gap3:
 - `npm run check` passed.
 - `node --import tsx --test src/service/web-readonly-view-model.test.ts` passed with 11 tests.
 
+## Live Provider Seam
+
+A follow-up live provider composition seam completed cleanly and was controller-verified:
+
+- Process: `proc_2c4cb3d1ca51`
+- Status artifact: `.hermes/web-live-provider-status.md`
+- Result: `createWebReadonlyLiveProvider(deps)` resolves one operator binding internally and feeds safe scoped readers into the pure Web view-model provider.
+
+The seam keeps chat IDs/platform details inside the adapter boundary and does not add routes, UI, server, auth middleware, URLs, screenshots, action controls, writes, downloads, uploads, or runtime service wiring.
+
+Controller verification after the live provider seam:
+
+- `node --import tsx --test src/service/web-readonly-live-provider.test.ts src/service/web-readonly-view-model.test.ts` passed with 16 tests.
+- `npm run check` passed.
+- `git diff --check` passed.
+
 ## Next Gates
 
-1. Checkpoint Gap3 code plus this PM ledger.
-2. Continue with narrow read-only groundwork only until an owner-visible Web shell milestone is intentionally started.
-3. Next possible coding lanes may include persisted neutral final-answer bodies, readiness model refinement, or minimal denied/login shell planning; do not add routes/UI/auth/action controls without an explicit controller gate.
+1. Checkpoint the live provider seam plus this PM ledger.
+2. Continue with narrow groundwork only until an owner-visible Web shell milestone is intentionally started.
+3. Next possible coding lanes may include minimal denied-by-default local shell planning/implementation, persisted neutral final-answer bodies, or readiness model refinement; do not add publicly reachable routes, owner URL, action controls, uploads/downloads, or support claims without an explicit controller gate.
 
 ## Guardrails
 
