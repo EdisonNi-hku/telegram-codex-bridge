@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { createReadonlyAccessGate } from "./readonly-access.js";
 import { createReadonlyHttpServer } from "./readonly-http-server.js";
 import type {
+  WebReadonlyConversationRow,
   WebReadonlyConversationResultViewModel,
   WebReadonlyViewModelProvider
 } from "../service/web-readonly-view-model.js";
@@ -16,6 +17,8 @@ function makeProvider(
   calls: string[],
   options: {
     throwOnHome?: boolean;
+    homeConversations?: WebReadonlyConversationRow[];
+    workspaceConversations?: WebReadonlyConversationRow[];
     detailAnswers?: WebReadonlyConversationResultViewModel["answers"];
   } = {}
 ): WebReadonlyViewModelProvider {
@@ -44,7 +47,7 @@ function makeProvider(
             source: "recent"
           }
         ],
-        recentConversations: [
+        recentConversations: options.homeConversations ?? [
           {
             conversationId: "cv_1234567890abcdef",
             conversationHandle: "cv_1234567890abcdef",
@@ -95,7 +98,7 @@ function makeProvider(
         pageId: "web_workspace_conversations",
         state: "available",
         workspaceId,
-        conversations: [
+        conversations: options.workspaceConversations ?? [
           {
             conversationId: "cv_1234567890abcdef",
             conversationHandle: "cv_1234567890abcdef",
@@ -386,6 +389,80 @@ test("authenticated conversation detail explains rejected final-answer body sour
   });
 });
 
+test("home recent conversations use user-language state groups and copy", async () => {
+  const calls: string[] = [];
+  const rows: WebReadonlyConversationRow[] = [
+    conversationFixture("cv_aaaaaaaaaaaaaaaa", "Answer product question", "pending_question", false),
+    conversationFixture("cv_bbbbbbbbbbbbbbbb", "Approve safe change", "pending_approval", false),
+    conversationFixture("cv_cccccccccccccccc", "Blocked on owner input", "blocked", false),
+    conversationFixture("cv_dddddddddddddddd", "Run implementation", "running", false),
+    conversationFixture("cv_eeeeeeeeeeeeeeee", "Finished slice", "completed", true),
+    conversationFixture("cv_ffffffffffffffff", "Failed check", "failed", false),
+    conversationFixture("cv_1111111111111111", "Partial state", "degraded", false),
+    conversationFixture("cv_2222222222222222", "Unknown state", "source_unknown", false)
+  ];
+
+  await withServer({
+    provider: makeProvider(calls, { homeConversations: rows }),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["home"]);
+    for (const heading of ["Needs attention", "Running now", "Recently completed", "Other/Older"]) {
+      assert.match(result.text, new RegExp(`<h3>${heading}</h3>`), `missing grouped heading ${heading}: ${result.text}`);
+    }
+    for (const label of ["Needs answer", "Approval needed", "Blocked", "Running", "Done", "Failed", "Degraded", "Unavailable"]) {
+      assert.match(result.text, new RegExp(`class="console-badge">${label}</span>`), `missing label ${label}: ${result.text}`);
+    }
+    for (const copy of [
+      "Codex asked a question; the answer lane is read-only until enabled.",
+      "Codex requested an approval; the approval lane is read-only until enabled.",
+      "Progress is stopped until required owner interaction is resolved.",
+      "Codex is working; result will appear here when complete.",
+      "Completion metadata or a final result is available.",
+      "The task ended without a usable final result in this preview.",
+      "State is partial, stale, or missing a safe source.",
+      "The current state is unavailable or unknown from the safe reader."
+    ]) {
+      assert.match(result.text, new RegExp(escapeRegExp(copy)), `missing copy ${copy}: ${result.text}`);
+    }
+    for (const raw of ["pending_question", "pending_approval", "source_unknown"]) {
+      assert.equal(result.text.includes(raw), false, `raw state leaked ${raw}: ${result.text}`);
+    }
+  });
+});
+
+test("workspace conversation list groups mixed states without exposing raw state enums", async () => {
+  const calls: string[] = [];
+  const rows: WebReadonlyConversationRow[] = [
+    conversationFixture("cv_aaaaaaaaaaaaaaaa", "Needs approval", "pending_approval", false),
+    conversationFixture("cv_bbbbbbbbbbbbbbbb", "Running task", "running", false),
+    conversationFixture("cv_cccccccccccccccc", "Completed task", "done", true),
+    conversationFixture("cv_dddddddddddddddd", "Unknown task", "state_unknown", false)
+  ];
+
+  await withServer({
+    provider: makeProvider(calls, { workspaceConversations: rows }),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/workspaces/wk_safe_1/conversations`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["workspace:wk_safe_1"]);
+    for (const heading of ["Needs attention", "Running now", "Recently completed", "Other/Older"]) {
+      assert.match(result.text, new RegExp(`<h3>${heading}</h3>`), `missing grouped heading ${heading}: ${result.text}`);
+    }
+    assert.match(result.text, /Approval needed/);
+    assert.match(result.text, /Running/);
+    assert.match(result.text, /Done/);
+    assert.match(result.text, /Unavailable/);
+    assert.match(result.text, /The current state is unavailable or unknown from the safe reader\./);
+    for (const raw of ["pending_approval", "state_unknown"]) {
+      assert.equal(result.text.includes(raw), false, `raw state leaked ${raw}: ${result.text}`);
+    }
+  });
+});
+
 test("raw session and unsafe conversation route parts are generic 404s", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
@@ -406,6 +483,31 @@ test("raw session and unsafe conversation route parts are generic 404s", async (
     assert.deepEqual(calls, []);
   });
 });
+
+function conversationFixture(
+  handle: string,
+  title: string,
+  status: string,
+  finalAnswerAvailable: boolean
+): WebReadonlyConversationRow {
+  return {
+    conversationId: handle,
+    conversationHandle: handle,
+    workspaceId: "wk_safe_1",
+    title,
+    status,
+    failureReason: null,
+    archived: false,
+    createdAt: "2026-04-25T10:00:00.000Z",
+    lastActivityAt: "2026-04-25T12:00:00.000Z",
+    lastTurnStatus: status,
+    finalAnswerAvailable
+  };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 test("state responses include no-store, CSP, nosniff, and HTML charset headers", async () => {
   const calls: string[] = [];

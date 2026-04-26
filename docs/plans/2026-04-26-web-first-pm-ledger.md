@@ -375,3 +375,23 @@ Verification passed:
 - `node --import tsx --test src/web/readonly-http-server.test.ts src/web/readonly-cli.test.ts src/service/web-readonly-live-provider.test.ts src/service/web-readonly-view-model.test.ts`
 - `npm run check`
 - `git diff --check`
+
+## Phase 3 Conversation/Task State Grouping
+
+Completed on 2026-04-26 as Product Web Console MVP code slice 3.
+
+Result:
+
+- Home recent conversations and workspace conversation/task lists now group rows into owner-visible buckets: Needs attention, Running now, Recently completed, and Other/Older when row state supports it.
+- Conversation/task cards render user-language state labels and short copy for running, pending question, pending approval, blocked, done/completed, failed, degraded, and unavailable/unknown states.
+- Conversation/task detail status now uses the same user-language label/copy rather than raw row status text.
+- Opaque links, escaping/scrubbing, read-only posture, and forbidden action/control constraints were preserved; no routes, auth, proxy, service wiring, schema, stores, or action endpoints were changed.
+
+TDD/verification evidence is recorded in `.hermes/phase3-conversation-state-status.md`.
+
+Verification passed:
+
+- `node --import tsx --test src/web/readonly-http-server.test.ts src/service/web-readonly-view-model.test.ts`
+- `node --import tsx --test src/web/readonly-http-server.test.ts src/web/readonly-cli.test.ts src/service/web-readonly-live-provider.test.ts src/service/web-readonly-view-model.test.ts`
+- `npm run check`
+- `git diff --check`

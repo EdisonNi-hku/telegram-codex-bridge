@@ -37,11 +37,10 @@ export function renderHomePage(vm: WebReadonlyHomeViewModel): string {
       (row) => workspaceCard(row),
       "Workspace data is unavailable in this read-only preview."
     ),
-    cardListSection(
+    conversationListSection(
       "home-recent-conversations",
       "Recent conversations",
       vm.recentConversations,
-      (row) => conversationCard(row),
       "No recent conversation/task data is available yet."
     ),
     cardListSection(
@@ -74,11 +73,10 @@ export function renderWorkspaceConversationListPage(vm: WebReadonlyWorkspaceConv
   return page("Workspace conversations", "workspaces", [
     hero("Workspace conversations", "Open a conversation/task detail page through an opaque Console handle."),
     summaryPanel("Conversation list status", [field("State", vm.state), field("Empty state", vm.emptyState ?? "—")]),
-    cardListSection(
+    conversationListSection(
       "workspace-conversations",
       "Conversations/tasks",
       vm.conversations,
-      (row) => conversationCard(row),
       vm.emptyState === "no_conversations" ? "No conversation/task rows are visible for this workspace." : "Conversation/task data is unavailable."
     ),
     warnings(vm.warnings)
@@ -91,7 +89,8 @@ export function renderConversationResultPage(vm: WebReadonlyConversationResultVi
   const statusRows = conversation
     ? [
       field("Workspace", conversation.workspaceLabel),
-      field("State", conversation.status),
+      field("State", statusLabel(conversation.status)),
+      field("Status note", statusCopy(conversation.status)),
       field("Archived", yesNo(conversation.archived)),
       field("Created", conversation.createdAt),
       field("Last activity", conversation.lastActivityAt)
@@ -234,6 +233,28 @@ function cardListSection<T>(id: string, title: string, rows: T[], render: (row: 
   return `<section class="console-section" aria-labelledby="${id}"><h2 id="${id}">${escapeHtml(title)}</h2>${body}</section>`;
 }
 
+function conversationListSection(id: string, title: string, rows: WebReadonlyConversationRow[], emptyCopy: string): string {
+  if (rows.length === 0) {
+    return `<section class="console-section" aria-labelledby="${id}"><h2 id="${id}">${escapeHtml(title)}</h2><p class="console-empty">${escapeHtml(emptyCopy)}</p></section>`;
+  }
+
+  const groups = [
+    { key: "attention", title: "Needs attention" },
+    { key: "running", title: "Running now" },
+    { key: "completed", title: "Recently completed" },
+    { key: "other", title: "Other/Older" }
+  ] as const;
+  const cards = groups.map((group) => {
+    const groupRows = rows.filter((row) => conversationGroup(row.status) === group.key);
+    if (groupRows.length === 0) {
+      return "";
+    }
+    return `<section class="console-card-group" aria-label="${escapeHtml(group.title)}"><h3>${escapeHtml(group.title)}</h3><div class="console-card-list">${groupRows.map((row) => conversationCard(row)).join("")}</div></section>`;
+  }).join("");
+
+  return `<section class="console-section" aria-labelledby="${id}"><h2 id="${id}">${escapeHtml(title)}</h2>${cards}</section>`;
+}
+
 function statusPanel(status: string): string {
   return `<section class="console-panel" aria-labelledby="status-heading"><h2 id="status-heading">Status</h2><p><span class="console-badge">${escapeHtml(statusLabel(status))}</span> ${escapeHtml(statusCopy(status))}</p></section>`;
 }
@@ -325,7 +346,8 @@ function runtimeTurnCard(row: WebReadonlyRuntimeTurnRow): string {
 function pendingInteractionCard(row: WebReadonlyPendingInteractionViewRow): string {
   const summary = row.summary.state === "available" ? row.summary.text : "Summary is unavailable from the safe read model.";
   return `<article class="console-card"><h3>${escapeHtml(pendingLabel(row.kind, row.status))}</h3><p>${escapeHtml(summary)}</p><div class="console-fields">${[
-    field("Status", row.status),
+    field("State", pendingLabel(row.kind, row.status)),
+    field("State note", statusCopy(row.status)),
     field("Kind", row.kind),
     field("Reason", row.blockingReason),
     field("Created", row.createdAt ?? "—"),
@@ -384,6 +406,15 @@ function isAttentionState(status: string): boolean {
   return /pending|blocked|question|approval|needs/i.test(status);
 }
 
+function conversationGroup(status: string): "attention" | "running" | "completed" | "other" {
+  const normalized = status.toLowerCase();
+  if (normalized.includes("unknown")) return "other";
+  if (/question|approval|pending|blocked|fail|degraded|unavailable|needs/.test(normalized)) return "attention";
+  if (/running|queued/.test(normalized)) return "running";
+  if (/complete|done/.test(normalized)) return "completed";
+  return "other";
+}
+
 function statusLabel(status: string): string {
   const normalized = status.toLowerCase();
   if (normalized.includes("running")) return "Running";
@@ -396,9 +427,10 @@ function statusLabel(status: string): string {
   if (normalized.includes("fail")) return "Failed";
   if (normalized.includes("degraded")) return "Degraded";
   if (normalized.includes("unavailable")) return "Unavailable";
+  if (normalized.includes("unknown")) return "Unavailable";
   if (normalized.includes("recover")) return "Recovered";
   if (normalized.includes("idle")) return "Idle";
-  return status;
+  return "Unavailable";
 }
 
 function statusCopy(status: string): string {
@@ -423,7 +455,7 @@ function statusCopy(status: string): string {
     case "Degraded":
       return "State is partial, stale, or missing a safe source.";
     case "Unavailable":
-      return "The required reader/source is not connected or authorized.";
+      return "The current state is unavailable or unknown from the safe reader.";
     case "Recovered":
       return "Runtime restarted or state was restored with caveats.";
     default:
@@ -463,7 +495,7 @@ function pendingCopy(state: string): string {
 }
 
 function conversationCopy(status: string, finalAnswerAvailable: boolean): string {
-  if (finalAnswerAvailable) {
+  if (finalAnswerAvailable && statusLabel(status) !== "Done") {
     return "Result metadata is available.";
   }
   return statusCopy(status);
