@@ -42,7 +42,7 @@ Open one domain, then one leaf, then stop.
 
 ## Future, Planning, And History
 
-- `docs/future/README.md` - future product and architecture direction, including the broader Codex Bridge Core path.
+- `docs/future/README.md` - future product and architecture direction, including the broader Codex Bridge Core path and Web/App control surface sketch.
 - `docs/plans/README.md` - active trackers, implementation sequencing, and closeout notes.
 - `docs/roadmap/README.md` - delivery ordering and acceptance intent.
 - `docs/archive/README.md` - historical material only when current sources conflict.

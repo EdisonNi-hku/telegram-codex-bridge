@@ -4,6 +4,7 @@ layer: 2
 parent: docs/INDEX.md
 children:
   - docs/future/multi-platform-core-prd.md
+  - docs/future/web-app-control-surface-sketch.md
 summary: router for future Codex Console product direction and Codex Bridge Core architecture intent
 read_when:
   - the request is about future product direction rather than current shipped behavior
@@ -24,6 +25,7 @@ It does not override current truth: Codex Console is Telegram-first by default p
 ## Open One Leaf
 
 - `multi-platform-core-prd.md` - product and architecture direction for Codex Console powered by Codex Bridge Core, with Telegram as the stable first pack and Feishu as a serious current pack.
+- `web-app-control-surface-sketch.md` - future design sketch for a richer Web/App control surface that reuses Codex Bridge Core without claiming current Web/App support.
 
 ## Related Future Docs
 

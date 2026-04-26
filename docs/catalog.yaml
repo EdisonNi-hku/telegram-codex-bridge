@@ -170,6 +170,11 @@ documents:
     layer: 3
     parent: docs/future/README.md
     summary: future product direction for Codex Console and Codex Bridge Core with Telegram as the stable first pack
+  - path: docs/future/web-app-control-surface-sketch.md
+    role: leaf
+    layer: 3
+    parent: docs/future/README.md
+    summary: future design sketch for a richer Web/App Codex Console control surface powered by Codex Bridge Core
   - path: docs/plans/2026-03-23-multi-platform-core-phase-1-implementation-plan.md
     role: leaf
     layer: 3
