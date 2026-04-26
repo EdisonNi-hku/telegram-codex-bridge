@@ -3,6 +3,10 @@ role: domain
 layer: 2
 parent: docs/INDEX.md
 children:
+  - docs/plans/2026-04-26-web-viewmodel-inventory.md
+  - docs/plans/2026-04-26-web-readonly-prototype-implementation-plan.md
+  - docs/plans/2026-04-26-web-first-project-command-board.md
+  - docs/plans/2026-04-26-web-mvp-controller-triage.md
   - docs/plans/2026-04-26-codex-console-phase2-release-note.md
   - docs/plans/2026-04-26-codex-console-phase2-plan.md
   - docs/plans/2026-04-26-feishu-official-capability-audit.md
@@ -33,6 +37,10 @@ For new continuation work, start with `../roadmap/codex-console-continuation-bri
 
 ## Active Or Recently Relevant Leaves
 
+- `2026-04-26-web-viewmodel-inventory.md` - implementation-facing inventory of read-only Core/state/source facades, the landed first adapter seam, and remaining read-only gaps for the future Web prototype.
+- `2026-04-26-web-readonly-prototype-implementation-plan.md` - PM-readable guardrails and future-work route for the read-only Web prototype; the first service adapter seam has landed, while routes/UI/auth/actions remain unimplemented.
+- `2026-04-26-web-first-project-command-board.md` - PM command board for the Web-first continuation; closeout state points to prototype planning, not completed W2/W5 work.
+- `2026-04-26-web-mvp-controller-triage.md` - controller-approved Web MVP scope cut that keeps the first lane read-mostly and Web-only.
 - `2026-04-26-codex-console-phase2-release-note.md` - PR-ready summary of the install path, Feishu audit, metadata cleanup, Web/App sketch, and verification work.
 - `2026-04-26-codex-console-phase2-plan.md` - phase plan for the Phase 2 continuation branch.
 - `2026-04-26-feishu-official-capability-audit.md` - official-API-backed Feishu capability audit and live-smoke caveat.

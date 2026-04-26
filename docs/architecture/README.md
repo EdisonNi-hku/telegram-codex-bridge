@@ -9,7 +9,8 @@ children:
   - docs/architecture/codex-app-server-adoption.md
   - docs/architecture/platform-pack-boundary.md
   - docs/architecture/platform-capability-matrix.md
-summary: router for the current runtime shape, decoupling status, state model, verified code ownership map, pack boundary, capability matrix, and app-server adoption boundary
+  - docs/architecture/web-app-preimplementation-contract.md
+summary: router for the current runtime shape, decoupling status, state model, verified code ownership map, pack boundary, capability matrix, app-server adoption boundary, and future Web/App pre-implementation contract
 read_when:
   - the request is about current runtime lifecycle, state, recovery, or code ownership
   - the request needs the current implementation map before opening source files
@@ -23,6 +24,7 @@ source_of_truth:
   - docs/architecture/codex-app-server-adoption.md
   - docs/architecture/platform-pack-boundary.md
   - docs/architecture/platform-capability-matrix.md
+  - docs/architecture/web-app-preimplementation-contract.md
   - src
 -->
 
@@ -39,6 +41,7 @@ This is still Telegram-first runtime truth, not future-Core intent.
 - `codex-app-server-adoption.md` - current bridge-owned app-server lifecycle, request families, server-request handling, and notification reduction.
 - `platform-pack-boundary.md` - current active-pack contract, runtime factory, health checks, and Telegram vs Feishu ownership split.
 - `platform-capability-matrix.md` - current Telegram/Feishu capability matrix, common product expectations, platform-specific features, and future Web/App target rows.
+- `web-app-preimplementation-contract.md` - future Web/App Core/state/API contract and readiness gates that must be used before any Web/App implementation begins.
 
 ## Skip This Directory When
 

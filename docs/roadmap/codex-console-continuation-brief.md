@@ -16,6 +16,9 @@ source_of_truth:
   - docs/architecture/platform-pack-boundary.md
   - docs/future/multi-platform-core-prd.md
   - docs/future/web-app-control-surface-sketch.md
+  - docs/future/web-mvp-scope-and-readiness.md
+  - docs/operations/web-vps-mobile-access-and-security.md
+  - docs/architecture/web-app-preimplementation-contract.md
 -->
 
 # Codex Console Continuation Brief
@@ -32,7 +35,8 @@ Use this as the first task handoff for future Codex Console / multi-platform bri
 - Internal shared direction is **Codex Bridge Core**.
 - Telegram is the stable first/default pack.
 - Feishu is a serious current pack with explicit setup/readiness caveats.
-- Web/App is future design only; do not claim current support.
+- Web has an approved read-mostly future MVP scope/readiness lane; do not claim current support.
+- App is alive but deferred until Web proves the shared contract path.
 - Recent Phase 2 work is captured in `docs/plans/2026-04-26-codex-console-phase2-release-note.md`.
 
 ## Default Agent Reading Budget
@@ -55,6 +59,11 @@ Do not read the old dated plan archive by default. It is for archaeology, not ac
 | current product scope and compatibility boundary | `docs/product/v1-scope.md` |
 | future Core product/architecture direction | `docs/future/multi-platform-core-prd.md` |
 | future Web/App control surface sketch | `docs/future/web-app-control-surface-sketch.md` |
+| approved Web-first MVP scope/readiness, action gates, VPS/mobile validation, and support-claim guardrails | `docs/future/web-mvp-scope-and-readiness.md` |
+| future Web prototype VPS/mobile access, protected URL exposure, forbidden-data defaults, and shutdown plan | `docs/operations/web-vps-mobile-access-and-security.md` |
+| Web/App pre-implementation contract and readiness gates | `docs/architecture/web-app-preimplementation-contract.md` |
+| future read-only Web prototype implementation planning | `docs/plans/2026-04-26-web-readonly-prototype-implementation-plan.md` |
+| future read-only Web view-model inventory and first adapter seam | `docs/plans/2026-04-26-web-viewmodel-inventory.md` |
 | official-API-backed Feishu audit and live-smoke caveat | `docs/plans/2026-04-26-feishu-official-capability-audit.md` |
 | Phase 2 PR summary and verification | `docs/plans/2026-04-26-codex-console-phase2-release-note.md` |
 
@@ -85,11 +94,16 @@ Kept outside archive because they still help the current direction:
 
 ## Next Sustainable Task Queue
 
-1. **Live Feishu tenant smoke.** Verify text, cards, callbacks, file/image upload/download, long output, status/inspect, project/session selection, and degraded recovery.
-2. **Feishu UX hardening.** Convert smoke results into specific pack/readiness fixes; keep non-native pin/menu/audio/image-url limits explicit.
-3. **Docs context budget enforcement.** Keep routers pointing to this brief plus one leaf; archive or demote any new dated plan after closeout.
-4. **Web/App pre-implementation gate.** Before coding Web/App, turn the sketch into stable Core/state/API contracts and readiness criteria.
-5. **PR hygiene.** Each continuation PR should include a short release note, verification commands, and an archive/demotion decision for any temporary plan files.
+1. **W4 formal Web MVP docs landing — complete/landed.** Use the Web MVP scope/readiness leaf as the owner-readable source for the approved Web-first, App-later, read-mostly first lane.
+2. **W5 VPS/mobile access and security plan — complete/landed.** Use the operations access/security plan as the owner-readable source for screenshot-first validation, protected URL exposure choices, forbidden-data defaults, phone checklist, and shutdown gates.
+3. **Independent scope/readiness/security review — complete/landed.** The action-control wording blocker was fixed; first lane is strictly read-mostly with actions deferred to later lanes.
+4. **Web prototype implementation planning — complete/landed.** Use the read-only prototype implementation plan for page skeletons, candidate Core/state surfaces, redacted data contracts, auth assumptions, validation flow, forbidden scope, and future coding milestones.
+5. **W9 read-only Web view-model inventory — complete/landed.** Use the inventory for the service-level adapter seam and remaining read-only gaps, not routes, auth middleware, task submission, or action controls.
+6. **Web service view-model seam closeout/hygiene — current.** The first read-only adapter, Gap1 final-answer/workspace redaction, and Gap2 pending-interactions read model have landed; closeout should keep docs/status wording aligned without claiming Web support.
+7. **Gap3 neutral artifact catalog/descriptors — next implementation after closeout.** Keep this read-only and descriptor-only; do not add routes, UI, auth, servers, writes, downloads, uploads, or action controls.
+8. **Live Feishu tenant smoke.** Verify text, cards, callbacks, file/image upload/download, long output, status/inspect, project/session selection, and degraded recovery as a separate current-pack readiness track.
+9. **Feishu UX hardening.** Convert smoke results into specific pack/readiness fixes; keep non-native pin/menu/audio/image-url limits explicit.
+10. **Docs context budget enforcement and PR hygiene.** Keep routers pointing to this brief plus one leaf; archive or demote temporary plan files after closeout, and include verification commands in each continuation PR.
 
 ## Noise Checks Before Adding A New Doc
 

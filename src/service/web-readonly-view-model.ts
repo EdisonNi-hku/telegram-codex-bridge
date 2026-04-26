@@ -1,0 +1,1029 @@
+import { createHash } from "node:crypto";
+
+export type WebReadonlyAvailability = "available" | "unavailable" | "degraded";
+export type WebReadonlyObservedState = "present" | "missing" | "unknown";
+
+export interface WebReadonlyOperatorBinding {
+  chatId: string;
+}
+
+export interface WebReadonlyRecentProjectRow {
+  projectPath: string;
+  projectName: string;
+  projectAlias?: string | null;
+  lastUsedAt: string;
+  pinned?: boolean;
+  lastSessionId?: string | null;
+  lastSuccessAt?: string | null;
+  source?: string;
+}
+
+export interface WebReadonlySessionProjectStatsRow {
+  projectPath: string;
+  projectName: string;
+  sessionCount: number;
+  lastUsedAt: string | null;
+}
+
+export interface WebReadonlySessionRow {
+  sessionId: string;
+  chatId?: string;
+  telegramChatId?: string;
+  threadId?: string | null;
+  displayName: string;
+  projectName: string;
+  projectAlias?: string | null;
+  projectPath: string;
+  status: string;
+  failureReason?: string | null;
+  archived?: boolean;
+  createdAt: string;
+  lastUsedAt: string;
+  lastTurnId?: string | null;
+  lastTurnStatus?: string | null;
+}
+
+export interface WebReadonlyFinalAnswerRow {
+  answerId: string;
+  chatId?: string;
+  deliveryMessageId?: number | null;
+  sessionId: string;
+  threadId?: string;
+  turnId?: string;
+  kind: string;
+  deliveryState: string;
+  previewHtml?: string;
+  pages?: string[];
+  primaryActionConsumed?: boolean;
+  createdAt: string;
+}
+
+export interface WebReadonlyReadinessSnapshot {
+  state: string;
+  checkedAt: string;
+  details: {
+    activePack?: string;
+    codexInstalled?: boolean;
+    codexAuthenticated?: boolean;
+    appServerAvailable?: boolean;
+    authorizedUserBound?: boolean;
+    issues?: string[];
+    [key: string]: unknown;
+  };
+  appServerPid?: string | null;
+}
+
+export interface WebReadonlyActiveTurn {
+  sessionId: string;
+  status: string;
+  summary?: string | null;
+  blockedReason?: string | null;
+  [key: string]: unknown;
+}
+
+export interface WebReadonlyPendingInteractionInputRow {
+  id?: string | number | null;
+  interactionId?: string | number | null;
+  pendingInteractionId?: string | number | null;
+  conversationId?: string | number | null;
+  sessionId?: string | number | null;
+  status?: string | null;
+  state?: string | null;
+  kind?: string | null;
+  type?: string | null;
+  category?: string | null;
+  summary?: string | null;
+  blockingReason?: string | null;
+  blockedReason?: string | null;
+  reason?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  [key: string]: unknown;
+}
+
+export interface WebReadonlyStoreReader {
+  listRecentProjects?: () => WebReadonlyRecentProjectRow[];
+  listSessionProjectStats?: () => WebReadonlySessionProjectStatsRow[];
+  listSessions?: (chatId: string, options?: { archived?: boolean; limit?: number }) => WebReadonlySessionRow[];
+  getSessionById?: (sessionId: string) => WebReadonlySessionRow | null;
+  listFinalAnswerViews?: (chatId: string) => WebReadonlyFinalAnswerRow[];
+  getReadinessSnapshot?: () => WebReadonlyReadinessSnapshot | null;
+}
+
+export interface WebReadonlyViewModelDeps {
+  store?: WebReadonlyStoreReader;
+  operatorBinding?: WebReadonlyOperatorBinding | null;
+  now?: () => string;
+  idSalt?: string;
+  listActiveTurns?: () => WebReadonlyActiveTurn[] | null | undefined;
+  listPendingInteractions?: () => WebReadonlyPendingInteractionInputRow[] | null | undefined;
+  getReadinessSnapshot?: () => WebReadonlyReadinessSnapshot | null | undefined;
+  getSanitizedFinalAnswerBody?: (answer: WebReadonlyFinalAnswerRow) => string | null | undefined;
+}
+
+export interface WebReadonlyEnvelope {
+  generatedAt: string;
+  prototypeOnly: true;
+  readonly: true;
+}
+
+export interface WebReadonlyWorkspaceRow {
+  workspaceId: string;
+  label: string;
+  availability: WebReadonlyAvailability;
+  conversationCount: number;
+  pinned: boolean;
+  lastActivityAt: string | null;
+  lastSuccessAt: string | null;
+  source: string;
+}
+
+export interface WebReadonlyWorkspaceListViewModel extends WebReadonlyEnvelope {
+  pageId: "web_workspaces";
+  state: WebReadonlyAvailability;
+  workspaces: WebReadonlyWorkspaceRow[];
+  warnings: string[];
+}
+
+export interface WebReadonlyConversationRow {
+  conversationId: string;
+  workspaceId: string;
+  title: string;
+  status: string;
+  failureReason: string | null;
+  archived: boolean;
+  createdAt: string;
+  lastActivityAt: string;
+  lastTurnStatus: string | null;
+  finalAnswerAvailable: boolean;
+}
+
+export interface WebReadonlyWorkspaceConversationListViewModel extends WebReadonlyEnvelope {
+  pageId: "web_workspace_conversations";
+  state: WebReadonlyAvailability;
+  workspaceId: string;
+  conversations: WebReadonlyConversationRow[];
+  emptyState: string | null;
+  warnings: string[];
+}
+
+export interface WebReadonlyAnswerBodyUnavailable {
+  state: "unavailable";
+  reason: "sanitized_body_not_provided" | "unsafe_final_answer_body";
+}
+
+export interface WebReadonlyAnswerBodyAvailable {
+  state: "available";
+  text: string;
+}
+
+export interface WebReadonlyAnswerRow {
+  answerId: string;
+  kind: string;
+  deliveryState: string;
+  createdAt: string;
+  body: WebReadonlyAnswerBodyUnavailable | WebReadonlyAnswerBodyAvailable;
+  summary: string;
+}
+
+export interface WebReadonlyConversationResultViewModel extends WebReadonlyEnvelope {
+  pageId: "web_conversation_result";
+  state: WebReadonlyAvailability;
+  conversation: {
+    conversationId: string;
+    workspaceId: string;
+    title: string;
+    workspaceLabel: string;
+    status: string;
+    failureReason: string | null;
+    archived: boolean;
+    createdAt: string;
+    lastActivityAt: string;
+  } | null;
+  answers: WebReadonlyAnswerRow[];
+  warnings: string[];
+}
+
+export interface WebReadonlyRuntimeTurnRow {
+  sessionId: string;
+  status: string;
+  summary: string | null;
+  blockedReason: string | null;
+}
+
+export interface WebReadonlyRuntimeContextViewModel extends WebReadonlyEnvelope {
+  pageId: "web_runtime_context";
+  state: WebReadonlyAvailability;
+  activeTurns: WebReadonlyRuntimeTurnRow[];
+  warnings: string[];
+}
+
+export interface WebReadonlyPendingInteractionSummaryUnavailable {
+  state: "unavailable";
+  reason: "pending_interaction_summary_not_provided" | "unsafe_pending_interaction_summary";
+}
+
+export interface WebReadonlyPendingInteractionSummaryAvailable {
+  state: "available";
+  text: string;
+}
+
+export interface WebReadonlyPendingInteractionViewRow {
+  interactionId: string;
+  conversationId: string | null;
+  sessionId: string | null;
+  status: string;
+  kind: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  blockingReason: string;
+  summary: WebReadonlyPendingInteractionSummaryUnavailable | WebReadonlyPendingInteractionSummaryAvailable;
+  availability: WebReadonlyAvailability;
+  warnings: string[];
+}
+
+export interface WebReadonlyPendingInteractionsViewModel extends WebReadonlyEnvelope {
+  pageId: "web_pending_interactions";
+  state: WebReadonlyAvailability;
+  pendingInteractions: WebReadonlyPendingInteractionViewRow[];
+  warnings: string[];
+}
+
+export interface WebReadonlyReadinessCapabilityRow {
+  key: string;
+  label: string;
+  declared: WebReadonlyObservedState;
+  configured: WebReadonlyObservedState;
+  observed: WebReadonlyObservedState;
+  uxExposed: WebReadonlyObservedState;
+}
+
+export interface WebReadonlyReadinessGuardrailViewModel extends WebReadonlyEnvelope {
+  pageId: "web_readiness_guardrails";
+  state: string;
+  checkedAt: string | null;
+  activePack: string | null;
+  capabilities: WebReadonlyReadinessCapabilityRow[];
+  missingGates: string[];
+  warnings: string[];
+}
+
+export interface WebReadonlyHomeViewModel extends WebReadonlyEnvelope {
+  pageId: "web_home";
+  state: WebReadonlyAvailability;
+  operator: { binding: WebReadonlyAvailability };
+  workspaces: WebReadonlyWorkspaceRow[];
+  recentConversations: WebReadonlyConversationRow[];
+  runtime: Pick<WebReadonlyRuntimeContextViewModel, "state" | "activeTurns">;
+  readiness: Pick<WebReadonlyReadinessGuardrailViewModel, "state" | "missingGates">;
+  warnings: string[];
+}
+
+export interface WebReadonlyViewModelProvider {
+  getHomeViewModel(): WebReadonlyHomeViewModel;
+  listWorkspaceViewModels(): WebReadonlyWorkspaceListViewModel;
+  listWorkspaceConversationViewModels(workspaceId: string): WebReadonlyWorkspaceConversationListViewModel;
+  getConversationResultViewModel(sessionId: string): WebReadonlyConversationResultViewModel;
+  getRuntimeContextViewModel(): WebReadonlyRuntimeContextViewModel;
+  getPendingInteractionsViewModel(): WebReadonlyPendingInteractionsViewModel;
+  getReadinessGuardrailViewModel(): WebReadonlyReadinessGuardrailViewModel;
+}
+
+interface WorkspaceAccumulator {
+  path: string;
+  label: string | null;
+  projectName: string;
+  pinned: boolean;
+  conversationCount: number;
+  lastActivityAt: string | null;
+  lastSuccessAt: string | null;
+  source: string;
+}
+
+const DEFAULT_ID_SALT = "web-readonly-view-model:v1";
+
+export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDeps): WebReadonlyViewModelProvider {
+  const now = () => deps.now?.() ?? new Date().toISOString();
+  const idSalt = deps.idSalt ?? DEFAULT_ID_SALT;
+
+  const envelope = (): WebReadonlyEnvelope => ({
+    generatedAt: now(),
+    prototypeOnly: true,
+    readonly: true
+  });
+
+  const workspaceIdForPath = (projectPath: string): string => `wk_${hashOpaque(idSalt, projectPath)}`;
+
+  const buildWorkspaceIndex = (): { state: WebReadonlyAvailability; rows: WorkspaceAccumulator[]; warnings: string[] } => {
+    const store = deps.store;
+    if (!store || (!store.listRecentProjects && !store.listSessionProjectStats)) {
+      return { state: "unavailable", rows: [], warnings: ["workspace_data_unavailable"] };
+    }
+
+    const warnings: string[] = [];
+    const byPath = new Map<string, WorkspaceAccumulator>();
+
+    const upsert = (projectPath: string, projectName: string, patch: Partial<WorkspaceAccumulator>): void => {
+      const current = byPath.get(projectPath) ?? {
+        path: projectPath,
+        label: null,
+        projectName: safeLabel(projectName, "Workspace"),
+        pinned: false,
+        conversationCount: 0,
+        lastActivityAt: null,
+        lastSuccessAt: null,
+        source: "unknown"
+      };
+      const nextLastActivity = latestIso(current.lastActivityAt, patch.lastActivityAt ?? null);
+      byPath.set(projectPath, {
+        ...current,
+        ...patch,
+        label: safeOptionalLabel(patch.label === undefined ? current.label : patch.label),
+        projectName: safeLabel(patch.projectName ?? current.projectName, "Workspace"),
+        pinned: Boolean(current.pinned || patch.pinned),
+        conversationCount: Math.max(current.conversationCount, patch.conversationCount ?? 0),
+        lastActivityAt: nextLastActivity,
+        lastSuccessAt: latestIso(current.lastSuccessAt, patch.lastSuccessAt ?? null),
+        source: patch.source ?? current.source
+      });
+    };
+
+    for (const project of callSafely(store.listRecentProjects, [], warnings, "recent_projects_unavailable")) {
+      upsert(project.projectPath, project.projectName, {
+        label: project.projectAlias ?? null,
+        projectName: project.projectName,
+        pinned: Boolean(project.pinned),
+        lastActivityAt: project.lastUsedAt,
+        lastSuccessAt: project.lastSuccessAt ?? null,
+        source: project.source ?? "recent"
+      });
+    }
+
+    for (const stat of callSafely(store.listSessionProjectStats, [], warnings, "workspace_stats_unavailable")) {
+      upsert(stat.projectPath, stat.projectName, {
+        projectName: stat.projectName,
+        conversationCount: stat.sessionCount,
+        lastActivityAt: stat.lastUsedAt,
+        source: "session_stats"
+      });
+    }
+
+    return {
+      state: warnings.length > 0 ? "degraded" : "available",
+      rows: Array.from(byPath.values()).sort(compareWorkspaceRows),
+      warnings
+    };
+  };
+
+  const getFinalAnswerSessionSet = (): Set<string> => {
+    const chatId = deps.operatorBinding?.chatId;
+    if (!chatId || !deps.store?.listFinalAnswerViews) {
+      return new Set();
+    }
+    return new Set(callSafely(() => deps.store?.listFinalAnswerViews?.(chatId) ?? [], [], [], "").map((answer) => answer.sessionId));
+  };
+
+  const listBoundSessions = (warnings: string[]): WebReadonlySessionRow[] | null => {
+    const chatId = deps.operatorBinding?.chatId;
+    if (!chatId || !deps.store?.listSessions) {
+      return null;
+    }
+    return callSafely(() => deps.store?.listSessions?.(chatId, { archived: false, limit: 100 }) ?? [], [], warnings, "sessions_unavailable");
+  };
+
+  const toWorkspaceRow = (row: WorkspaceAccumulator): WebReadonlyWorkspaceRow => {
+    const workspaceId = workspaceIdForPath(row.path);
+    return {
+      workspaceId,
+      label: safeWorkspaceLabel(workspaceId, row.label),
+      availability: "available",
+      conversationCount: row.conversationCount,
+      pinned: row.pinned,
+      lastActivityAt: row.lastActivityAt,
+      lastSuccessAt: row.lastSuccessAt,
+      source: row.source
+    };
+  };
+
+  const toConversationRow = (
+    session: WebReadonlySessionRow,
+    finalAnswerSessionIds: Set<string>
+  ): WebReadonlyConversationRow => ({
+    conversationId: session.sessionId,
+    workspaceId: workspaceIdForPath(session.projectPath),
+    title: safeLabel(session.displayName, "Untitled conversation"),
+    status: safeLabel(session.status, "unknown"),
+    failureReason: session.failureReason ? safeLabel(session.failureReason, "failed") : null,
+    archived: Boolean(session.archived),
+    createdAt: session.createdAt,
+    lastActivityAt: session.lastUsedAt,
+    lastTurnStatus: session.lastTurnStatus ? safeLabel(session.lastTurnStatus, "unknown") : null,
+    finalAnswerAvailable: finalAnswerSessionIds.has(session.sessionId)
+  });
+
+  const provider: WebReadonlyViewModelProvider = {
+    getHomeViewModel() {
+      const workspaceVm = provider.listWorkspaceViewModels();
+      const firstWorkspaceId = workspaceVm.workspaces[0]?.workspaceId;
+      const conversationsVm = firstWorkspaceId
+        ? provider.listWorkspaceConversationViewModels(firstWorkspaceId)
+        : null;
+      const runtime = provider.getRuntimeContextViewModel();
+      const readiness = provider.getReadinessGuardrailViewModel();
+      const warnings = [
+        ...workspaceVm.warnings,
+        ...(conversationsVm?.warnings ?? []),
+        ...runtime.warnings,
+        ...readiness.warnings
+      ];
+
+      return {
+        ...envelope(),
+        pageId: "web_home",
+        state: workspaceVm.state === "available" ? "available" : "degraded",
+        operator: { binding: deps.operatorBinding?.chatId ? "available" : "unavailable" },
+        workspaces: workspaceVm.workspaces.slice(0, 5),
+        recentConversations: conversationsVm?.conversations.slice(0, 5) ?? [],
+        runtime: { state: runtime.state, activeTurns: runtime.activeTurns },
+        readiness: { state: readiness.state, missingGates: readiness.missingGates },
+        warnings: unique(warnings)
+      };
+    },
+
+    listWorkspaceViewModels() {
+      const index = buildWorkspaceIndex();
+      return {
+        ...envelope(),
+        pageId: "web_workspaces",
+        state: index.state,
+        workspaces: index.rows.map(toWorkspaceRow),
+        warnings: index.warnings
+      };
+    },
+
+    listWorkspaceConversationViewModels(workspaceId) {
+      const warnings: string[] = [];
+      const sessions = listBoundSessions(warnings);
+      if (!sessions) {
+        return {
+          ...envelope(),
+          pageId: "web_workspace_conversations",
+          state: "unavailable",
+          workspaceId,
+          conversations: [],
+          emptyState: "session_data_unavailable",
+          warnings: unique(["operator_binding_or_session_data_unavailable", ...warnings])
+        };
+      }
+
+      const finalAnswerSessionIds = getFinalAnswerSessionSet();
+      const conversations = sessions
+        .filter((session) => workspaceIdForPath(session.projectPath) === workspaceId)
+        .map((session) => toConversationRow(session, finalAnswerSessionIds));
+
+      return {
+        ...envelope(),
+        pageId: "web_workspace_conversations",
+        state: warnings.length > 0 ? "degraded" : "available",
+        workspaceId,
+        conversations,
+        emptyState: conversations.length === 0 ? "no_conversations" : null,
+        warnings: unique(warnings)
+      };
+    },
+
+    getConversationResultViewModel(sessionId) {
+      const chatId = deps.operatorBinding?.chatId;
+      if (!chatId || !deps.store?.getSessionById) {
+        return unavailableConversationResult(envelope(), "conversation_data_unavailable");
+      }
+
+      const warnings: string[] = [];
+      const session = callSafely(() => deps.store?.getSessionById?.(sessionId) ?? null, null, warnings, "conversation_data_unavailable");
+      if (!session || (session.chatId && session.chatId !== chatId)) {
+        return unavailableConversationResult(envelope(), "conversation_not_available");
+      }
+
+      const answers = callSafely(() => deps.store?.listFinalAnswerViews?.(chatId) ?? [], [], warnings, "final_answers_unavailable")
+        .filter((answer) => answer.sessionId === session.sessionId)
+        .map((answer): WebReadonlyAnswerRow => {
+          const safeBody = sanitizeFinalAnswerBody(deps.getSanitizedFinalAnswerBody?.(answer));
+          return {
+            answerId: answer.answerId,
+            kind: safeLabel(answer.kind, "final_answer"),
+            deliveryState: safeLabel(answer.deliveryState, "unknown"),
+            createdAt: answer.createdAt,
+            body: safeBody.state === "available"
+              ? { state: "available", text: safeBody.text }
+              : { state: "unavailable", reason: safeBody.reason },
+            summary: safeBody.state === "available"
+              ? "Final answer body was provided by an injected Web-safe sanitizer."
+              : "Final answer is available, but body is hidden until a Web-safe sanitized body is provided."
+          };
+        });
+
+      return {
+        ...envelope(),
+        pageId: "web_conversation_result",
+        state: warnings.length > 0 ? "degraded" : "available",
+        conversation: {
+          conversationId: session.sessionId,
+          workspaceId: workspaceIdForPath(session.projectPath),
+          title: safeLabel(session.displayName, "Untitled conversation"),
+          workspaceLabel: safeWorkspaceLabel(workspaceIdForPath(session.projectPath), session.projectAlias ?? null),
+          status: safeLabel(session.status, "unknown"),
+          failureReason: session.failureReason ? safeLabel(session.failureReason, "failed") : null,
+          archived: Boolean(session.archived),
+          createdAt: session.createdAt,
+          lastActivityAt: session.lastUsedAt
+        },
+        answers,
+        warnings: unique(warnings)
+      };
+    },
+
+    getRuntimeContextViewModel() {
+      if (!deps.listActiveTurns) {
+        return {
+          ...envelope(),
+          pageId: "web_runtime_context",
+          state: "degraded",
+          activeTurns: [],
+          warnings: ["runtime_data_unavailable"]
+        };
+      }
+
+      const warnings: string[] = [];
+      const activeTurns = callSafely(() => deps.listActiveTurns?.() ?? [], [], warnings, "runtime_data_unavailable").map(
+        (turn): WebReadonlyRuntimeTurnRow => ({
+          sessionId: turn.sessionId,
+          status: safeLabel(turn.status, "unknown"),
+          summary: turn.summary ? redactText(turn.summary) : null,
+          blockedReason: turn.blockedReason ? safeLabel(turn.blockedReason, "blocked") : null
+        })
+      );
+
+      return {
+        ...envelope(),
+        pageId: "web_runtime_context",
+        state: warnings.length > 0 ? "degraded" : "available",
+        activeTurns,
+        warnings: unique(warnings)
+      };
+    },
+
+    getPendingInteractionsViewModel() {
+      if (!deps.listPendingInteractions) {
+        return unavailablePendingInteractions(envelope(), "pending_interactions_unavailable");
+      }
+
+      const warnings: string[] = [];
+      const pendingRows = callSafely(
+        () => deps.listPendingInteractions?.() ?? null,
+        null as WebReadonlyPendingInteractionInputRow[] | null,
+        warnings,
+        "pending_interactions_unavailable"
+      );
+      if (!pendingRows) {
+        return unavailablePendingInteractions(envelope(), "pending_interactions_unavailable");
+      }
+
+      const pendingInteractions = pendingRows.map((row, index) => normalizePendingInteraction(row, index, idSalt));
+      const rowWarnings = pendingInteractions.flatMap((row) => row.warnings);
+      return {
+        ...envelope(),
+        pageId: "web_pending_interactions",
+        state: warnings.length > 0 || rowWarnings.length > 0 ? "degraded" : "available",
+        pendingInteractions,
+        warnings: unique([...warnings, ...rowWarnings])
+      };
+    },
+
+    getReadinessGuardrailViewModel() {
+      const getSnapshot = deps.getReadinessSnapshot ?? deps.store?.getReadinessSnapshot;
+      if (!getSnapshot) {
+        return {
+          ...envelope(),
+          pageId: "web_readiness_guardrails",
+          state: "unavailable",
+          checkedAt: null,
+          activePack: null,
+          capabilities: [],
+          missingGates: ["readiness_data_unavailable"],
+          warnings: ["readiness_data_unavailable"]
+        };
+      }
+
+      const warnings: string[] = [];
+      const snapshot = callSafely(getSnapshot, null, warnings, "readiness_data_unavailable");
+      if (!snapshot) {
+        return {
+          ...envelope(),
+          pageId: "web_readiness_guardrails",
+          state: "unavailable",
+          checkedAt: null,
+          activePack: null,
+          capabilities: [],
+          missingGates: ["readiness_data_unavailable"],
+          warnings: unique(warnings)
+        };
+      }
+
+      const details = snapshot.details;
+      const missingGates = (details.issues ?? [])
+        .map(summarizeIssue)
+        .filter((issue): issue is string => Boolean(issue));
+
+      return {
+        ...envelope(),
+        pageId: "web_readiness_guardrails",
+        state: safeLabel(snapshot.state, "unknown"),
+        checkedAt: snapshot.checkedAt,
+        activePack: details.activePack ? safeLabel(details.activePack, "unknown") : null,
+        capabilities: [
+          capability("codex_installed", "Codex installed", details.codexInstalled),
+          capability("codex_authenticated", "Codex authenticated", details.codexAuthenticated),
+          capability("app_server", "App server", details.appServerAvailable),
+          capability("operator_binding", "Operator binding", details.authorizedUserBound)
+        ],
+        missingGates: unique(missingGates),
+        warnings: unique(warnings)
+      };
+    }
+  };
+
+  return provider;
+}
+
+function unavailableConversationResult(
+  envelope: WebReadonlyEnvelope,
+  warning: string
+): WebReadonlyConversationResultViewModel {
+  return {
+    ...envelope,
+    pageId: "web_conversation_result",
+    state: "unavailable",
+    conversation: null,
+    answers: [],
+    warnings: [warning]
+  };
+}
+
+function unavailablePendingInteractions(
+  envelope: WebReadonlyEnvelope,
+  warning: string
+): WebReadonlyPendingInteractionsViewModel {
+  return {
+    ...envelope,
+    pageId: "web_pending_interactions",
+    state: "unavailable",
+    pendingInteractions: [],
+    warnings: [warning]
+  };
+}
+
+function normalizePendingInteraction(
+  row: WebReadonlyPendingInteractionInputRow,
+  index: number,
+  idSalt: string
+): WebReadonlyPendingInteractionViewRow {
+  const rawSessionId = primitiveString(row.sessionId);
+  const rawConversationId = primitiveString(row.conversationId) ?? rawSessionId;
+  const sessionId = safePublicEntityId(rawSessionId);
+  const conversationId = safePublicEntityId(rawConversationId) ?? sessionId;
+  const summary = sanitizePendingInteractionSummary(firstPrimitiveString(row, ["summary"]));
+  const blockingReason = sanitizePendingInteractionText(
+    firstPrimitiveString(row, ["blockingReason", "blockedReason", "reason"])
+  );
+  const warnings = unique([
+    summary.state === "unavailable" && summary.reason === "unsafe_pending_interaction_summary"
+      ? "pending_interaction_details_redacted"
+      : "",
+    blockingReason.safe ? "" : "pending_interaction_details_redacted",
+    rowContainsRawOnlyPendingData(row) ? "pending_interaction_details_redacted" : ""
+  ]);
+
+  return {
+    interactionId: safePendingInteractionId(row, index, idSalt),
+    conversationId,
+    sessionId,
+    status: safePendingLabel(firstPrimitiveString(row, ["status", "state"]), "pending"),
+    kind: safePendingLabel(firstPrimitiveString(row, ["kind", "type", "category"]), "interaction"),
+    createdAt: safeTimestamp(row.createdAt),
+    updatedAt: safeTimestamp(row.updatedAt),
+    blockingReason: blockingReason.text ?? "Awaiting user input; details hidden for this read-only surface.",
+    summary,
+    availability: warnings.length > 0 ? "degraded" : "available",
+    warnings
+  };
+}
+
+function safePendingInteractionId(row: WebReadonlyPendingInteractionInputRow, index: number, idSalt: string): string {
+  const rawId = firstPrimitiveString(row, ["interactionId", "id", "pendingInteractionId"]);
+  if (rawId && isSafePublicOpaqueId(rawId)) {
+    return rawId;
+  }
+
+  const stableKey = [
+    rawId,
+    primitiveString(row.sessionId),
+    primitiveString(row.conversationId),
+    primitiveString(row.status),
+    primitiveString(row.kind),
+    primitiveString(row.createdAt),
+    primitiveString(row.updatedAt),
+    String(index)
+  ].join("\0");
+  return `pi_${hashOpaque(idSalt, stableKey)}`;
+}
+
+function safePublicEntityId(value: string | null): string | null {
+  if (!value || !isSafePublicOpaqueId(value)) {
+    return null;
+  }
+  return value;
+}
+
+function isSafePublicOpaqueId(value: string): boolean {
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9_-]{1,80}$/.test(trimmed)
+    && !looksPathLike(trimmed)
+    && !containsUnsafePendingValue(trimmed)
+    && !/^(?:ou|oc|om|on|cli|msg|message|chat)_/i.test(trimmed)
+    && !/\b(?:telegram|feishu|chat|message|platform|path)\b/i.test(trimmed);
+}
+
+function safePendingLabel(value: string | null, fallback: string): string {
+  const raw = String(value ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+  if (!raw || looksPathLike(raw) || containsUnsafePendingValue(raw) || !/^[a-z0-9_.:-]{1,80}$/.test(raw)) {
+    return fallback;
+  }
+  return raw;
+}
+
+function safeTimestamp(value: string | null | undefined): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw || looksPathLike(raw) || containsUnsafePendingValue(raw)) {
+    return null;
+  }
+  return raw;
+}
+
+function sanitizePendingInteractionSummary(
+  value: string | null
+): WebReadonlyPendingInteractionSummaryUnavailable | WebReadonlyPendingInteractionSummaryAvailable {
+  const text = sanitizePendingInteractionText(value);
+  if (text.safe && text.text) {
+    return { state: "available", text: text.text };
+  }
+  return {
+    state: "unavailable",
+    reason: text.reason === "unsafe" ? "unsafe_pending_interaction_summary" : "pending_interaction_summary_not_provided"
+  };
+}
+
+function sanitizePendingInteractionText(value: string | null): { safe: boolean; text: string | null; reason: "missing" | "unsafe" | null } {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return { safe: true, text: null, reason: "missing" };
+  }
+  if (containsUnsafePendingValue(raw)) {
+    return { safe: false, text: null, reason: "unsafe" };
+  }
+
+  const stripped = stripTinySafeHtml(raw);
+  if (!stripped) {
+    return { safe: false, text: null, reason: "unsafe" };
+  }
+
+  const text = redactText(decodeBasicHtmlEntities(stripped))
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+  if (!text) {
+    return { safe: true, text: null, reason: "missing" };
+  }
+  if (containsUnsafePendingValue(text)) {
+    return { safe: false, text: null, reason: "unsafe" };
+  }
+  return { safe: true, text, reason: null };
+}
+
+function rowContainsRawOnlyPendingData(row: WebReadonlyPendingInteractionInputRow): boolean {
+  return [
+    "promptJson",
+    "responseJson",
+    "replyMarkup",
+    "callback",
+    "callback_data",
+    "messageId",
+    "platformMessageId",
+    "deliveryMessageId",
+    "chatId",
+    "telegramChatId",
+    "feishuChatId",
+    "feishuMessageId",
+    "openId",
+    "open_id",
+    "unionId",
+    "union_id",
+    "userId",
+    "user_id",
+    "rawTerminal",
+    "terminal"
+  ].some((key) => Object.prototype.hasOwnProperty.call(row, key));
+}
+
+function containsUnsafePendingValue(value: string): boolean {
+  return containsUnsafeControlMarkup(value)
+    || /(?:callback|callback_data|replyMarkup|messageId|platformMessageId|deliveryMessageId|chatId|telegramChatId)/i.test(value)
+    || /(?:open_id|union_id|user_id|chat_id|message_id)/i.test(value)
+    || /(?:telegram|feishu|rawTerminal|stdout|stderr)/i.test(value)
+    || /(?:raw\s*terminal|terminal\s*(?:output|snippet))/i.test(value)
+    || /(?:submit|approv\w*|interrupt|upload|switch|resume)/i.test(value);
+}
+
+function firstPrimitiveString(row: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = primitiveString(row[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function primitiveString(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return null;
+}
+
+function capability(key: string, label: string, value: boolean | undefined): WebReadonlyReadinessCapabilityRow {
+  const observed: WebReadonlyObservedState = value === true ? "present" : value === false ? "missing" : "unknown";
+  return {
+    key,
+    label,
+    declared: "present",
+    configured: observed,
+    observed,
+    uxExposed: "missing"
+  };
+}
+
+function hashOpaque(salt: string, value: string): string {
+  return createHash("sha256").update(salt).update("\0").update(value).digest("hex").slice(0, 16);
+}
+
+function safeLabel(value: string | null | undefined, fallback: string): string {
+  const redacted = redactText(String(value ?? "").trim());
+  return redacted.length > 0 ? redacted : fallback;
+}
+
+function safeOptionalLabel(value: string | null | undefined): string | null {
+  const raw = String(value ?? "").trim();
+  if (raw.length === 0 || looksPathLike(raw) || containsUnsafeControlMarkup(raw)) {
+    return null;
+  }
+  const redacted = redactText(raw).trim();
+  if (redacted.length === 0 || redacted.includes("[redacted-path]") || containsUnsafeControlMarkup(redacted)) {
+    return null;
+  }
+  return redacted;
+}
+
+function safeWorkspaceLabel(workspaceId: string, label: string | null | undefined): string {
+  return safeOptionalLabel(label) ?? `Workspace ${workspaceId.slice(3, 11)}`;
+}
+
+function sanitizeFinalAnswerBody(value: string | null | undefined): WebReadonlyAnswerBodyUnavailable | WebReadonlyAnswerBodyAvailable {
+  const raw = String(value ?? "").trim();
+  if (raw.length === 0) {
+    return { state: "unavailable", reason: "sanitized_body_not_provided" };
+  }
+  if (containsUnsafeControlMarkup(raw)) {
+    return { state: "unavailable", reason: "unsafe_final_answer_body" };
+  }
+
+  const stripped = stripTinySafeHtml(raw);
+  if (!stripped) {
+    return { state: "unavailable", reason: "unsafe_final_answer_body" };
+  }
+
+  const decoded = decodeBasicHtmlEntities(stripped);
+  if (containsUnsafeControlMarkup(decoded)) {
+    return { state: "unavailable", reason: "unsafe_final_answer_body" };
+  }
+
+  const text = redactText(decoded)
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+  if (text.length === 0) {
+    return { state: "unavailable", reason: "sanitized_body_not_provided" };
+  }
+  if (containsUnsafeControlMarkup(text)) {
+    return { state: "unavailable", reason: "unsafe_final_answer_body" };
+  }
+  return { state: "available", text };
+}
+
+function stripTinySafeHtml(value: string): string | null {
+  let rejected = false;
+  const text = value.replace(/<\/?([A-Za-z][A-Za-z0-9:-]*)(?:\s[^<>]*)?>/g, (match, tagName: string) => {
+    const tag = tagName.toLowerCase();
+    if (!/^(?:<\/?(?:b|strong|i|em|code|pre|p)\s*>|<br\s*\/?>)$/i.test(match)) {
+      rejected = true;
+      return "";
+    }
+    if (tag === "br" || tag === "p") {
+      return "\n";
+    }
+    return "";
+  });
+  return rejected ? null : text;
+}
+
+function decodeBasicHtmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function containsUnsafeControlMarkup(value: string): boolean {
+  return [
+    /<\s*(?:script|style|a|button|form|input|textarea|select)\b/i,
+    /\b(?:callback|callback_data|replyMarkup|messageId|deliveryMessageId|primaryActionConsumed|actionId|platformMessageId)\b/i,
+    /\b(?:submit|approve|interrupt|upload|switch|resume)\b/i,
+    /(?:^|["'(\s])(?:tg|javascript|callback):/i,
+    /\[[^\]]+\]\((?:tg|javascript|callback):[^)]*\)/i
+  ].some((pattern) => pattern.test(value));
+}
+
+function looksPathLike(value: string): boolean {
+  return /(?:^|[\s"'(])(?:\/|~\/|[A-Za-z]:\\)/.test(value);
+}
+
+function redactText(value: string): string {
+  return value
+    .replace(/\/home\/[A-Za-z0-9._-]+(?:\/[^\s"'<>)]*)*/g, "[redacted-path]")
+    .replace(/\/tmp(?:\/[^\s"'<>)]*)*/g, "[redacted-path]")
+    .replace(/\bchatId\b/g, "chat-id")
+    .replace(/\btelegramChatId\b/g, "platform-chat-id")
+    .replace(/\bmessageId\b/g, "message-id")
+    .replace(/\breplyMarkup\b/g, "reply-markup")
+    .replace(/\bpromptJson\b/g, "prompt-json")
+    .replace(/\bresponseJson\b/g, "response-json");
+}
+
+function summarizeIssue(value: string): string | null {
+  const redacted = redactText(value).replace(/\s+at\s+\[redacted-path\].*$/i, "").trim();
+  return redacted.length > 0 ? redacted : null;
+}
+
+function latestIso(left: string | null, right: string | null): string | null {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return right > left ? right : left;
+}
+
+function compareWorkspaceRows(left: WorkspaceAccumulator, right: WorkspaceAccumulator): number {
+  if (left.pinned !== right.pinned) {
+    return left.pinned ? -1 : 1;
+  }
+  const leftLast = left.lastActivityAt ?? "";
+  const rightLast = right.lastActivityAt ?? "";
+  return rightLast.localeCompare(leftLast) || (left.label ?? "").localeCompare(right.label ?? "");
+}
+
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function callSafely<T>(fn: (() => T) | undefined, fallback: T, warnings: string[], warning: string): T {
+  if (!fn) {
+    return fallback;
+  }
+  try {
+    return fn();
+  } catch {
+    if (warning) {
+      warnings.push(warning);
+    }
+    return fallback;
+  }
+}
