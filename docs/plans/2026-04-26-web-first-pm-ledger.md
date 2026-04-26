@@ -15,6 +15,7 @@ source_of_truth:
   - docs/plans/2026-04-26-web-first-pm-ledger.md
   - docs/roadmap/codex-console-continuation-brief.md
   - docs/plans/2026-04-26-web-viewmodel-inventory.md
+  - docs/plans/2026-04-26-web-gated-actions-design.md
 -->
 
 # Codex Console Web-First PM Ledger
@@ -178,7 +179,7 @@ Active todo list:
 2. Owner-visible proof artifact: run the local token-gated Web prototype with `--platform feishu`, capture a safe screenshot/recording or HTML proof that can be reviewed without exposing token, raw IDs, local paths, terminal logs, or platform internals.
 3. More useful read-only dashboard: add safe conversation detail, sanitized final-answer body where a safe source exists, runtime/readiness panels, and pending-interaction read-only visibility.
 4. Protected owner access plan: completed as a docs-only design gate; use the protected owner access plan before any owner phone/browser URL exposure. No public/mobile exposure is implemented.
-5. Gated actions design: separately design submit/approval/interrupt with audit and scope controls; do not implement actions in the read-only MVP lane.
+5. Gated actions design: completed as a docs-only gate; use the gated-actions design before any Web submit, approval-answer, or interrupt implementation. Do not implement actions in the read-only MVP lane.
 
 Phase 2B investigation completed:
 
@@ -220,6 +221,14 @@ Protected owner access design completed as a docs-only gate:
 - Result: owner-only protected access is specified as a future preview path, not shipped support. The recommended first path is a WireGuard/Tailscale/VPN-style private network plus app-level auth/session gates, with SSH forwarding kept for controller-only proof and public reverse proxy/tunnel paths deferred or fallback-only.
 - Required gates now include short-lived non-URL secrets, localhost default, explicit enable flag/env, platform binding filter, audit trail, rate/lockout or ingress allowlist, rollback/shutdown drill, and acceptance proof before any real protected URL.
 - Still not implemented: public URL, owner/mobile URL, reverse proxy, tunnel, VPN wrapper, HTTPS/DNS, service auto-start, browser session login, actions, uploads/downloads, raw terminal/logs, or support claim.
+
+Gated Web actions design completed as a docs-only gate:
+
+- Status artifact: `.hermes/gated-actions-design-status.md`
+- Durable artifact: `docs/plans/2026-04-26-web-gated-actions-design.md`
+- Result: future Web actions are explicitly sequenced as action 0 no-op/readiness capability display, action 1 allowlisted approval/question answer, action 2 confirmed interrupt/stop, and action 3 submit-new-task only after workspace/binding/session semantics and audit are proven.
+- Required gates now include protected owner access passed first, explicit owner auth/session, single resolved binding/platform, CSRF or equivalent replay protection, action audit log, idempotency/action nonce, confirmation for destructive or interruptive actions, rollback path, opaque server-scoped handles, generic stale/duplicate denial, and kill-switch verification.
+- Still not implemented: no-op action capability display, approval-answer, interrupt, task submit, uploads/downloads, artifact download, raw terminal, arbitrary command execution, public/mobile URL exposure, multi-user semantics, or Web support claim.
 
 ## Guardrails
 

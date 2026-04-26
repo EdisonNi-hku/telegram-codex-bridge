@@ -235,6 +235,11 @@ documents:
     layer: 3
     parent: docs/plans/README.md
     summary: protected owner-only access design gate for the local token-gated read-only Web prototype, including threat model, auth/session requirements, rollback drill, and acceptance checklist
+  - path: docs/plans/2026-04-26-web-gated-actions-design.md
+    role: leaf
+    layer: 3
+    parent: docs/plans/README.md
+    summary: docs-only design gate for future gated Web submit, approval-answer, and interrupt actions after read-only MVP and protected owner access pass
   - path: docs/plans/2026-04-26-codex-console-phase2-plan.md
     role: leaf
     layer: 3
