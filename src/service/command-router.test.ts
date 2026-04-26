@@ -11,6 +11,7 @@ function createHandlers(calls: string[]) {
     sendStatus: async () => { calls.push("sendStatus"); },
     handleHub: async () => { calls.push("handleHub"); },
     handleNew: async () => { calls.push("handleNew"); },
+    handleResume: async () => { calls.push("handleResume"); },
     handleBrowse: async () => { calls.push("handleBrowse"); },
     handleCancel: async () => { calls.push("handleCancel"); },
     handleSessions: async () => { calls.push("handleSessions"); },

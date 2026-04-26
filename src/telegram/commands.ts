@@ -7,6 +7,7 @@ export type TelegramCommandHandlerKey =
   | "sendStatus"
   | "handleHub"
   | "handleNew"
+  | "handleResume"
   | "handleBrowse"
   | "handleCancel"
   | "handleSessions"
@@ -83,6 +84,7 @@ const TELEGRAM_COMMAND_ENTRIES: LocalizedTelegramCommandEntry[] = [
   { command: "status", handler: "sendStatus", description: { zh: "查看服务状态", en: "Show bridge status" }, helpLines: [{ zh: "/status 查看服务状态", en: "/status Show bridge status" }], panel: { group: "help_status", selectable: true, shortLabel: { zh: "状态", en: "Status" } } },
   { command: "hub", handler: "handleHub", description: { zh: "重新查看运行卡片", en: "Bring back the runtime hub" }, helpLines: [{ zh: "/hub 重新查看运行卡片", en: "/hub Bring back the runtime hub" }], panel: { group: "help_status", selectable: true, shortLabel: { zh: "运行卡", en: "Hub" } } },
   { command: "new", handler: "handleNew", description: { zh: "选择项目并新建会话", en: "Choose a project and create a session" }, helpLines: [{ zh: "/new 选择项目并新建会话", en: "/new Choose a project and create a session" }], panel: { group: "session_project", selectable: true, shortLabel: { zh: "新建", en: "New" } } },
+  { command: "resume", handler: "handleResume", description: { zh: "恢复 Codex 历史会话", en: "Resume a Codex history thread" }, helpLines: [{ zh: "/resume 查看可恢复的 Codex 会话；/resume <序号> 恢复", en: "/resume Show resumable Codex threads; /resume <index> resumes one" }], panel: { group: "session_project", selectable: true, shortLabel: { zh: "恢复", en: "Resume" } } },
   { command: "browse", handler: "handleBrowse", description: { zh: "浏览当前项目文件", en: "Browse the current project files" }, helpLines: [{ zh: "/browse 浏览当前项目文件", en: "/browse Browse the current project files" }], panel: { group: "session_project", selectable: true, shortLabel: { zh: "浏览", en: "Browse" } } },
   { command: "sessions", handler: "handleSessions", description: { zh: "查看最近会话", en: "Show recent sessions" }, helpLines: [{ zh: "/sessions 查看最近会话", en: "/sessions Show recent sessions" }, { zh: "/sessions archived 查看已归档会话", en: "/sessions archived Show archived sessions" }], panel: { group: "session_project", selectable: true, shortLabel: { zh: "会话", en: "Sessions" } } },
   { command: "archive", handler: "handleArchive", description: { zh: "归档当前会话", en: "Archive the current session" }, helpLines: [{ zh: "/archive 归档当前会话", en: "/archive Archive the current session" }, { zh: "/archive all 归档所有非运行中会话", en: "/archive all Archive every non-running session" }], panel: { group: "session_project", selectable: true, shortLabel: { zh: "归档", en: "Archive" } } },

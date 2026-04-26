@@ -1448,6 +1448,7 @@ test("runtime cards keep command activity on the status message and final answer
 
   try {
     const session = authorizeChatWithSession(store, "chat-1");
+    store.updateSessionThreadId(session.sessionId, "thread-current");
 
     (service as any).api = {
       sendMessage: async (chatId: string, text: string, options?: any) => {
@@ -5139,6 +5140,8 @@ test("hub command reports when no sessions are running", async () => {
 
   try {
     authorizeChat(store, "chat-1");
+    const session = createSession(store, "chat-1");
+    store.setActiveSession("chat-1", session.sessionId);
 
     (service as any).api = {
       sendMessage: async (_chatId: string, text: string) => {
@@ -5197,6 +5200,139 @@ test("structured project and session replies use Telegram HTML parse mode", asyn
     assert.equal(sent.at(-1)?.text, "<b>已收藏项目：</b> Project &lt;Two&gt;");
 
     assert.equal(store.getActiveSession("chat-1")?.sessionId, secondSession.sessionId);
+  } finally {
+    await cleanup();
+  }
+});
+
+
+test("resume command renders selectable session buttons", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const sent: Array<{ text: string; parseMode?: string; replyMarkup?: any }> = [];
+
+  try {
+    authorizeChat(store, "chat-1");
+    const session = createSession(store, "chat-1");
+    store.setActiveSession("chat-1", session.sessionId);
+
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        sent.push({ text, parseMode: options?.parseMode, replyMarkup: options?.replyMarkup });
+        return createFakeTelegramMessage(925 + sent.length, text);
+      }
+    };
+
+    (service as any).appServer = {
+      isRunning: true,
+      listThreads: async () => ({
+        data: [
+          {
+            id: "thread-resume-one",
+            name: "Resume One",
+            cwd: "/tmp/project-one",
+            preview: "first preview",
+            updatedAt: Math.floor(Date.parse("2026-03-10T09:15:00.000Z") / 1000),
+            createdAt: Math.floor(Date.parse("2026-03-10T09:00:00.000Z") / 1000),
+            status: "idle"
+          },
+          {
+            id: "thread-resume-two",
+            name: "Resume Two",
+            cwd: "/tmp/project-one",
+            preview: "second preview",
+            updatedAt: Math.floor(Date.parse("2026-03-10T09:10:00.000Z") / 1000),
+            createdAt: Math.floor(Date.parse("2026-03-10T09:00:00.000Z") / 1000),
+            status: "idle"
+          }
+        ],
+        nextCursor: "next-page"
+      })
+    };
+
+    await (service as any).routeCommand("chat-1", "resume", "");
+
+    assert.equal(sent.at(-1)?.parseMode, "HTML");
+    assert.match(sent.at(-1)?.text ?? "", /可恢复的 Codex 会话/u);
+    assert.deepEqual(sent.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.map((button: { text: string }) => button.text), ["1", "2"]);
+    assert.deepEqual(sent.at(-1)?.replyMarkup?.inline_keyboard?.[1]?.map((button: { text: string }) => button.text), ["下一页"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("resume command imports a Codex thread as the active bridge session", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const sent: Array<{ text: string; parseMode?: string }> = [];
+  const listCalls: unknown[] = [];
+  const resumeCalls: string[] = [];
+
+  try {
+    authorizeChat(store, "chat-1");
+    const session = createSession(store, "chat-1");
+    store.setActiveSession("chat-1", session.sessionId);
+
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        sent.push({ text, parseMode: options?.parseMode });
+        return createFakeTelegramMessage(930 + sent.length, text);
+      }
+    };
+
+    (service as any).appServer = {
+      isRunning: true,
+      listThreads: async (options: unknown) => {
+        listCalls.push(options);
+        return {
+          data: [
+            {
+              id: "thread-resume-one",
+              name: "Resume <One>",
+              cwd: "/tmp/project-one",
+              preview: "first preview",
+              updatedAt: Date.parse("2026-03-10T09:15:00.000Z"),
+              createdAt: Date.parse("2026-03-10T09:00:00.000Z"),
+              status: "idle"
+            }
+          ],
+          nextCursor: null
+        };
+      },
+      resumeThread: async (threadId: string) => {
+        resumeCalls.push(threadId);
+        return {
+          model: "gpt-5",
+          reasoningEffort: "high",
+          thread: {
+            id: threadId,
+            name: "Resume <One>",
+            turns: [{ id: "turn-resume-one", status: "completed", items: [] }]
+          }
+        };
+      }
+    };
+
+    await (service as any).routeCommand("chat-1", "resume", "1");
+
+    assert.deepEqual(listCalls[0], { archived: false, limit: 10, sortKey: "updated_at", cwd: "/tmp/project-one" });
+    assert.equal(resumeCalls[0], "thread-resume-one");
+    const activeSession = store.getActiveSession("chat-1");
+    assert.equal(activeSession?.threadId, "thread-resume-one");
+    assert.equal(activeSession?.displayName, "Resume <One>");
+    assert.equal(activeSession?.projectPath, "/tmp/project-one");
+    assert.equal(activeSession?.projectName, "project-one");
+    assert.equal(activeSession?.selectedModel, "gpt-5");
+    assert.equal(activeSession?.selectedReasoningEffort, "high");
+    assert.equal(activeSession?.lastTurnId, "turn-resume-one");
+    assert.equal(activeSession?.lastTurnStatus, "completed");
+    assert.equal(sent.at(-1)?.parseMode, "HTML");
+    assert.equal(
+      sent.at(-1)?.text,
+      [
+        "<b>已恢复 Codex 会话</b>",
+        "<b>会话名：</b> Resume &lt;One&gt;",
+        "<b>项目：</b> project-one"
+      ].join("\n")
+    );
   } finally {
     await cleanup();
   }

@@ -1205,6 +1205,18 @@ export class BridgeService {
       beginSessionRename: async (sessionId) => this.beginSessionRename(chatId, message.message_id, sessionId),
       beginProjectRename: async (sessionId) => this.beginProjectRename(chatId, message.message_id, sessionId),
       clearProjectAlias: async (sessionId) => this.clearProjectAlias(chatId, message.message_id, sessionId),
+      handleResumePick: async (includeAll, page, itemIndex) => this.sessionProjectCoordinator.handleResumePickCallback(
+        chatId,
+        { includeAll, page, itemIndex }
+      ),
+      handleResumePage: async (includeAll, page) => this.sessionProjectCoordinator.handleResumePageCallback(
+        chatId,
+        message.message_id,
+        { includeAll, page }
+      ),
+      closeResumeList: async () => {
+        await this.safeDeleteMessage(chatId, message.message_id);
+      },
       handleModelDefault: async (sessionId) => this.codexCommandCoordinator.handleModelDefaultCallback(
         callbackQuery.id,
         chatId,
@@ -1829,6 +1841,11 @@ export class BridgeService {
       },
       handleNew: async () => {
         await this.sessionProjectCoordinator.handleNew(chatId);
+      },
+      handleResume: async () => {
+        await this.runGuardedCommand(chatId, "当前无法恢复 Codex 会话，请稍后重试。", async () => {
+          await this.sessionProjectCoordinator.handleResume(chatId, args);
+        });
       },
       handleBrowse: async () => {
         await this.handleBrowse(chatId);

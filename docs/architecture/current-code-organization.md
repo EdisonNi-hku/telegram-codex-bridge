@@ -79,7 +79,7 @@ These are the narrow owners worth reading before broad shell code:
 
 - `command-router.ts` - registry-driven Telegram command dispatch
 - `callback-router.ts` - parsed callback dispatch
-- `session-project-coordinator.ts` - project picker, manual path flow, session switching, rename, pin, archive and unarchive, `/status`, `/where`, and session plan-mode toggling
+- `session-project-coordinator.ts` - project picker, manual path flow, session switching, Codex history resume, rename, pin, archive and unarchive, `/status`, `/where`, and session plan-mode toggling
 - `project-browser-coordinator.ts` - `/browse`, directory navigation, text preview pagination, image preview handoff, and root-path confinement
 - `codex-command-coordinator.ts` - model, reasoning effort, skills, plugins, apps, MCP, account, review, fork, rollback, compact, and thread metadata commands
 - `rich-input-adapter.ts` - `/skill`, `/local_image`, `/mention`, `/attach`, queued structured inputs, Telegram photo adaptation, attachment extraction, and voice-input orchestration

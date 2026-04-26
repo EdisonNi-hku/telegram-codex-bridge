@@ -26,8 +26,10 @@ import {
   buildProjectPickerMessage,
   buildProjectPinnedText,
   buildRenameTargetPicker,
+  buildResumeThreadListMessage,
   buildSessionCreatedText,
   buildSessionRenamedText,
+  buildSessionResumedText,
   buildSessionsText,
   buildSessionSwitchedText,
   buildStatusText,
@@ -63,6 +65,37 @@ interface PendingRenameState {
 interface SessionProjectArchiveAppServer {
   archiveThread(threadId: string): Promise<void>;
   unarchiveThread(threadId: string): Promise<void>;
+  listThreads(options?: {
+    archived?: boolean;
+    cursor?: string;
+    cwd?: string;
+    limit?: number;
+    sortKey?: "created_at" | "updated_at";
+  }): Promise<{
+    data: Array<{
+      id: string;
+      name?: string | null;
+      cwd: string;
+      preview?: string;
+      updatedAt: number | string;
+      createdAt: number | string;
+      status: unknown;
+    }>;
+    nextCursor?: string | null;
+  }>;
+  resumeThread(threadId: string): Promise<{
+    model?: string | null;
+    reasoningEffort?: ReasoningEffort | null;
+    thread: {
+      id: string;
+      name?: string | null;
+      preview?: string;
+      turns: Array<{
+        id: string;
+        status?: string | null;
+      }>;
+    };
+  }>;
 }
 
 interface SessionProjectCoordinatorDeps {
@@ -133,6 +166,69 @@ interface SessionProjectCoordinatorDeps {
 function isStaleRemoteThreadArchiveError(error: unknown): boolean {
   const normalized = `${error}`.toLowerCase();
   return normalized.includes("thread not loaded") || normalized.includes("stale rollout path");
+}
+
+const RESUME_THREAD_PAGE_SIZE = 10;
+
+type ResumeArgs =
+  | { kind: "list"; includeAll: boolean; page: number }
+  | { kind: "select"; includeAll: boolean; index: number }
+  | { kind: "invalid"; includeAll: boolean };
+
+function parseResumeArgs(args: string): ResumeArgs {
+  const tokens = args.trim().split(/\s+/u).filter(Boolean);
+  const includeAll = tokens[0]?.toLowerCase() === "all";
+  const rest = includeAll ? tokens.slice(1) : tokens;
+  if (rest.length === 0) {
+    return { kind: "list", includeAll, page: 1 };
+  }
+
+  const first = rest[0]?.toLowerCase();
+  if ((first === "page" || first === "p") && rest[1]) {
+    const page = Number.parseInt(rest[1], 10);
+    return Number.isFinite(page) && page >= 1
+      ? { kind: "list", includeAll, page }
+      : { kind: "invalid", includeAll };
+  }
+
+  const index = Number.parseInt(rest[0] ?? "", 10);
+  return Number.isFinite(index) && index >= 1
+    ? { kind: "select", includeAll, index }
+    : { kind: "invalid", includeAll };
+}
+
+async function listResumeThreadPage(
+  appServer: SessionProjectArchiveAppServer,
+  options: {
+    cwd?: string;
+    page: number;
+  }
+): Promise<{
+  threads: Awaited<ReturnType<SessionProjectArchiveAppServer["listThreads"]>>["data"];
+  hasNext: boolean;
+}> {
+  let cursor: string | undefined;
+  for (let currentPage = 1; currentPage <= options.page; currentPage += 1) {
+    const result = await appServer.listThreads({
+      archived: false,
+      limit: RESUME_THREAD_PAGE_SIZE,
+      sortKey: "updated_at",
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      ...(cursor ? { cursor } : {})
+    });
+    if (currentPage === options.page) {
+      return {
+        threads: result.data,
+        hasNext: Boolean(result.nextCursor)
+      };
+    }
+    if (!result.nextCursor) {
+      return { threads: [], hasNext: false };
+    }
+    cursor = result.nextCursor;
+  }
+
+  return { threads: [], hasNext: false };
 }
 
 export class SessionProjectCoordinator {
@@ -516,6 +612,131 @@ export class SessionProjectCoordinator {
         archived
       })
     );
+  }
+
+  async handleResume(chatId: string, args: string): Promise<void> {
+    const store = this.deps.getStore();
+    if (!store) {
+      return;
+    }
+
+    const appServer = await this.deps.ensureAppServerAvailable();
+    const activeSession = store.getActiveSession(chatId);
+    const parsedArgs = parseResumeArgs(args);
+    const cwd = parsedArgs.includeAll ? undefined : activeSession?.projectPath;
+    if (!cwd && !parsedArgs.includeAll) {
+      await this.deps.safeSendMessage(chatId, "请先用 /new 选择项目，或用 /resume all 查看全部 Codex 会话。");
+      return;
+    }
+
+    if (parsedArgs.kind === "invalid") {
+      await this.deps.safeSendMessage(chatId, "找不到这个 Codex 会话。");
+      return;
+    }
+
+    if (parsedArgs.kind === "list") {
+      const page = await listResumeThreadPage(appServer, {
+        page: parsedArgs.page,
+        ...(cwd ? { cwd } : {})
+      });
+      const message = buildResumeThreadListMessage(page.threads, {
+        page: parsedArgs.page,
+        pageSize: RESUME_THREAD_PAGE_SIZE,
+        hasNext: page.hasNext,
+        includeAll: parsedArgs.includeAll
+      });
+      await this.deps.safeSendHtmlMessage(chatId, message.text, message.replyMarkup);
+      return;
+    }
+
+    const targetPage = await listResumeThreadPage(appServer, {
+      page: Math.floor((parsedArgs.index - 1) / RESUME_THREAD_PAGE_SIZE) + 1,
+      ...(cwd ? { cwd } : {})
+    });
+    const target = targetPage.threads[(parsedArgs.index - 1) % RESUME_THREAD_PAGE_SIZE];
+    if (!target) {
+      await this.deps.safeSendMessage(chatId, "找不到这个 Codex 会话。");
+      return;
+    }
+
+    const existingSession = store.getSessionByThreadId(target.id);
+    if (existingSession) {
+      if (existingSession.chatId !== chatId) {
+        await this.deps.safeSendMessage(chatId, "这个 Codex 会话已绑定到另一个聊天。");
+        return;
+      }
+      if (existingSession.archived) {
+        store.unarchiveSession(existingSession.sessionId);
+      }
+      store.setActiveSession(chatId, existingSession.sessionId);
+      await this.deps.syncCurrentSessionCard(chatId, "session_resumed");
+      await this.deps.safeSendHtmlMessage(
+        chatId,
+        buildSessionResumedText(existingSession.displayName, this.projectDisplayName(existingSession))
+      );
+      return;
+    }
+
+    const resumed = await appServer.resumeThread(target.id);
+    const lastTurn = resumed.thread.turns.at(-1);
+    const projectName = basename(target.cwd);
+    const displayName = resumed.thread.name?.trim() || target.name?.trim() || target.preview?.trim() || projectName;
+    const session = store.createSession({
+      chatId,
+      projectName,
+      projectPath: target.cwd,
+      displayName,
+      selectedModel: resumed.model ?? null,
+      selectedReasoningEffort: resumed.reasoningEffort ?? null,
+      threadId: resumed.thread.id,
+      lastTurnId: lastTurn?.id ?? null,
+      lastTurnStatus: lastTurn?.status ?? null
+    });
+    store.setActiveSession(chatId, session.sessionId);
+    await this.deps.syncCurrentSessionCard(chatId, "session_resumed");
+    await this.deps.safeSendHtmlMessage(
+      chatId,
+      buildSessionResumedText(session.displayName, this.projectDisplayName(session))
+    );
+  }
+
+  async handleResumePageCallback(
+    chatId: string,
+    messageId: number,
+    options: { includeAll: boolean; page: number }
+  ): Promise<void> {
+    const store = this.deps.getStore();
+    if (!store) {
+      return;
+    }
+
+    const appServer = await this.deps.ensureAppServerAvailable();
+    const activeSession = store.getActiveSession(chatId);
+    const cwd = options.includeAll ? undefined : activeSession?.projectPath;
+    if (!cwd && !options.includeAll) {
+      await this.deps.safeSendMessage(chatId, "请先用 /new 选择项目，或用 /resume all 查看全部 Codex 会话。");
+      return;
+    }
+
+    const page = await listResumeThreadPage(appServer, {
+      page: options.page,
+      ...(cwd ? { cwd } : {})
+    });
+    const message = buildResumeThreadListMessage(page.threads, {
+      page: options.page,
+      pageSize: RESUME_THREAD_PAGE_SIZE,
+      hasNext: page.hasNext,
+      includeAll: options.includeAll
+    });
+    await this.deps.safeEditHtmlMessageText(chatId, messageId, message.text, message.replyMarkup);
+  }
+
+  async handleResumePickCallback(
+    chatId: string,
+    options: { includeAll: boolean; page: number; itemIndex: number }
+  ): Promise<void> {
+    const globalIndex = (options.page - 1) * RESUME_THREAD_PAGE_SIZE + options.itemIndex + 1;
+    await this.handleResume(chatId, `${options.includeAll ? "all " : ""}${globalIndex}`);
   }
 
   async handleUse(chatId: string, args: string): Promise<void> {

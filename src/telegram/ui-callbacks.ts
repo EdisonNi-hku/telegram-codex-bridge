@@ -31,6 +31,9 @@ export type ParsedCallbackData =
   | { kind: "rename_session"; sessionId: string }
   | { kind: "rename_project"; sessionId: string }
   | { kind: "rename_project_clear"; sessionId: string }
+  | { kind: "resume_pick"; includeAll: boolean; page: number; itemIndex: number }
+  | { kind: "resume_page"; includeAll: boolean; page: number }
+  | { kind: "resume_close" }
   | { kind: "model_default"; sessionId: string }
   | { kind: "model_close"; sessionId: string }
   | { kind: "model_page"; sessionId: string; page: number }
@@ -261,6 +264,20 @@ export function encodeRenameProjectCallback(sessionId: string): string {
 
 export function encodeRenameProjectClearCallback(sessionId: string): string {
   return ensureTelegramCallbackDataLimit(`v1:rename:project:clear:${sessionId}`);
+}
+
+export function encodeResumePickCallback(includeAll: boolean, page: number, itemIndex: number): string {
+  return ensureTelegramCallbackDataLimit(
+    `v4:rs:k:${includeAll ? "a" : "c"}:${encodeInteractionIndex(page)}:${encodeInteractionIndex(itemIndex)}`
+  );
+}
+
+export function encodeResumePageCallback(includeAll: boolean, page: number): string {
+  return ensureTelegramCallbackDataLimit(`v4:rs:p:${includeAll ? "a" : "c"}:${encodeInteractionIndex(page)}`);
+}
+
+export function encodeResumeCloseCallback(): string {
+  return "v4:rs:x";
 }
 
 export function encodeModelDefaultCallback(sessionId: string): string {
@@ -781,6 +798,26 @@ export function parseCallbackData(data: string): ParsedCallbackData | null {
 
     if (parts[0] === "v4" && parts[1] === "pr" && parts[2] === "i" && parts[3]) {
       return { kind: "plan_implement", answerId: parts[3] };
+    }
+
+    if (parts[0] === "v4" && parts[1] === "rs") {
+      if (parts[2] === "x") {
+        return { kind: "resume_close" };
+      }
+      const includeAll = parts[3] === "a";
+      if (parts[2] === "p" && (parts[3] === "a" || parts[3] === "c") && parts[4]) {
+        const page = decodeInteractionIndex(parts[4]);
+        if (page !== null && page >= 1) {
+          return { kind: "resume_page", includeAll, page };
+        }
+      }
+      if (parts[2] === "k" && (parts[3] === "a" || parts[3] === "c") && parts[4] && parts[5]) {
+        const page = decodeInteractionIndex(parts[4]);
+        const itemIndex = decodeInteractionIndex(parts[5]);
+        if (page !== null && itemIndex !== null && page >= 1 && itemIndex >= 0) {
+          return { kind: "resume_pick", includeAll, page, itemIndex };
+        }
+      }
     }
 
     if (parts[0] === "v3" && parts[1] === "ix") {

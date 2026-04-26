@@ -146,6 +146,7 @@ Telegram exposes the reference command surface. Feishu can route the shared comm
 |---------|-------------|
 | `/new` | Start a new session with project picker |
 | `/sessions` | List and switch between sessions |
+| `/resume` | Pick a Codex history session for the current project |
 | `/inspect` | Detailed view of current activity |
 | `/interrupt` | Stop a running task |
 | `/review` | Review changes in current session |

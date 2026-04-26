@@ -49,6 +49,6 @@ Rules:
 - duplicate clicks must be idempotent and return `这个操作已处理。`
 - stale callbacks must return a compact expiry notice; generic interaction flows use `这个按钮已过期，请重新操作。`, while surface-specific flows may ask the user to re-send `/browse`, `/runtime`, `/inspect`, or `/rollback`
 - pre-session browse callbacks (`v1:new:browse:*` and `v5:br:n|y|k:*`) are bridge-owned flows and must stay idempotent like other picker callbacks
-- list-based session switching and pinning remain text commands (`/use <n>` and `/pin`); runtime-hub slot selection is a separate bridge-owned callback action
+- list-based bridge session switching and pinning remain text commands (`/use <n>` and `/pin`); Codex history resume selection uses bridge-owned numeric picker callbacks
 - interaction callbacks are bridge-owned UX for persisted pending interactions, not raw protocol passthrough
-- rename, model, runtime, language, inspect, rollback, plan-result, recent-output, and hub-selector callbacks are bridge-owned UI contracts, not raw Codex callback passthrough
+- resume, rename, model, runtime, language, inspect, rollback, plan-result, recent-output, and hub-selector callbacks are bridge-owned UI contracts, not raw Codex callback passthrough
