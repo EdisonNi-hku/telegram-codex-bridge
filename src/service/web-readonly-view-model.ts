@@ -330,6 +330,7 @@ export interface WebReadonlyHomeViewModel extends WebReadonlyEnvelope {
   workspaces: WebReadonlyWorkspaceRow[];
   recentConversations: WebReadonlyConversationRow[];
   runtime: Pick<WebReadonlyRuntimeContextViewModel, "state" | "activeTurns">;
+  pendingInteractions: Pick<WebReadonlyPendingInteractionsViewModel, "state" | "pendingInteractions">;
   readiness: Pick<WebReadonlyReadinessGuardrailViewModel, "state" | "missingGates">;
   warnings: string[];
 }
@@ -542,6 +543,7 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
         ? provider.listWorkspaceConversationViewModels(firstWorkspaceId)
         : null;
       const runtime = provider.getRuntimeContextViewModel();
+      const pendingInteractions = provider.getPendingInteractionsViewModel();
       const readiness = provider.getReadinessGuardrailViewModel();
       const warnings = [
         ...workspaceVm.warnings,
@@ -558,6 +560,10 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
         workspaces: workspaceVm.workspaces.slice(0, 5),
         recentConversations: conversationsVm?.conversations.slice(0, 5) ?? [],
         runtime: { state: runtime.state, activeTurns: runtime.activeTurns },
+        pendingInteractions: {
+          state: pendingInteractions.state,
+          pendingInteractions: pendingInteractions.pendingInteractions
+        },
         readiness: { state: readiness.state, missingGates: readiness.missingGates },
         warnings: unique(warnings)
       };

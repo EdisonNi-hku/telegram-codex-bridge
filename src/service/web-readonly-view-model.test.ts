@@ -320,6 +320,42 @@ test("home rows come from scoped sessions and expose final-answer availability w
   assertNoForbiddenViewModelData({ home, result });
 });
 
+
+test("home includes pending interaction summary from safe read model", () => {
+  const provider = createWebReadonlyViewModelProvider({
+    now: () => fixedNow,
+    operatorBinding: { chatId: "telegram-chat-123" },
+    store: {
+      listSessions: () => [session]
+    },
+    listPendingInteractions: () => [
+      {
+        id: "pending_safe_home",
+        sessionId: "session-1",
+        status: "awaiting_user_input",
+        kind: "question",
+        createdAt: "2026-04-25T13:00:00.000Z",
+        updatedAt: null,
+        summary: "Waiting for a short product decision.",
+        blockingReason: "Conversation is waiting for operator input."
+      }
+    ]
+  });
+
+  const home = provider.getHomeViewModel();
+
+  assert.equal(home.pendingInteractions.state, "available");
+  assert.equal(home.pendingInteractions.pendingInteractions.length, 1);
+  assert.equal(home.pendingInteractions.pendingInteractions[0]?.summary.state, "available");
+  assert.match(home.pendingInteractions.pendingInteractions[0]?.conversationId ?? "", /^cv_[a-f0-9]{16}$/);
+  const text = serialized(home);
+  for (const forbidden of ["pending_safe_home", "session-1", "telegram-chat-123"]) {
+    assert.equal(text.includes(forbidden), false, `home leaked pending source value ${forbidden}: ${text}`);
+  }
+  assertNoForbiddenViewModelData(home);
+});
+
+
 test("uses deterministic opaque labels when path-backed workspaces have no explicit alias", () => {
   const provider = createWebReadonlyViewModelProvider({
     now: () => fixedNow,

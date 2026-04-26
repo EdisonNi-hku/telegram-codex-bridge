@@ -25,6 +25,7 @@ function makeProvider(
     workspaceConversations?: WebReadonlyConversationRow[];
     detailAnswers?: WebReadonlyConversationResultViewModel["answers"];
     pendingInteractions?: WebReadonlyPendingInteractionViewRow[];
+    homePendingInteractions?: WebReadonlyPendingInteractionViewRow[];
     detailPendingInteractions?: WebReadonlyPendingInteractionViewRow[];
     runtime?: WebReadonlyRuntimeContextViewModel;
     readiness?: WebReadonlyReadinessGuardrailViewModel;
@@ -82,6 +83,10 @@ function makeProvider(
               blockedReason: null
             }
           ]
+        },
+        pendingInteractions: {
+          state: options.homePendingInteractions ? "available" : "unavailable",
+          pendingInteractions: options.homePendingInteractions ?? []
         },
         readiness: { state: "ready", missingGates: [] },
         warnings: []
@@ -481,6 +486,54 @@ test("home empty state is friendly product copy, not degraded/security copy", as
     assert.equal(result.text.includes("denied-by-default"), false, `empty home should not lead with security posture: ${result.text}`);
   });
 });
+
+
+test("authenticated HTML includes CSP-compatible app shell stylesheet", async () => {
+  const calls: string[] = [];
+  await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["home"]);
+    assert.match(result.headers.get("content-security-policy") ?? "", /style-src 'sha256-[A-Za-z0-9+/=]+'/);
+    assert.equal(result.headers.get("content-security-policy")?.includes("unsafe-inline"), false);
+    assert.match(result.text, /<style>\n:root \{/);
+    assert.match(result.text, /max-width: min\(1120px, calc\(100% - 32px\)\)/);
+    assert.match(result.text, /overflow-wrap: anywhere/);
+    assert.match(result.text, /white-space: pre-wrap/);
+    assert.match(result.text, /min-height: 44px/);
+    assert.match(result.text, /@media \(max-width: 640px\)/);
+    assert.equal(result.text.includes("<link"), false);
+    assert.equal(result.text.includes('style="'), false);
+  });
+});
+
+test("home surfaces concrete owner attention from pending interactions without raw internals", async () => {
+  const calls: string[] = [];
+  const rows: WebReadonlyPendingInteractionViewRow[] = [
+    pendingInteractionFixture("pi_home_question", "cv_aaaaaaaaaaaaaaaa", "awaiting_user_input", "question", "Codex needs a product decision."),
+    pendingInteractionFixture("pi_home_approval", "cv_bbbbbbbbbbbbbbbb", "pending_approval", "codex_approval", "A safe change needs owner review.")
+  ];
+
+  await withServer({
+    provider: makeProvider(calls, { homePendingInteractions: rows }),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["home"]);
+    assert.match(result.text, /Owner attention/);
+    assert.match(result.text, /2 items need owner attention/);
+    assert.match(result.text, /Codex needs a product decision\./);
+    assert.match(result.text, /A safe change needs owner review\./);
+    assert.match(result.text, /Needs answer/);
+    assert.match(result.text, /Approval needed/);
+    assertPendingSurfaceHasNoActionsOrInternals(result.text);
+    for (const raw of ["pi_home_question", "pi_home_approval", "awaiting_user_input", "pending_approval", "codex_approval"]) {
+      assert.equal(result.text.includes(raw), false, `home leaked raw pending value ${raw}: ${result.text}`);
+    }
+  });
+});
+
 
 test("authenticated conversation detail route uses only opaque handles and keeps security headers", async () => {
   const calls: string[] = [];

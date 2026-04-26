@@ -25,6 +25,7 @@ export function renderHomePage(vm: WebReadonlyHomeViewModel): string {
   const resultRows = vm.recentConversations.filter((row) => row.finalAnswerAvailable || conversationGroup(row.status) === "completed");
   return page("Home", "home", [
     hero("Codex Console", "Your personal console for continuing Codex work, reviewing results, and browsing projects."),
+    homeOwnerAttentionSection(vm.pendingInteractions.state, vm.pendingInteractions.pendingInteractions),
     conversationListSection(
       "home-continue-working",
       "Continue working",
@@ -205,6 +206,7 @@ function page(title: string, active: NavKey, sections: string[]): string {
     "<meta charset=\"utf-8\">",
     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
     `<title>${escapeHtml(title)} · Codex Console</title>`,
+    `<style>\n${APP_CSS}\n</style>`,
     "</head>",
     "<body class=\"console-shell\">",
     "<header class=\"console-shell__header\">",
@@ -225,6 +227,223 @@ function page(title: string, active: NavKey, sections: string[]): string {
   ].join("\n");
 }
 
+export const APP_CSS = `
+:root {
+  color-scheme: light;
+  --console-bg: #f4f7fb;
+  --console-surface: #ffffff;
+  --console-surface-soft: #eef4ff;
+  --console-border: #d9e3f0;
+  --console-text: #162033;
+  --console-muted: #62708a;
+  --console-primary: #2457d6;
+  --console-primary-soft: #e8efff;
+  --console-shadow: 0 18px 50px rgba(22, 32, 51, 0.10);
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  background: var(--console-bg);
+}
+body.console-shell {
+  margin: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  color: var(--console-text);
+  background: linear-gradient(135deg, rgba(36, 87, 214, 0.12), rgba(244, 247, 251, 0) 32rem), var(--console-bg);
+  font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  overflow-wrap: anywhere;
+}
+a {
+  color: var(--console-primary);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+.console-shell__header,
+.console-shell__main {
+  width: 100%;
+  max-width: min(1120px, calc(100% - 32px));
+  margin: 0 auto;
+}
+.console-shell__header {
+  display: grid;
+  gap: 1rem;
+  padding: 28px 0 16px;
+}
+.console-brand,
+.console-hero,
+.console-panel,
+.console-section {
+  border: 1px solid var(--console-border);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--console-shadow);
+}
+.console-brand,
+.console-hero,
+.console-panel,
+.console-section {
+  padding: 1.25rem;
+}
+.console-brand h1,
+.console-hero h2,
+.console-section h2,
+.console-panel h2,
+.console-card h3 {
+  margin: 0;
+  line-height: 1.18;
+}
+.console-brand h1 {
+  font-size: clamp(2rem, 7vw, 4.25rem);
+  letter-spacing: -0.06em;
+}
+.console-posture,
+.console-hero p,
+.console-card p,
+.console-empty,
+.console-muted {
+  color: var(--console-muted);
+}
+.console-eyebrow {
+  margin: 0 0 0.35rem;
+  color: var(--console-primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.console-shell__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.console-nav-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.65rem 0.95rem;
+  border: 1px solid var(--console-border);
+  border-radius: 999px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  font-weight: 700;
+  text-decoration: none;
+}
+.console-nav-link[aria-current="page"] {
+  border-color: rgba(36, 87, 214, 0.35);
+  background: var(--console-primary-soft);
+  color: var(--console-primary);
+}
+.console-shell__main {
+  display: grid;
+  gap: 1rem;
+  padding: 0 0 40px;
+}
+.console-hero {
+  padding: clamp(1.25rem, 4vw, 2rem);
+  background: linear-gradient(135deg, #ffffff, #eef4ff);
+}
+.console-hero h2 {
+  font-size: clamp(1.8rem, 5vw, 3.3rem);
+  letter-spacing: -0.04em;
+}
+.console-section,
+.console-panel {
+  display: grid;
+  gap: 1rem;
+}
+.console-card-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 0.85rem;
+  min-width: 0;
+}
+.console-card-group {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.console-card-group h3 {
+  margin: 0;
+  color: var(--console-muted);
+  font-size: 0.95rem;
+}
+.console-card {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--console-border);
+  border-radius: 18px;
+  background: var(--console-surface);
+}
+.console-card h3 a,
+.console-field a {
+  overflow-wrap: anywhere;
+}
+.console-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.console-field,
+.console-badge {
+  display: inline-flex;
+  max-width: 100%;
+  border-radius: 999px;
+  overflow-wrap: anywhere;
+}
+.console-field {
+  padding: 0.4rem 0.65rem;
+  background: #f6f8fc;
+  color: var(--console-muted);
+}
+.console-field strong {
+  margin-right: 0.25rem;
+  color: var(--console-text);
+}
+.console-badge {
+  align-items: center;
+  padding: 0.22rem 0.55rem;
+  background: var(--console-primary-soft);
+  color: var(--console-primary);
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+.console-result-body {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  padding: 1rem;
+  border-radius: 16px;
+  background: #101827;
+  color: #eef4ff;
+}
+.console-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+@media (max-width: 640px) {
+  .console-shell__header,
+  .console-shell__main {
+    max-width: min(100% - 20px, 1120px);
+  }
+  .console-brand,
+  .console-hero,
+  .console-panel,
+  .console-section {
+    border-radius: 18px;
+    padding: 1rem;
+  }
+  .console-nav-link {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+`.trim();
+
 function navLink(href: string, label: string, active: boolean): string {
   const current = active ? " aria-current=\"page\"" : "";
   return `<a class="console-nav-link" href="${href}"${current}>${escapeHtml(label)}</a>`;
@@ -243,6 +462,32 @@ function cardListSection<T>(id: string, title: string, rows: T[], render: (row: 
     ? `<div class="console-card-list">${rows.map((row) => render(row)).join("")}</div>`
     : `<p class="console-empty">${escapeHtml(emptyCopy)}</p>`;
   return `<section class="console-section" aria-labelledby="${id}"><h2 id="${id}">${escapeHtml(title)}</h2>${body}</section>`;
+}
+
+function homeOwnerAttentionSection(state: string, rows: WebReadonlyPendingInteractionViewRow[]): string {
+  const attentionRows = rows.filter((row) => pendingGroup(row) === "attention").slice(0, 3);
+  if (attentionRows.length === 0) {
+    return "";
+  }
+
+  const count = attentionRows.length;
+  const summary = `${count} item${count === 1 ? "" : "s"} need owner attention`;
+  const cards = attentionRows.map((row) => homePendingAttentionCard(row)).join("");
+  const stateCopy = /degraded/i.test(state) ? "Pending state may be partial or stale." : "Safe read-only summary from pending interactions.";
+  return `<section class="console-section console-owner-attention" aria-labelledby="home-owner-attention"><p class="console-eyebrow">Owner attention</p><h2 id="home-owner-attention">Owner attention</h2><p><span class="console-badge">${escapeHtml(summary)}</span> ${escapeHtml(stateCopy)}</p><div class="console-card-list">${cards}</div></section>`;
+}
+
+function homePendingAttentionCard(row: WebReadonlyPendingInteractionViewRow): string {
+  const label = pendingInteractionLabel(row);
+  const summary = row.summary.state === "available" ? row.summary.text : pendingInteractionCopy(row);
+  const source = row.conversationId && /^cv_[a-f0-9]{16}$/.test(row.conversationId)
+    ? fieldHtml("Source", cellHtml(conversationLink(row.conversationId, "Open conversation/task")))
+    : field("Source", "Conversation/task unavailable");
+  return `<article class="console-card"><h3><span class="console-badge">${escapeHtml(label)}</span></h3><p>${escapeHtml(summary)}</p><div class="console-fields">${[
+    field("Kind", pendingKindLabel(row.kind)),
+    source,
+    field("Note", "Responses are not enabled in this preview.")
+  ].join("")}</div></article>`;
 }
 
 function conversationListSection(id: string, title: string, rows: WebReadonlyConversationRow[], emptyCopy: string): string {

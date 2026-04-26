@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 
 import type { WebReadonlyViewModelProvider } from "../service/web-readonly-view-model.js";
 import type { ReadonlyAccessGate } from "./readonly-access.js";
@@ -11,7 +12,8 @@ import {
   renderReadinessPage,
   renderRuntimePage,
   renderWorkspaceConversationListPage,
-  renderWorkspaceListPage
+  renderWorkspaceListPage,
+  APP_CSS
 } from "./readonly-renderer.js";
 
 export interface ReadonlyHttpServerOptions {
@@ -23,10 +25,14 @@ type RouteResult = { status: number; html: string };
 
 const SECURITY_HEADERS = {
   "Cache-Control": "no-store",
-  "Content-Security-Policy": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  "Content-Security-Policy": `default-src 'none'; style-src 'sha256-${styleHash()}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
   "X-Content-Type-Options": "nosniff",
   "Content-Type": "text/html; charset=utf-8"
 } as const;
+
+function styleHash(): string {
+  return createHash("sha256").update(`\n${APP_CSS}\n`).digest("base64");
+}
 
 export function createReadonlyHttpServer(options: ReadonlyHttpServerOptions): Server {
   return createServer((request, response) => {
