@@ -127,9 +127,21 @@ export function renderConversationArtifactCatalogPage(vm: WebReadonlyConversatio
 
 export function renderRuntimePage(vm: WebReadonlyRuntimeContextViewModel): string {
   return page("Runtime", "runtime", [
-    hero("Runtime", "Read-only runtime state. Use it to understand whether Codex is idle, running, blocked, degraded, or unavailable."),
-    summaryPanel("Runtime status", [field("State", vm.state), field("Active turns", String(vm.activeTurns.length))]),
-    runtimePanel(vm.state, vm.activeTurns),
+    hero("Runtime", "Read-only owner view of whether Codex is idle, running, blocked, degraded, or unavailable."),
+    summaryPanel("Current operating state", [
+      field("State", runtimeStateLabel(vm.state, vm.activeTurns.length)),
+      field("Active turns", String(vm.activeTurns.length)),
+      field("Owner guidance", runtimeCopy(vm.state, vm.activeTurns.length))
+    ]),
+    cardListSection(
+      "runtime-active-turns",
+      "Active conversation/task turns",
+      vm.activeTurns,
+      (row) => runtimeTurnCard(row),
+      runtimeCopy(vm.state, vm.activeTurns.length)
+    ),
+    runtimeReadinessGuidancePanel(),
+    accessPosturePanel("Settings / access posture"),
     warnings(vm.warnings)
   ]);
 }
@@ -145,21 +157,27 @@ export function renderPendingInteractionsPage(vm: WebReadonlyPendingInteractions
 
 export function renderReadinessPage(vm: WebReadonlyReadinessGuardrailViewModel): string {
   return page("Readiness", "readiness", [
-    hero("Readiness", "Guardrail state for this private Console preview. Readiness is not a public support claim."),
-    summaryPanel("Readiness status", [field("State", vm.state), field("Checked at", vm.checkedAt ?? "—"), field("Active pack", vm.activePack ?? "—")]),
+    hero("Readiness", "Baseline capability/readiness matrix for this private Console preview. It is not a public support claim; public support is not claimed."),
+    summaryPanel("Readiness status", [
+      field("State", readinessStateLabel(vm.state)),
+      field("Checked at", vm.checkedAt ?? "—"),
+      field("Active pack", vm.activePack ?? "—")
+    ]),
+    accessPosturePanel("Setup / access posture"),
     cardListSection(
       "readiness-capabilities",
-      "Capabilities",
+      "Baseline capability/readiness matrix",
       vm.capabilities,
       (row) => `<article class="console-card"><h3>${escapeHtml(row.label)}</h3><div class="console-fields">${[
-        field("Declared", row.declared),
-        field("Configured", row.configured),
-        field("Observed", row.observed),
-        field("UX exposed", row.uxExposed)
+        field("Declared", observedCopy(row.declared)),
+        field("Configured", observedCopy(row.configured)),
+        field("Observed", observedCopy(row.observed)),
+        field("UX exposed", observedCopy(row.uxExposed))
       ].join("")}</div></article>`,
       "No capability rows are available."
     ),
-    listPanel("Missing gates", vm.missingGates, "No missing gates are visible."),
+    listPanel("Setup needed", vm.missingGates, "No setup gaps are visible."),
+    supportClaimGuardrailPanel(),
     warnings(vm.warnings)
   ]);
 }
@@ -192,7 +210,7 @@ function page(title: string, active: NavKey, sections: string[]): string {
     "</head>",
     "<body class=\"console-shell\">",
     "<header class=\"console-shell__header\">",
-    "<div class=\"console-brand\"><p class=\"console-eyebrow\">Owner preview · read-only prototype</p><h1>Codex Console</h1><p class=\"console-posture\">Private, denied-by-default Console preview. Runtime data is read-only and action lanes are not enabled.</p></div>",
+    "<div class=\"console-brand\"><p class=\"console-eyebrow\">Owner preview · read-only prototype</p><h1>Codex Console</h1><p class=\"console-posture\">Private, denied-by-default Console preview. Runtime data is read-only. Actions are not enabled.</p></div>",
     "<nav class=\"console-shell__nav\" aria-label=\"Console navigation\">",
     navLink("/", "Home", active === "home"),
     navLink("/workspaces", "Workspaces", active === "workspaces"),
@@ -301,6 +319,31 @@ function pendingPanel(state: string, rows: WebReadonlyPendingInteractionViewRow[
 
 function readinessPanel(state: string, missingGates: string[]): string {
   return `<section class="console-panel" aria-labelledby="readiness-heading"><h2 id="readiness-heading">Readiness</h2><p><span class="console-badge">${escapeHtml(state)}</span> ${escapeHtml(readinessCopy(state, missingGates.length))}</p>${listItems(missingGates, "No missing gates are visible.")}</section>`;
+}
+
+function runtimeReadinessGuidancePanel(): string {
+  return summaryPanel("Degraded / unavailable guidance", [
+    field("Degraded", "State is partial, stale, or missing a safe source."),
+    field("Unavailable", "The safe reader cannot show current runtime state yet."),
+    field("Setup needed", "Use existing bridge setup and diagnostics outside this Web preview if a required source is missing.")
+  ]);
+}
+
+function accessPosturePanel(title: string): string {
+  return summaryPanel(title, [
+    field("Access", "Owner/private"),
+    field("Mode", "Read-only preview"),
+    field("Default", "Denied by default"),
+    field("Controls", "Actions are not enabled"),
+    field("Rollback posture", "Kill-switch and rollback readiness are status-only here; no destructive controls are exposed.")
+  ]);
+}
+
+function supportClaimGuardrailPanel(): string {
+  return summaryPanel("Support-claim guardrail", [
+    "This readiness view is not a public support claim.",
+    "Private owner preview only; public support is not claimed from this page."
+  ]);
 }
 
 function listPanel(title: string, items: string[], emptyCopy: string): string {
@@ -463,6 +506,25 @@ function statusLabel(status: string): string {
   return "Unavailable";
 }
 
+function runtimeStateLabel(state: string, activeCount: number): string {
+  if (activeCount > 0) {
+    return statusLabel(state);
+  }
+  const normalized = state.toLowerCase();
+  if (normalized === "available" || normalized.includes("idle")) {
+    return "Idle";
+  }
+  return statusLabel(state);
+}
+
+function readinessStateLabel(state: string): string {
+  const normalized = state.toLowerCase();
+  if (normalized.includes("ready") || normalized === "available") return "Ready";
+  if (normalized.includes("degraded")) return "Degraded";
+  if (normalized.includes("unavailable") || normalized.includes("unknown")) return "Unavailable";
+  return statusLabel(state);
+}
+
 function statusCopy(status: string): string {
   const label = statusLabel(status);
   switch (label) {
@@ -512,6 +574,13 @@ function readinessCopy(state: string, missingCount: number): string {
     return "Readiness data is partial or unavailable.";
   }
   return "No missing readiness gates are visible.";
+}
+
+function observedCopy(state: string): string {
+  const normalized = state.toLowerCase();
+  if (normalized === "present") return "Present";
+  if (normalized === "missing") return "Missing";
+  return "Unknown";
 }
 
 function pendingCopy(state: string): string {
@@ -604,5 +673,7 @@ function scrubText(value: string): string {
     .replace(/\b(submit|approve|interrupt|upload|switch|resume)\b/gi, "[redacted]")
     .replace(/\b(callback(?:_data)?|messageId|deliveryMessageId|telegramChatId|feishuChatId|chatId|threadId|token)\s*[:=]\s*[^\s<>"']+/gi, "[redacted]")
     .replace(/\b[A-Z][A-Z0-9_]{2,}=\S+/g, "[redacted-env]")
+    .replace(/\/sessions\/[A-Za-z0-9._/-]+/g, "[redacted-session]")
+    .replace(/\bsession-[A-Za-z0-9._-]+\b/g, "[redacted-session]")
     .replace(/(?:^|\s)(\/(?:home|tmp|var|etc|root|Users|usr)\/[^\s<>"']*)/g, (match, path: string) => match.replace(path, "[redacted-path]"));
 }

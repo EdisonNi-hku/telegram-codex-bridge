@@ -9,6 +9,8 @@ import type {
   WebReadonlyConversationRow,
   WebReadonlyConversationResultViewModel,
   WebReadonlyPendingInteractionViewRow,
+  WebReadonlyReadinessGuardrailViewModel,
+  WebReadonlyRuntimeContextViewModel,
   WebReadonlyViewModelProvider
 } from "../service/web-readonly-view-model.js";
 
@@ -23,6 +25,8 @@ function makeProvider(
     detailAnswers?: WebReadonlyConversationResultViewModel["answers"];
     pendingInteractions?: WebReadonlyPendingInteractionViewRow[];
     detailPendingInteractions?: WebReadonlyPendingInteractionViewRow[];
+    runtime?: WebReadonlyRuntimeContextViewModel;
+    readiness?: WebReadonlyReadinessGuardrailViewModel;
   } = {}
 ): WebReadonlyViewModelProvider {
   return {
@@ -167,7 +171,7 @@ function makeProvider(
     },
     getRuntimeContextViewModel() {
       calls.push("runtime");
-      return {
+      return options.runtime ?? {
         generatedAt: "2026-04-26T00:00:00.000Z",
         prototypeOnly: true,
         readonly: true,
@@ -191,7 +195,7 @@ function makeProvider(
     },
     getReadinessGuardrailViewModel() {
       calls.push("readiness");
-      return {
+      return options.readiness ?? {
         generatedAt: "2026-04-26T00:00:00.000Z",
         prototypeOnly: true,
         readonly: true,
@@ -268,6 +272,113 @@ test("authenticated state route invokes only expected provider method", async ()
     assert.equal(result.status, 200);
     assert.match(result.text, /Runtime/);
     assert.deepEqual(calls, ["runtime"]);
+  });
+});
+
+test("runtime page renders owner-language runtime settings panels without action controls or internals", async () => {
+  const calls: string[] = [];
+  await withServer({
+    provider: makeProvider(calls, {
+      runtime: {
+        generatedAt: "2026-04-26T00:00:00.000Z",
+        prototypeOnly: true,
+        readonly: true,
+        pageId: "web_runtime_context",
+        state: "degraded",
+        activeTurns: [
+          {
+            sessionId: "session-secret-1",
+            status: "running",
+            summary: "Codex is working from /tmp/private token=abc callback_data=raw messageId=55",
+            blockedReason: null
+          },
+          {
+            sessionId: "session-secret-2",
+            status: "blocked",
+            summary: null,
+            blockedReason: "Waiting on safe owner context from /home/ubuntu/private"
+          }
+        ],
+        warnings: ["runtime source unavailable at /sessions/session-secret-1", "telegramChatId=999 messageId=55"]
+      }
+    }),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/runtime`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["runtime"]);
+    for (const copy of [
+      "Current operating state",
+      "Active conversation/task turns",
+      "Settings / access posture",
+      "Owner/private",
+      "Read-only preview",
+      "Denied by default",
+      "Actions are not enabled",
+      "Degraded",
+      "Unavailable",
+      "Setup needed"
+    ]) {
+      assert.match(result.text, new RegExp(escapeRegExp(copy)), `missing runtime owner copy ${copy}: ${result.text}`);
+    }
+    assert.match(result.text, /Codex is working/);
+    assert.match(result.text, /Progress is stopped until required owner interaction is resolved\./);
+    assertWebPanelHasNoActionsOrInternals(result.text);
+  });
+});
+
+test("readiness page renders owner-language capability and access posture without unsafe support claims", async () => {
+  const calls: string[] = [];
+  await withServer({
+    provider: makeProvider(calls, {
+      readiness: {
+        generatedAt: "2026-04-26T00:00:00.000Z",
+        prototypeOnly: true,
+        readonly: true,
+        pageId: "web_readiness_guardrails",
+        state: "degraded",
+        checkedAt: "2026-04-26T00:00:00.000Z",
+        activePack: "feishu token=abc /tmp/pack callback_data=raw",
+        capabilities: [
+          { key: "codex_installed", label: "Codex installed", declared: "present", configured: "present", observed: "present", uxExposed: "missing" },
+          { key: "codex_authenticated", label: "Codex authenticated", declared: "present", configured: "missing", observed: "missing", uxExposed: "missing" },
+          { key: "app_server", label: "App server", declared: "present", configured: "unknown", observed: "unknown", uxExposed: "missing" },
+          { key: "operator_binding", label: "Owner binding", declared: "present", configured: "present", observed: "present", uxExposed: "missing" }
+        ],
+        missingGates: [
+          "setup needed at /home/ubuntu/.codex",
+          "messageId=12 callback_data=approve token=secret"
+        ],
+        warnings: ["telegramChatId=999 /sessions/session-secret-1"]
+      }
+    }),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/readiness`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["readiness"]);
+    for (const copy of [
+      "Baseline capability/readiness matrix",
+      "Declared",
+      "Configured",
+      "Observed",
+      "UX exposed",
+      "Setup / access posture",
+      "Owner/private",
+      "Denied by default",
+      "Read-only preview",
+      "Setup needed",
+      "not a public support claim",
+      "public support is not claimed"
+    ]) {
+      assert.match(result.text, new RegExp(escapeRegExp(copy)), `missing readiness owner copy ${copy}: ${result.text}`);
+    }
+    for (const label of ["Codex installed", "Codex authenticated", "App server", "Owner binding"]) {
+      assert.match(result.text, new RegExp(escapeRegExp(label)), `missing readiness capability ${label}: ${result.text}`);
+    }
+    assertWebPanelHasNoActionsOrInternals(result.text);
+    assert.equal(result.text.includes("activePack"), false);
+    assert.equal(result.text.includes("codex_installed"), false);
   });
 });
 
@@ -634,6 +745,44 @@ function assertPendingSurfaceHasNoActionsOrInternals(html: string): void {
     "/interrupt"
   ]) {
     assert.equal(lower.includes(forbidden), false, `pending surface leaked forbidden content ${forbidden}: ${html}`);
+  }
+}
+
+function assertWebPanelHasNoActionsOrInternals(html: string): void {
+  const lower = html.toLowerCase();
+  for (const forbidden of [
+    token,
+    "<form",
+    "<button",
+    "<input",
+    "method=\"post\"",
+    "action=",
+    "onclick",
+    "download=",
+    "?token",
+    "/tmp",
+    "/home",
+    "/sessions/",
+    "callback_data",
+    "callback:",
+    "messageid",
+    "platformmessageid",
+    "telegramchatid",
+    "feishuchatid",
+    "chatid",
+    "threadid",
+    "session-secret",
+    "raw platform",
+    "/approval-answer",
+    "/question-answer",
+    "/submit",
+    "/interrupt",
+    " submit ",
+    " approve ",
+    " answer ",
+    " interrupt "
+  ]) {
+    assert.equal(lower.includes(forbidden), false, `surface leaked forbidden content ${forbidden}: ${html}`);
   }
 }
 

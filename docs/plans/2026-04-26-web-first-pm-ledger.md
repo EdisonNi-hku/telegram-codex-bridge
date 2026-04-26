@@ -444,3 +444,23 @@ Next recommended queue:
 4. Harden managed owner preview start/stop/rotate workflow; do not make Web default service startup.
 5. Run independent overclaim/security review before any MVP-support wording.
 6. Decide first gated action lane only after read UX + protected access gates pass.
+
+## Phase 3 Runtime / Readiness / Settings Read-only Slice
+
+Completed on 2026-04-26 as Product Web Console MVP code slice 5 after the Product Web Console phase closeout baseline.
+
+Result:
+
+- Runtime now presents owner-language product panels for current operating state, active conversation/task turns, degraded/unavailable guidance, and Settings / access posture.
+- Readiness now presents a baseline capability/readiness matrix with owner-language observed-state labels, setup/access posture, setup-needed gaps, and explicit support-claim guardrail copy.
+- The slice stayed read-only: no forms, POST routes, submit/approval/question/answer/interrupt controls, uploads/downloads, raw terminal/log views, route changes, auth/proxy/service startup changes, or action affordances were added.
+- Renderer scrubbing now also hides `/sessions/...` fragments and session-like labels in rendered text/warnings.
+
+TDD/verification evidence is recorded in `.hermes/phase3-runtime-readiness-settings-status.md`.
+
+Verification passed:
+
+- `node --import tsx --test src/web/readonly-http-server.test.ts src/service/web-readonly-view-model.test.ts`
+- `node --import tsx --test src/web/readonly-http-server.test.ts src/web/readonly-cli.test.ts src/service/web-readonly-live-provider.test.ts src/service/web-readonly-view-model.test.ts`
+- `npm run check`
+- `git diff --check`
