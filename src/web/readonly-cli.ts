@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 
 import type { Logger } from "../logger.js";
 import type { BridgePaths } from "../paths.js";
+import type { BridgePlatform } from "../core/domain/binding.js";
 import { createWebReadonlyLiveProvider } from "../service/web-readonly-live-provider.js";
 import type {
   WebReadonlyPendingInteractionInputRow,
@@ -18,18 +19,24 @@ import { createReadonlyHttpServer } from "./readonly-http-server.js";
 const DEFAULT_WEB_READONLY_HOST = "127.0.0.1";
 const DEFAULT_WEB_READONLY_PORT = 0;
 const TOKEN_ENV_NAME = "CTB_WEB_READONLY_TOKEN";
+const PLATFORM_ENV_NAME = "CTB_WEB_READONLY_PLATFORM";
+
+export type WebReadonlyLocalHarnessPlatform = Extract<BridgePlatform, "telegram" | "feishu">;
 
 export interface WebReadonlyLocalHarnessConfigInput {
   token?: string | boolean | undefined;
   env?: NodeJS.ProcessEnv | undefined;
   host?: string | boolean | undefined;
   port?: string | number | boolean | undefined;
+  platform?: string | boolean | undefined;
+  argv?: readonly string[] | undefined;
 }
 
 export interface WebReadonlyLocalHarnessConfig {
   host: string;
   port: number;
   token: string;
+  platform: WebReadonlyLocalHarnessPlatform | undefined;
   access: ReadonlyAccessGate;
 }
 
@@ -50,14 +57,18 @@ export function buildWebReadonlyLocalHarnessConfig(
 ): WebReadonlyLocalHarnessConfig {
   const host = normalizeHost(input.host);
   const token = normalizeToken(typeof input.token === "string" ? input.token : input.env?.[TOKEN_ENV_NAME]);
+  const platformInput = input.platform ?? parsePlatformArg(input.argv ?? []) ?? input.env?.[PLATFORM_ENV_NAME];
   if (!token) {
     throw new Error(`${TOKEN_ENV_NAME} or --token is required for the local read-only prototype harness`);
   }
+
+  const platform = normalizePlatform(platformInput);
 
   return {
     host,
     port: normalizePort(input.port),
     token,
+    platform,
     access: createReadonlyAccessGate({ enabled: true, token })
   };
 }
@@ -65,12 +76,18 @@ export function buildWebReadonlyLocalHarnessConfig(
 export async function startWebReadonlyLocalHarness(
   options: WebReadonlyLocalHarnessStartOptions
 ): Promise<WebReadonlyLocalHarnessHandle> {
-  const config = buildWebReadonlyLocalHarnessConfig(options);
+  const config = buildWebReadonlyLocalHarnessConfig({
+    ...options,
+    argv: options.argv ?? process.argv
+  });
   await mkdir(dirname(options.paths.dbPath), { recursive: true });
   const store = await BridgeStateStore.open(options.paths, options.logger);
   const provider = createWebReadonlyLiveProvider({
     auth: {
-      listOperatorBindings: () => store.listChatBindings().map((binding) => ({ chatId: binding.chatId }))
+      listOperatorBindings: () => {
+        const bindings = config.platform ? store.listChatBindings(config.platform) : store.listChatBindings();
+        return bindings.map((binding) => ({ chatId: binding.chatId }));
+      }
     },
     store: {
       listRecentProjects: () => store.listRecentProjects(),
@@ -131,6 +148,31 @@ function normalizePort(port: string | number | boolean | undefined): number {
 function normalizeToken(token: string | undefined): string | null {
   const trimmed = token?.trim() ?? "";
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizePlatform(platform: string | boolean | undefined): WebReadonlyLocalHarnessPlatform | undefined {
+  if (platform === undefined || platform === false) {
+    return undefined;
+  }
+  const value = typeof platform === "string" ? platform.trim() : "";
+  if (value === "telegram" || value === "feishu") {
+    return value;
+  }
+  throw new Error(`${PLATFORM_ENV_NAME} or --platform must be either "telegram" or "feishu"`);
+}
+
+function parsePlatformArg(argv: readonly string[]): string | boolean | undefined {
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === "--platform") {
+      const next = argv[index + 1];
+      return next && !next.startsWith("--") ? next : true;
+    }
+    if (token?.startsWith("--platform=")) {
+      return token.slice("--platform=".length);
+    }
+  }
+  return undefined;
 }
 
 function toReadonlyReadinessSnapshot(snapshot: ReadinessSnapshot | null): WebReadonlyReadinessSnapshot | null {

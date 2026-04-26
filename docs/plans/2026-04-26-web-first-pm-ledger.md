@@ -160,7 +160,9 @@ This is an owner-visible local proof path, but still not public, not mobile-expo
 2. Read-only data-population investigation completed: `proc_6e331d9a80a3`, monitor `78fe54afe14e` paused, report `/tmp/codex-web-data-population-investigation.md`. Decision: next safest slice is scoped session-backed workspace/home rows, not final-answer bodies or public exposure.
 3. Scoped session-backed rows implementation completed: `proc_ae673303a7c8`, monitor `a3767f8b9cf0` paused, status `.hermes/web-scoped-session-rows-status.md`. Controller verification passed with 29 Web tests, `npm run check`, and `git diff --check`.
 4. Prepare a controller-owned screenshot/proof artifact from the local harness when needed.
-5. Later lanes may include persisted neutral final-answer bodies, readiness model refinement, safe operator-binding UX, or protected owner-review exposure planning; do not add publicly reachable routes, owner/mobile URL exposure, action controls, uploads/downloads, or support claims without an explicit controller gate.
+5. Platform binding filter implementation completed: `proc_652eabc7a7ee`, monitor `cfb49e7e5205` paused, status `.hermes/web-platform-binding-filter-status.md`. Controller verification passed with 35 Web tests, `npm run check`, and `git diff --check`.
+6. Controller smoke proof: `CTB_WEB_READONLY_TOKEN=*** node --import tsx src/cli.ts web readonly --platform feishu --port 45679` listened on `127.0.0.1`, authenticated `/` returned 200 with operator binding available and no `workspace_data_unavailable`; smoke instance was killed.
+7. Later lanes may include persisted neutral final-answer bodies, readiness model refinement, screenshot/proof artifacts, or protected owner-review exposure planning; do not add publicly reachable routes, owner/mobile URL exposure, action controls, uploads/downloads, or support claims without an explicit controller gate.
 
 ## Guardrails
 
@@ -205,3 +207,11 @@ Still not implemented: public/mobile URL exposure, reverse proxy/tunnel/HTTPS/DN
 The local read-only Web harness now has a narrower safe data-population path: when exactly one operator binding resolves, workspace/home rows can be derived from that binding's scoped, non-archived sessions. The live Web provider no longer forwards global recent-project or project-stat readers into the Web view-model path, so unscoped project fixtures cannot populate Web workspace rows.
 
 This remains local read-only prototype plumbing only. It does not add final-answer body rendering, public/mobile exposure, auth redesign, operator selection, screenshot flow, or action controls.
+
+## Platform Binding Filter Checkpoint
+
+The explicit local read-only Web harness now accepts a narrow operator binding filter by platform only: `CTB_WEB_READONLY_PLATFORM=telegram|feishu` or local `--platform telegram|feishu`. Invalid platform values fail before the server starts. With no platform filter, the previous safe default remains: all bindings are considered and the live provider only scopes data when exactly one binding resolves.
+
+This does not expose raw chat/user/message IDs, does not auto-select across platforms, and does not add an operator selector UI, public/mobile exposure, service startup wiring, actions, uploads/downloads, logs/terminal/protocol rendering, or final-answer body rendering.
+
+Controller smoke proof showed `--platform feishu` can make the local authenticated page data-bearing on the current local state without exposing raw IDs: operator binding became available, `workspace_data_unavailable` disappeared, and the instance was shut down after proof.
