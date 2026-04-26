@@ -126,22 +126,39 @@ Controller verification after the live provider seam:
 - `npm run check` passed.
 - `git diff --check` passed.
 
+
+## Local Read-only HTTP Shell
+
+A first minimal local-only Web shell module completed cleanly:
+
+- Status artifact: `.hermes/web-readonly-shell-status.md`
+- Result: dependency-free Node HTTP server factory with injected Web read-only provider, denied-by-default bearer access gate, escaped read-only HTML renderer, and generic denied/error responses.
+
+The shell remains module-only and unintegrated from CLI/service startup. It does not add public URLs, owner/mobile URL exposure, reverse proxy, HTTPS/DNS/tunnel setup, cookies/session login, actions, writes, uploads/downloads, previews, logs, raw terminal, or app-server protocol payload rendering.
+
+Verification after the local shell:
+
+- `node --import tsx --test src/web/readonly-http-server.test.ts src/service/web-readonly-live-provider.test.ts src/service/web-readonly-view-model.test.ts` passed with 22 tests.
+- `npm run check` passed.
+- `git diff --check` passed.
+
 ## Next Gates
 
-1. Checkpoint the live provider seam plus this PM ledger.
-2. Continue with narrow groundwork only until an owner-visible Web shell milestone is intentionally started.
-3. Next possible coding lanes may include minimal denied-by-default local shell planning/implementation, persisted neutral final-answer bodies, or readiness model refinement; do not add publicly reachable routes, owner URL, action controls, uploads/downloads, or support claims without an explicit controller gate.
+1. Checkpoint the module-only local read-only HTTP shell plus this PM ledger.
+2. Continue toward an owner-visible Web milestone only through explicit protected/local gates.
+3. Next possible coding lanes may include CLI-local harness wiring guarded by disabled-by-default token config, screenshot harness for controller-owned proof, persisted neutral final-answer bodies, or readiness model refinement; do not add publicly reachable routes, owner/mobile URL exposure, action controls, uploads/downloads, or support claims without an explicit controller gate.
 
 ## Guardrails
 
 Do not claim Web is shipped, supported, enabled, public, or browser-usable yet.
 
-Still not implemented:
+Still not implemented beyond the unintegrated module-only local shell:
 
-- Web routes.
-- UI/pages/components.
-- Auth/session binding.
-- Server or protected URL.
+- CLI/service startup wiring for Web.
+- Public or owner/mobile URL exposure.
+- Browser support claim.
+- Cookie/session login flow.
+- Auth/session binding beyond the injected bearer gate.
 - Screenshot harness/mobile evidence.
 - Task submission.
 - Approval/question answering.
