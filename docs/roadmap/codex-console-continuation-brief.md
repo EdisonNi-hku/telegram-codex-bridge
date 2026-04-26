@@ -37,12 +37,13 @@ Use this as the first low-context task handoff for future Codex Console / multi-
 - Telegram is the stable first/default pack.
 - Feishu is a serious current pack with explicit setup/readiness caveats.
 - Web has a temporary owner-only, read-only preview at `https://codex.guicheng.xyz` through Cloudflare Tunnel + local cookie proxy + localhost Web origin. This is **not** shipped/public/supported Web service.
-- PR #16 branch has landed Phase 3 Product Web Console MVP read UX slices through commit `d66ff3d`:
+- PR #16 branch has landed Phase 3 Product Web Console MVP read UX slices through commit `c8a13fc`:
   - real Product Web Console MVP IA/spec;
   - mobile-first `Codex Console` shell and readable conversation/task detail;
   - Web-safe final-answer body rendering only from injected sanitized sources;
   - conversation/task grouping with user-language state labels;
-  - read-only Pending/Approvals cards with explicit action-disabled copy.
+  - read-only Pending/Approvals cards with explicit action-disabled copy;
+  - Runtime / Readiness / Settings read-only owner-language panels.
 - Web actions remain unimplemented: no submit, approval-answer, question-answer, interrupt, upload/download, raw terminal, or project/session writes.
 - App is alive but deferred until Web proves the shared contract path.
 - Detailed run/verification/smoke state lives in `docs/plans/2026-04-26-web-first-pm-ledger.md`.
@@ -120,14 +121,13 @@ At closeout:
 ## Next Sustainable Task Queue
 
 1. **PR #16 check/merge path.** Confirm latest Ubuntu checks pass; Windows failures are a documented non-Web baseline unless a new Web-specific failure appears. Update PR body if needed before merge.
-2. **Runtime / Readiness / Settings read page.** Next Product Web Console MVP code slice: turn runtime/readiness/settings into safe owner-language panels. No actions.
-3. **Owner proof package.** Capture sanitized mobile-width screenshot/HTML proof from the live owner preview after the Runtime/Readiness slice; verify no tokens, raw paths, raw IDs, conversation text overexposure, callback payloads, or platform internals.
+2. **Owner proof package.** Capture sanitized mobile-width screenshot/HTML proof from the live owner preview now that the Runtime/Readiness slice has landed; verify no tokens, raw paths, raw IDs, conversation text overexposure, callback payloads, or platform internals.
+3. **Independent overclaim/security review.** Read-only review of Web UI copy, docs routing, forbidden data, and action-disabled boundaries before declaring the MVP reviewable.
 4. **Managed owner preview hardening.** Convert today’s temporary process chain into an explicit managed preview workflow only after owner approval: stable start/stop/rotate scripts, auth/session hardening, health checks, shutdown drill. Do not make it default service startup.
-5. **Independent overclaim/security review.** Read-only review of Web UI copy, docs routing, forbidden data, and action-disabled boundaries before declaring the MVP reviewable.
-6. **First gated action lane decision.** Only after read UX and protected owner access pass: choose approval/question answer or submit draft. Start with a no-op capability/readiness display before any mutating action.
-7. **Live Feishu tenant smoke.** Separate current-pack readiness track: verify text, cards, callbacks, file/image upload/download, long output, status/inspect, project/session selection, and degraded recovery.
-8. **Feishu UX hardening.** Convert smoke results into specific pack/readiness fixes; keep non-native pin/menu/audio/image-url limits explicit.
-9. **Docs context budget enforcement.** Keep routers pointing to this brief plus one leaf; archive or demote temporary plan files after each closeout.
+5. **First gated action lane decision.** Only after read UX + protected access + overclaim/security review pass: choose approval/question answer or submit draft. Start with a no-op capability/readiness display before any mutating action.
+6. **Live Feishu tenant smoke.** Separate current-pack readiness track: verify text, cards, callbacks, file/image upload/download, long output, status/inspect, project/session selection, and degraded recovery.
+7. **Feishu UX hardening.** Convert smoke results into specific pack/readiness fixes; keep non-native pin/menu/audio/image-url limits explicit.
+8. **Docs context budget enforcement.** Keep routers pointing to this brief plus one leaf; archive or demote temporary plan files after each closeout.
 
 ## Noise Checks Before Adding A New Doc
 
