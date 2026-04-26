@@ -156,17 +156,19 @@ This is an owner-visible local proof path, but still not public, not mobile-expo
 
 ## Next Gates
 
-1. Checkpoint the explicit local harness plus this PM ledger.
-2. Prepare a controller-owned screenshot/proof artifact from the local harness when needed.
-3. Next possible coding lanes may include safer visible data population for the local harness, persisted neutral final-answer bodies, readiness model refinement, or protected owner-review exposure planning; do not add publicly reachable routes, owner/mobile URL exposure, action controls, uploads/downloads, or support claims without an explicit controller gate.
+1. Checkpoint the explicit local harness plus this PM ledger. Completed in `bceff02 feat: add local Web readonly harness`.
+2. Read-only data-population investigation completed: `proc_6e331d9a80a3`, monitor `78fe54afe14e` paused, report `/tmp/codex-web-data-population-investigation.md`. Decision: next safest slice is scoped session-backed workspace/home rows, not final-answer bodies or public exposure.
+3. Scoped session-backed rows implementation completed: `proc_ae673303a7c8`, monitor `a3767f8b9cf0` paused, status `.hermes/web-scoped-session-rows-status.md`. Controller verification passed with 29 Web tests, `npm run check`, and `git diff --check`.
+4. Prepare a controller-owned screenshot/proof artifact from the local harness when needed.
+5. Later lanes may include persisted neutral final-answer bodies, readiness model refinement, safe operator-binding UX, or protected owner-review exposure planning; do not add publicly reachable routes, owner/mobile URL exposure, action controls, uploads/downloads, or support claims without an explicit controller gate.
 
 ## Guardrails
 
 Do not claim Web is shipped, supported, enabled, public, or browser-usable yet.
 
-Still not implemented beyond the unintegrated module-only local shell:
+Still not implemented for the Web prototype:
 
-- CLI/service startup wiring for Web.
+- Normal service startup/systemd wiring for Web.
 - Public or owner/mobile URL exposure.
 - Browser support claim.
 - Cookie/session login flow.
@@ -197,3 +199,9 @@ Verification after the local harness:
 - `git diff --check` passed.
 
 Still not implemented: public/mobile URL exposure, reverse proxy/tunnel/HTTPS/DNS, service autostart, browser support claim, action controls, writes, uploads/downloads, previews, raw logs/terminal/protocol rendering, or Web support status.
+
+## Scoped Session-backed Rows Checkpoint
+
+The local read-only Web harness now has a narrower safe data-population path: when exactly one operator binding resolves, workspace/home rows can be derived from that binding's scoped, non-archived sessions. The live Web provider no longer forwards global recent-project or project-stat readers into the Web view-model path, so unscoped project fixtures cannot populate Web workspace rows.
+
+This remains local read-only prototype plumbing only. It does not add final-answer body rendering, public/mobile exposure, auth redesign, operator selection, screenshot flow, or action controls.

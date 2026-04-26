@@ -132,12 +132,6 @@ function createScopedStoreReader(
   }
 
   const scopedStore: WebReadonlyStoreReader = {};
-  if (store.listRecentProjects) {
-    scopedStore.listRecentProjects = store.listRecentProjects;
-  }
-  if (store.listSessionProjectStats) {
-    scopedStore.listSessionProjectStats = store.listSessionProjectStats;
-  }
   if (store.listSessions) {
     scopedStore.listSessions = (_chatId, options) => store.listSessions?.(binding.chatId, options) ?? [];
   }

@@ -367,7 +367,9 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
 
   const buildWorkspaceIndex = (): { state: WebReadonlyAvailability; rows: WorkspaceAccumulator[]; warnings: string[] } => {
     const store = deps.store;
-    if (!store || (!store.listRecentProjects && !store.listSessionProjectStats)) {
+    const chatId = deps.operatorBinding?.chatId;
+    const canListScopedSessions = Boolean(chatId && store?.listSessions);
+    if (!store || (!store.listRecentProjects && !store.listSessionProjectStats && !canListScopedSessions)) {
       return { state: "unavailable", rows: [], warnings: ["workspace_data_unavailable"] };
     }
 
@@ -419,6 +421,46 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
       });
     }
 
+    if (chatId && store.listSessions) {
+      const bySessionPath = new Map<
+        string,
+        { projectName: string; label: string | null; conversationCount: number; lastActivityAt: string | null }
+      >();
+      const sessions = callSafely(
+        () => store.listSessions?.(chatId, { archived: false, limit: 100 }) ?? [],
+        [],
+        warnings,
+        "sessions_unavailable"
+      );
+      for (const session of sessions) {
+        if (session.archived || !session.projectPath) {
+          continue;
+        }
+        const current = bySessionPath.get(session.projectPath) ?? {
+          projectName: session.projectName,
+          label: null,
+          conversationCount: 0,
+          lastActivityAt: null
+        };
+        bySessionPath.set(session.projectPath, {
+          projectName: session.projectName || current.projectName,
+          label: session.projectAlias ?? current.label,
+          conversationCount: current.conversationCount + 1,
+          lastActivityAt: latestIso(current.lastActivityAt, session.lastUsedAt)
+        });
+      }
+
+      for (const [projectPath, stat] of bySessionPath) {
+        upsert(projectPath, stat.projectName, {
+          label: stat.label,
+          projectName: stat.projectName,
+          conversationCount: stat.conversationCount,
+          lastActivityAt: stat.lastActivityAt,
+          source: "sessions"
+        });
+      }
+    }
+
     return {
       state: warnings.length > 0 ? "degraded" : "available",
       rows: Array.from(byPath.values()).sort(compareWorkspaceRows),
@@ -439,7 +481,8 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
     if (!chatId || !deps.store?.listSessions) {
       return null;
     }
-    return callSafely(() => deps.store?.listSessions?.(chatId, { archived: false, limit: 100 }) ?? [], [], warnings, "sessions_unavailable");
+    return callSafely(() => deps.store?.listSessions?.(chatId, { archived: false, limit: 100 }) ?? [], [], warnings, "sessions_unavailable")
+      .filter((session) => !session.archived);
   };
 
   const toWorkspaceRow = (row: WorkspaceAccumulator): WebReadonlyWorkspaceRow => {

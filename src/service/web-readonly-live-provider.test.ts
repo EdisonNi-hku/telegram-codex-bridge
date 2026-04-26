@@ -174,9 +174,50 @@ test("one binding scopes sessions and final-answer metadata internally without e
     "answers:chat-secret",
     "answers:chat-secret",
     "pending:chat-secret",
+    "sessions:chat-secret",
     "sessions:chat-secret"
   ]);
   assertNoForbiddenLiveData({ workspace, conversations, result, pending });
+});
+
+test("unscoped recent project and stat readers cannot populate live Web workspace rows", () => {
+  const provider = createWebReadonlyLiveProvider({
+    now: () => fixedNow,
+    auth: { listOperatorBindings: () => [{ chatId: "chat-secret" }] },
+    store: {
+      listRecentProjects: () => [
+        {
+          projectPath: "/home/ubuntu/global-workspace",
+          projectName: "global-workspace",
+          projectAlias: "Global Leak",
+          lastUsedAt: "2026-04-25T14:00:00.000Z",
+          pinned: true
+        }
+      ],
+      listSessionProjectStats: () => [
+        {
+          projectPath: "/home/ubuntu/global-workspace",
+          projectName: "global-workspace",
+          sessionCount: 99,
+          lastUsedAt: "2026-04-25T14:00:00.000Z"
+        }
+      ],
+      listSessions: (chatId) => chatId === "chat-secret" ? [safeSession] : []
+    }
+  });
+
+  const vm = provider.listWorkspaceViewModels();
+
+  assert.equal(vm.state, "available");
+  assert.equal(vm.workspaces.length, 1);
+  assert.equal(vm.workspaces[0]?.label, "Console Core");
+  assert.equal(vm.workspaces[0]?.conversationCount, 1);
+  assert.equal(vm.workspaces[0]?.pinned, false);
+  const text = serialized(vm);
+  for (const forbidden of ["/home/ubuntu/global-workspace", "Global Leak", "global-workspace", "99"]) {
+    assert.equal(text.includes(forbidden), false, `live view model leaked ${forbidden}: ${text}`);
+  }
+  assertNoForbiddenLiveData(vm);
 });
 
 test("multiple bindings return safe unavailable/degraded behavior instead of guessing", () => {
@@ -218,6 +259,9 @@ test("store throws surface generic warnings only", () => {
       listSessionProjectStats: () => {
         throw new Error("stats failed at /home/ubuntu/secret-workspace");
       },
+      listSessions: () => {
+        throw new Error("sessions failed for chat-secret /home/ubuntu/secret-workspace");
+      },
       getSessionById: () => {
         throw new Error("session failed for chat-secret /home/ubuntu/secret-workspace");
       },
@@ -235,7 +279,7 @@ test("store throws surface generic warnings only", () => {
   const pending = provider.getPendingInteractionsViewModel();
 
   assert.equal(workspaces.state, "degraded");
-  assert.deepEqual(workspaces.warnings.sort(), ["recent_projects_unavailable", "workspace_stats_unavailable"]);
+  assert.deepEqual(workspaces.warnings, ["sessions_unavailable"]);
   assert.equal(result.state, "unavailable");
   assert.deepEqual(result.warnings, ["conversation_not_available"]);
   assert.equal(pending.state, "unavailable");

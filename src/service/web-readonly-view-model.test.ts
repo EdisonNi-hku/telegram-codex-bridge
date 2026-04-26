@@ -233,6 +233,86 @@ test("derives safe workspace rows from recent project and session stats without 
   assertNoForbiddenViewModelData(vm);
 });
 
+test("derives safe workspace rows from scoped sessions without global project readers", () => {
+  const provider = createWebReadonlyViewModelProvider({
+    now: () => fixedNow,
+    operatorBinding: { chatId: "telegram-chat-123" },
+    store: {
+      listSessions: () => [
+        session,
+        {
+          ...session,
+          sessionId: "session-2",
+          displayName: "Second scoped conversation",
+          lastUsedAt: "2026-04-25T13:00:00.000Z",
+          lastTurnId: "turn-secret-2"
+        }
+      ]
+    }
+  });
+
+  const vm = provider.listWorkspaceViewModels();
+
+  assert.equal(vm.state, "available");
+  assert.equal(vm.workspaces.length, 1);
+  assert.equal(vm.workspaces[0]?.label, "Console Core");
+  assert.equal(vm.workspaces[0]?.conversationCount, 2);
+  assert.equal(vm.workspaces[0]?.lastActivityAt, "2026-04-25T13:00:00.000Z");
+  assert.match(vm.workspaces[0]?.workspaceId ?? "", /^wk_[a-f0-9]{16}$/);
+  const text = serialized(vm);
+  for (const forbidden of ["/home/ubuntu/secret-workspace", "telegram-chat-123", "thread-secret-1"]) {
+    assert.equal(text.includes(forbidden), false, `view model leaked ${forbidden}: ${text}`);
+  }
+  assertNoForbiddenViewModelData(vm);
+});
+
+test("home rows come from scoped sessions and expose final-answer availability without body text", () => {
+  const provider = createWebReadonlyViewModelProvider({
+    now: () => fixedNow,
+    operatorBinding: { chatId: "telegram-chat-123" },
+    store: {
+      listSessions: () => [session],
+      getSessionById: () => session,
+      listFinalAnswerViews: () => [
+        {
+          answerId: "answer-1",
+          chatId: "telegram-chat-123",
+          deliveryMessageId: 999,
+          sessionId: "session-1",
+          threadId: "thread-secret-1",
+          turnId: "turn-secret-1",
+          kind: "final_answer",
+          deliveryState: "delivered",
+          previewHtml: "<b>Secret final answer body</b> /home/ubuntu/secret-workspace",
+          pages: ["Secret final answer body from Telegram renderer"],
+          createdAt: "2026-04-25T12:10:00.000Z"
+        }
+      ]
+    }
+  });
+
+  const home = provider.getHomeViewModel();
+  const result = provider.getConversationResultViewModel("session-1");
+
+  assert.equal(home.state, "available");
+  assert.equal(home.workspaces.length, 1);
+  assert.equal(home.recentConversations.length, 1);
+  assert.equal(home.recentConversations[0]?.conversationId, "session-1");
+  assert.equal(home.recentConversations[0]?.workspaceId, home.workspaces[0]?.workspaceId);
+  assert.equal(home.recentConversations[0]?.finalAnswerAvailable, true);
+  assert.deepEqual(result.answers[0]?.body, { state: "unavailable", reason: "sanitized_body_not_provided" });
+  const text = serialized({ home, result });
+  for (const forbidden of [
+    "/home/ubuntu/secret-workspace",
+    "telegram-chat-123",
+    "thread-secret-1",
+    "Secret final answer body"
+  ]) {
+    assert.equal(text.includes(forbidden), false, `view model leaked ${forbidden}: ${text}`);
+  }
+  assertNoForbiddenViewModelData({ home, result });
+});
+
 test("uses deterministic opaque labels when path-backed workspaces have no explicit alias", () => {
   const provider = createWebReadonlyViewModelProvider({
     now: () => fixedNow,
