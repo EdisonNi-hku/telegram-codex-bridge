@@ -86,11 +86,11 @@ Goal: restart managed preview, smoke public URL, capture proof, update PR, mark 
 
 ## Active processes
 
-None at ledger creation.
+- Phase B implementation: `proc_3a89c065bbf3` launched 2026-04-26 after Phase A contract commit `6cac234`.
 
 ## Next action
 
-Launch Phase A Codex high audit/contract run. Then controller triages and launches Phase B/C implementation slices.
+Monitor Phase B Codex high implementation run. On completion, review diff, run targeted tests plus `npm run check` and `git diff --check`, then commit/push if accepted and launch Phase C send-path tests/implementation.
 
 ## Phase A findings
 

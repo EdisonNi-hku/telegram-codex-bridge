@@ -229,6 +229,7 @@ export interface WebReadonlyConversationResultViewModel extends WebReadonlyEnvel
   runtime: Pick<WebReadonlyRuntimeContextViewModel, "state" | "activeTurns">;
   pendingInteractions: Pick<WebReadonlyPendingInteractionsViewModel, "state" | "pendingInteractions">;
   readiness: Pick<WebReadonlyReadinessGuardrailViewModel, "state" | "missingGates">;
+  composer: WebReadonlyDisabledComposerViewModel;
   warnings: string[];
 }
 
@@ -332,7 +333,16 @@ export interface WebReadonlyHomeViewModel extends WebReadonlyEnvelope {
   runtime: Pick<WebReadonlyRuntimeContextViewModel, "state" | "activeTurns">;
   pendingInteractions: Pick<WebReadonlyPendingInteractionsViewModel, "state" | "pendingInteractions">;
   readiness: Pick<WebReadonlyReadinessGuardrailViewModel, "state" | "missingGates">;
+  composer: WebReadonlyDisabledComposerViewModel;
   warnings: string[];
+}
+
+export interface WebReadonlyDisabledComposerViewModel {
+  state: "disabled";
+  label: string;
+  placeholder: string;
+  disabledReason: string;
+  capability: "web_send_landing_next";
 }
 
 export interface WebReadonlyViewModelProvider {
@@ -565,6 +575,7 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
           pendingInteractions: pendingInteractions.pendingInteractions
         },
         readiness: { state: readiness.state, missingGates: readiness.missingGates },
+        composer: disabledComposerViewModel(),
         warnings: unique(warnings)
       };
     },
@@ -662,6 +673,7 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
         runtime: runtimePanelForConversation(provider.getRuntimeContextViewModel(), safeConversationHandle),
         pendingInteractions: pendingPanelForConversation(provider.getPendingInteractionsViewModel(), safeConversationHandle),
         readiness: readinessPanel(provider.getReadinessGuardrailViewModel()),
+        composer: disabledComposerViewModel(),
         warnings: unique(warnings)
       };
     },
@@ -832,7 +844,18 @@ function unavailableConversationResult(
     runtime: { state: "degraded", activeTurns: [] },
     pendingInteractions: { state: "unavailable", pendingInteractions: [] },
     readiness: { state: "unavailable", missingGates: [] },
+    composer: disabledComposerViewModel(),
     warnings: [warning]
+  };
+}
+
+function disabledComposerViewModel(): WebReadonlyDisabledComposerViewModel {
+  return {
+    state: "disabled",
+    label: "Message Codex",
+    placeholder: "Type a message to Codex",
+    disabledReason: "Sending from Web is landing next.",
+    capability: "web_send_landing_next"
   };
 }
 

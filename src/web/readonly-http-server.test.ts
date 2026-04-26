@@ -89,6 +89,7 @@ function makeProvider(
           pendingInteractions: options.homePendingInteractions ?? []
         },
         readiness: { state: "ready", missingGates: [] },
+        composer: disabledComposerFixture(),
         warnings: []
       };
     },
@@ -159,6 +160,7 @@ function makeProvider(
           pendingInteractions: options.detailPendingInteractions ?? []
         },
         readiness: { state: "ready", missingGates: [] },
+        composer: disabledComposerFixture(),
         warnings: []
       };
     },
@@ -283,6 +285,21 @@ test("authenticated state route invokes only expected provider method", async ()
   });
 });
 
+test("chat alias renders the same read-only chat home", async () => {
+  const calls: string[] = [];
+  await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
+    const root = await get(`${baseUrl}/`, token);
+    const alias = await get(`${baseUrl}/chat`, token);
+    assert.equal(root.status, 200);
+    assert.equal(alias.status, 200);
+    assert.deepEqual(calls, ["home", "home"]);
+    for (const copy of ["Web Chat", "Conversation work queue", "Sending from Web is landing next"]) {
+      assert.match(alias.text, new RegExp(escapeRegExp(copy)), `missing alias copy ${copy}: ${alias.text}`);
+    }
+    assert.equal(alias.text, root.text);
+  });
+});
+
 test("runtime page renders owner-language runtime settings panels without action controls or internals", async () => {
   const calls: string[] = [];
   await withServer({
@@ -398,12 +415,12 @@ test("authenticated HTML escapes hostile strings and emits no raw script/action/
     assert.deepEqual(calls, ["home"]);
     assert.match(result.text, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
     assert.match(result.text, /Codex Console/);
-    assert.match(result.text, /Personal workspace/);
-    assert.match(result.text, /View-only preview/);
+    assert.match(result.text, /Web Chat/);
+    assert.match(result.text, /Chat-first, view-only preview/);
     assert.match(result.text, /<header class="console-shell__header">/);
     assert.match(result.text, /<nav class="console-shell__nav" aria-label="Console navigation">/);
     for (const [href, label] of [
-      ["/", "Home"],
+      ["/", "Chat"],
       ["/workspaces", "Workspaces"],
       ["/interactions", "Pending"],
       ["/runtime", "Runtime"],
@@ -412,8 +429,10 @@ test("authenticated HTML escapes hostile strings and emits no raw script/action/
       assert.match(result.text, new RegExp(`<a[^>]*href="${href.replace("/", "\\/")}"[^>]*>${label}</a>`), `missing nav link ${href}: ${result.text}`);
     }
     assert.match(result.text, /class="console-card"/);
-    assert.match(result.text, /Recent results/);
-    assert.match(result.text, /Active \/ needs attention/);
+    assert.match(result.text, /Conversation work queue/);
+    assert.match(result.text, /Selected thread preview/);
+    assert.match(result.text, /Recent results and artifacts/);
+    assert.match(result.text, /Runtime summary/);
     assert.equal(result.text.includes("<table"), false, `home should use card/list shell, not primary tables: ${result.text}`);
     assert.equal(result.text.includes("<script>"), false);
     assert.equal(result.text.includes("<img"), false);
@@ -425,32 +444,35 @@ test("authenticated HTML escapes hostile strings and emits no raw script/action/
     assert.match(result.text, /href="\/workspaces\/wk_safe_1\/conversations"/);
     assert.match(result.text, /href="\/conversations\/cv_1234567890abcdef"/);
     assert.equal(result.text.includes("/sessions/"), false);
-    for (const forbidden of ["<form", "<button", "<input", "onclick", "download=", "?token", "href=\"#", "submit", "approve", "interrupt", "upload", "switch", "resume"]) {
+    for (const forbidden of ["<form", "<button", "<input", "<textarea", "method=\"post\"", "action=", "onclick", "download=", "?token", "href=\"#", "submit", "approve", "interrupt", "upload", "switch", "resume"]) {
       assert.equal(result.text.toLowerCase().includes(forbidden), false, `rendered forbidden content ${forbidden}: ${result.text}`);
     }
   });
 });
 
-test("home renders a product dashboard with personal workflow sections", async () => {
+test("home renders a chat-first work queue with disabled composer posture", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
     const result = await get(`${baseUrl}/`, token);
     assert.equal(result.status, 200);
     assert.deepEqual(calls, ["home"]);
-    assert.match(result.text, /<h2 id="page-heading">Codex Console<\/h2>/);
-    assert.match(result.text, /Your personal console for continuing Codex work, reviewing results, and browsing projects\./);
+    assert.match(result.text, /<h2 id="page-heading">Web Chat<\/h2>/);
+    assert.match(result.text, /Conversation work queue for Codex Bridge\./);
+    assert.match(result.text, /Sending from Web is landing next/);
+    assert.match(result.text, /role="textbox" aria-readonly="true" aria-disabled="true"/);
     for (const heading of [
-      "Continue working",
-      "Active / needs attention",
-      "Recent results",
-      "Projects / workspaces"
+      "Conversation work queue",
+      "Selected thread preview",
+      "Runtime summary",
+      "Recent results and artifacts",
+      "Projects / workspaces",
+      "Secondary utilities"
     ]) {
-      assert.match(result.text, new RegExp(`<h2[^>]*>${escapeRegExp(heading)}</h2>`), `missing dashboard section ${heading}: ${result.text}`);
+      assert.match(result.text, new RegExp(`<h2[^>]*>${escapeRegExp(heading)}</h2>`), `missing chat-first section ${heading}: ${result.text}`);
     }
-    assert.match(result.text, /View-only preview/);
-    assert.match(result.text, /Open/);
+    assert.match(result.text, /Open durable thread/);
     assert.equal(result.text.includes("Current state"), false, `home should not be centered on status metrics: ${result.text}`);
-    assert.equal(result.text.includes("Settings / access posture"), false, `home should keep access posture off the landing dashboard: ${result.text}`);
+    assert.equal(result.text.includes("Settings / access posture"), false, `home should keep access posture off the landing chat: ${result.text}`);
   });
 });
 
@@ -476,6 +498,8 @@ test("home empty state is friendly product copy, not degraded/security copy", as
     assert.equal(result.status, 200);
     assert.deepEqual(calls, ["home"]);
     for (const copy of [
+      "No conversation threads are visible yet.",
+      "No thread selected",
       "No active work needs attention right now.",
       "Recent results will appear here after Codex finishes work.",
       "Projects and workspaces will appear here once the bridge has recent workspace history."
@@ -541,10 +565,12 @@ test("authenticated conversation detail route uses only opaque handles and keeps
     const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef`, token);
     assert.equal(result.status, 200);
     assert.deepEqual(calls, ["conversation:cv_1234567890abcdef"]);
-    assert.match(result.text, /Task page/);
+    assert.match(result.text, /Conversation thread/);
     assert.match(result.text, /<h2 id="detail-heading">Readonly detail<\/h2>/);
     assert.match(result.text, /Last updated/);
-    assert.match(result.text, /View-only preview/);
+    assert.match(result.text, /Read-only thread/);
+    assert.match(result.text, /Sending from Web is landing next/);
+    assert.match(result.text, /role="textbox" aria-readonly="true" aria-disabled="true"/);
     assert.match(result.text, /<section class="console-panel console-result" aria-labelledby="result-heading">/);
     assert.match(result.text, /Result/);
     assert.match(result.text, /No Web-ready final answer has been captured yet\. When Codex finishes with a shareable result, it will appear in this panel\./);
@@ -555,7 +581,7 @@ test("authenticated conversation detail route uses only opaque handles and keeps
     assert.match(result.text, /Readonly detail/);
     assert.equal(result.text.includes("/sessions/"), false);
     assert.equal(result.text.includes("session-1"), false);
-    for (const forbidden of [token, "/home/ubuntu/secret", "callback_data", "messageId", "<form", "<button", "<input", "onclick", "download=", "?token", "href=\"#"]) {
+    for (const forbidden of [token, "/home/ubuntu/secret", "callback_data", "messageId", "<form", "<button", "<input", "<textarea", "method=\"post\"", "action=", "onclick", "download=", "?token", "href=\"#"]) {
       assert.equal(result.text.includes(forbidden), false, `detail leaked ${forbidden}: ${result.text}`);
     }
     assert.equal(result.headers.get("cache-control"), "no-store");
@@ -690,6 +716,21 @@ test("conversation detail pending panel shares read-only pending cards and actio
     assert.match(result.text, /Responses are not enabled in this preview\./);
     assertPendingSurfaceHasNoActionsOrInternals(result.text);
     assert.equal(result.text.includes("pi_detail_question"), false, `raw pending id leaked: ${result.text}`);
+  });
+});
+
+test("phase B pages expose disabled composer posture without enabled write controls", async () => {
+  const calls: string[] = [];
+  await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
+    for (const path of ["/", "/chat", "/conversations/cv_1234567890abcdef"]) {
+      const result = await get(`${baseUrl}${path}`, token);
+      assert.equal(result.status, 200, path);
+      assert.match(result.text, /Sending from Web is landing next/);
+      assert.match(result.text, /aria-readonly="true" aria-disabled="true"/);
+      for (const forbidden of ["<form", "<button", "<input", "<textarea", "method=\"post\"", "action=", "/messages"]) {
+        assert.equal(result.text.toLowerCase().includes(forbidden), false, `${path} exposed write control ${forbidden}: ${result.text}`);
+      }
+    }
   });
 });
 
@@ -834,13 +875,25 @@ function pendingInteractionFixture(
   };
 }
 
+function disabledComposerFixture() {
+  return {
+    state: "disabled" as const,
+    label: "Message Codex",
+    placeholder: "Type a message to Codex",
+    disabledReason: "Sending from Web is landing next.",
+    capability: "web_send_landing_next" as const
+  };
+}
+
 function assertPendingSurfaceHasNoActionsOrInternals(html: string): void {
   const lower = html.toLowerCase();
   for (const forbidden of [
     "<form",
     "<button",
     "<input",
+    "<textarea",
     "method=\"post\"",
+    "action=",
     "form-action",
     "onclick",
     "callback_data",
@@ -870,6 +923,7 @@ function assertWebPanelHasNoActionsOrInternals(html: string): void {
     "<form",
     "<button",
     "<input",
+    "<textarea",
     "method=\"post\"",
     "action=",
     "onclick",

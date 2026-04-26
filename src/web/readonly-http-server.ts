@@ -69,7 +69,7 @@ function resolveRoute(urlValue: string, provider: WebReadonlyViewModelProvider):
     return { status: 404, html: renderGenericNotFoundPage() };
   }
 
-  if (pathname === "/") {
+  if (pathname === "/" || pathname === "/chat") {
     return { status: 200, html: renderHomePage(provider.getHomeViewModel()) };
   }
   if (pathname === "/readiness") {

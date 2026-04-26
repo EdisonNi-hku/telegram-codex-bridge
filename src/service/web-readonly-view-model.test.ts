@@ -305,7 +305,16 @@ test("home rows come from scoped sessions and expose final-answer availability w
   assert.equal(home.recentConversations[0]?.conversationId, conversationHandle);
   assert.equal(home.recentConversations[0]?.workspaceId, home.workspaces[0]?.workspaceId);
   assert.equal(home.recentConversations[0]?.finalAnswerAvailable, true);
+  assert.deepEqual(home.composer, {
+    state: "disabled",
+    label: "Message Codex",
+    placeholder: "Type a message to Codex",
+    disabledReason: "Sending from Web is landing next.",
+    capability: "web_send_landing_next"
+  });
   assert.equal(rawResult.state, "unavailable");
+  assert.equal(result.composer.state, "disabled");
+  assert.equal(result.composer.disabledReason, "Sending from Web is landing next.");
   assert.deepEqual(result.answers[0]?.body, { state: "unavailable", reason: "sanitized_body_not_provided" });
   const text = serialized({ home, result });
   for (const forbidden of [

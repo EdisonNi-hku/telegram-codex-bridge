@@ -21,27 +21,21 @@ interface SafeHtmlCell {
 type NavKey = "home" | "workspaces" | "pending" | "runtime" | "readiness" | "none";
 
 export function renderHomePage(vm: WebReadonlyHomeViewModel): string {
-  const continueRows = vm.recentConversations.filter((row) => conversationGroup(row.status) !== "completed");
   const resultRows = vm.recentConversations.filter((row) => row.finalAnswerAvailable || conversationGroup(row.status) === "completed");
-  return page("Home", "home", [
-    hero("Codex Console", "Your personal console for continuing Codex work, reviewing results, and browsing projects."),
+  return page("Web Chat", "home", [
+    hero("Web Chat", "Conversation work queue for Codex Bridge. Sending from Web is landing next; this slice is a safe read-only thread view."),
+    chatHomeSection(vm),
     homeOwnerAttentionSection(vm.pendingInteractions.state, vm.pendingInteractions.pendingInteractions),
-    conversationListSection(
-      "home-continue-working",
-      "Continue working",
-      continueRows,
-      "No active work needs attention right now."
-    ),
     cardListSection(
       "home-active-attention",
-      "Active / needs attention",
+      "Runtime summary",
       vm.runtime.activeTurns,
       (row) => runtimeTurnCard(row),
       "No active work needs attention right now."
     ),
     conversationListSection(
       "home-recent-results",
-      "Recent results",
+      "Recent results and artifacts",
       resultRows,
       "Recent results will appear here after Codex finishes work."
     ),
@@ -52,6 +46,7 @@ export function renderHomePage(vm: WebReadonlyHomeViewModel): string {
       (row) => workspaceCard(row),
       "Projects and workspaces will appear here once the bridge has recent workspace history."
     ),
+    utilityLinksPanel(),
     vm.warnings.length > 0 ? warnings(vm.warnings) : ""
   ]);
 }
@@ -97,8 +92,9 @@ export function renderConversationResultPage(vm: WebReadonlyConversationResultVi
     : [field("Status", "Unavailable"), field("Note", "This task is not available in the Web preview yet.")];
 
   return page("Task page", "none", [
-    hero("Task page", "Review the latest result, attention state, and activity for this conversation."),
-    `<section class="console-panel console-detail-heading" aria-labelledby="detail-heading"><p class="console-eyebrow">View-only preview</p><h2 id="detail-heading">${escapeHtml(title)}</h2><p><span class="console-badge">${escapeHtml(statusLabel(conversation?.status ?? vm.state))}</span> ${escapeHtml(statusCopy(conversation?.status ?? vm.state))}</p><div class="console-fields">${statusRows.join("")}</div></section>`,
+    hero("Conversation thread", "Read the selected Codex thread, latest result, attention state, and runtime summary."),
+    `<section class="console-panel console-detail-heading" aria-labelledby="detail-heading"><p class="console-eyebrow">Read-only thread</p><h2 id="detail-heading">${escapeHtml(title)}</h2><p><span class="console-badge">${escapeHtml(statusLabel(conversation?.status ?? vm.state))}</span> ${escapeHtml(statusCopy(conversation?.status ?? vm.state))}</p><div class="console-fields">${statusRows.join("")}</div></section>`,
+    disabledComposerPanel(vm.composer, conversation ? "This Web thread is read-only for Phase B." : "Choose an available conversation before sending from Web."),
     statusPanel(conversation?.status ?? vm.state),
     resultPanel(vm.answers),
     detailPendingPanel(vm.pendingInteractions.state, vm.pendingInteractions.pendingInteractions),
@@ -210,9 +206,9 @@ function page(title: string, active: NavKey, sections: string[]): string {
     "</head>",
     "<body class=\"console-shell\">",
     "<header class=\"console-shell__header\">",
-    "<div class=\"console-brand\"><p class=\"console-eyebrow\">Personal workspace</p><h1>Codex Console</h1><p class=\"console-posture\">View-only preview for continuing work and reviewing results.</p></div>",
+    "<div class=\"console-brand\"><p class=\"console-eyebrow\">Web Chat</p><h1>Codex Console</h1><p class=\"console-posture\">Chat-first, view-only preview for Codex Bridge work.</p></div>",
     "<nav class=\"console-shell__nav\" aria-label=\"Console navigation\">",
-    navLink("/", "Home", active === "home"),
+    navLink("/", "Chat", active === "home"),
     navLink("/workspaces", "Workspaces", active === "workspaces"),
     navLink("/interactions", "Pending", active === "pending"),
     navLink("/runtime", "Runtime", active === "runtime"),
@@ -353,6 +349,16 @@ a {
   display: grid;
   gap: 1rem;
 }
+.console-chat-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(min(100%, 320px), 0.85fr);
+  gap: 1rem;
+  align-items: start;
+}
+.console-thread-preview {
+  position: sticky;
+  top: 1rem;
+}
 .console-card-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
@@ -421,6 +427,27 @@ a {
   background: #101827;
   color: #eef4ff;
 }
+.console-composer {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px dashed rgba(36, 87, 214, 0.35);
+  border-radius: 18px;
+  background: var(--console-surface-soft);
+}
+.console-composer__box {
+  min-height: 4.25rem;
+  display: flex;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--console-border);
+  border-radius: 16px;
+  background: #ffffff;
+  color: var(--console-muted);
+}
+.console-composer p {
+  margin: 0;
+}
 .console-list {
   margin: 0;
   padding-left: 1.25rem;
@@ -440,6 +467,12 @@ a {
   .console-nav-link {
     flex: 1 1 auto;
     justify-content: center;
+  }
+  .console-chat-layout {
+    grid-template-columns: 1fr;
+  }
+  .console-thread-preview {
+    position: static;
   }
 }
 `.trim();
@@ -462,6 +495,42 @@ function cardListSection<T>(id: string, title: string, rows: T[], render: (row: 
     ? `<div class="console-card-list">${rows.map((row) => render(row)).join("")}</div>`
     : `<p class="console-empty">${escapeHtml(emptyCopy)}</p>`;
   return `<section class="console-section" aria-labelledby="${id}"><h2 id="${id}">${escapeHtml(title)}</h2>${body}</section>`;
+}
+
+function chatHomeSection(vm: WebReadonlyHomeViewModel): string {
+  const selected = vm.recentConversations[0] ?? null;
+  const queue = vm.recentConversations.length > 0
+    ? conversationListSection(
+      "chat-work-queue-list",
+      "Conversation work queue",
+      vm.recentConversations,
+      "No conversation threads are visible yet."
+    )
+    : `<section class="console-section" aria-labelledby="chat-work-queue-list"><h2 id="chat-work-queue-list">Conversation work queue</h2><p class="console-empty">No conversation threads are visible yet.</p></section>`;
+  const selectedPanel = selected
+    ? `<section class="console-panel console-thread-preview" aria-labelledby="selected-thread"><p class="console-eyebrow">Thread</p><h2 id="selected-thread">Selected thread preview</h2><article class="console-card"><h3>${cellHtml(conversationLink(selected.conversationHandle, selected.title))}</h3><p><span class="console-badge">${escapeHtml(statusLabel(selected.status))}</span> ${escapeHtml(conversationCopy(selected.status, selected.finalAnswerAvailable))}</p><div class="console-fields">${[
+      field("Last updated", selected.lastActivityAt),
+      field("Result", selected.finalAnswerAvailable ? "Available" : "Not ready yet"),
+      fieldHtml("Thread", cellHtml(conversationLink(selected.conversationHandle, "Open durable thread")))
+    ].join("")}</div></article>${disabledComposerPanel(vm.composer, "Open a thread to review more result, pending, and runtime details.")}</section>`
+    : `<section class="console-panel console-thread-preview" aria-labelledby="selected-thread"><p class="console-eyebrow">Thread</p><h2 id="selected-thread">Selected thread preview</h2><p class="console-empty">No thread selected. Conversation threads will appear here as Codex work is captured.</p>${disabledComposerPanel(vm.composer, "Choose a conversation when one is available.")}</section>`;
+
+  return `<section class="console-chat-layout" aria-label="Web Chat work queue">${queue}${selectedPanel}</section>`;
+}
+
+function disabledComposerPanel(
+  composer: WebReadonlyHomeViewModel["composer"],
+  note: string
+): string {
+  return `<section class="console-composer" aria-label="${escapeHtml(composer.label)}" aria-disabled="true"><div class="console-composer__box" role="textbox" aria-readonly="true" aria-disabled="true"><span>${escapeHtml(composer.placeholder)}</span></div><p><span class="console-badge">Read-only</span> ${escapeHtml(composer.disabledReason)} ${escapeHtml(note)}</p></section>`;
+}
+
+function utilityLinksPanel(): string {
+  return summaryPanel("Secondary utilities", [
+    fieldHtml("Runtime", '<a href="/runtime">Open runtime</a>'),
+    fieldHtml("Readiness", '<a href="/readiness">Open readiness</a>'),
+    fieldHtml("Pending", '<a href="/interactions">Open pending</a>')
+  ]);
 }
 
 function homeOwnerAttentionSection(state: string, rows: WebReadonlyPendingInteractionViewRow[]): string {
