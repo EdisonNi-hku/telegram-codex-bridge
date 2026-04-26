@@ -246,7 +246,7 @@ function resultPanel(answers: WebReadonlyConversationResultViewModel["answers"])
   const cards = answers.map((answer) => {
     const body = answer.body.state === "available"
       ? `<pre class="console-result-body">${escapeHtml(answer.body.text)}</pre>`
-      : `<p class="console-empty">Result metadata is available, but the answer text was not captured in a Web-safe format.</p>`;
+      : `<p class="console-empty">${escapeHtml(finalAnswerUnavailableCopy(answer.body.reason))}</p>`;
     return `<article class="console-card console-result-card"><h3>${escapeHtml(answer.kind)}</h3><div class="console-fields">${[
       field("Delivery", answer.deliveryState),
       field("Created", answer.createdAt),
@@ -255,6 +255,13 @@ function resultPanel(answers: WebReadonlyConversationResultViewModel["answers"])
   }).join("");
 
   return `<section class="console-panel console-result" aria-labelledby="result-heading"><h2 id="result-heading">Final answer/result</h2><div class="console-card-list">${cards}</div></section>`;
+}
+
+function finalAnswerUnavailableCopy(reason: string): string {
+  if (reason === "unsafe_final_answer_body") {
+    return "Final answer body unavailable: supplied answer text was rejected by the Web safety filter.";
+  }
+  return "Result metadata is available, but the answer text was not captured in a Web-safe format.";
 }
 
 function runtimePanel(state: string, rows: WebReadonlyRuntimeTurnRow[]): string {

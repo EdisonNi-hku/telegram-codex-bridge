@@ -5,11 +5,20 @@ import type { AddressInfo } from "node:net";
 
 import { createReadonlyAccessGate } from "./readonly-access.js";
 import { createReadonlyHttpServer } from "./readonly-http-server.js";
-import type { WebReadonlyViewModelProvider } from "../service/web-readonly-view-model.js";
+import type {
+  WebReadonlyConversationResultViewModel,
+  WebReadonlyViewModelProvider
+} from "../service/web-readonly-view-model.js";
 
 const token = "local-test-token";
 
-function makeProvider(calls: string[], options: { throwOnHome?: boolean } = {}): WebReadonlyViewModelProvider {
+function makeProvider(
+  calls: string[],
+  options: {
+    throwOnHome?: boolean;
+    detailAnswers?: WebReadonlyConversationResultViewModel["answers"];
+  } = {}
+): WebReadonlyViewModelProvider {
   return {
     getHomeViewModel() {
       calls.push("home");
@@ -125,7 +134,7 @@ function makeProvider(calls: string[], options: { throwOnHome?: boolean } = {}):
           createdAt: "2026-04-25T10:00:00.000Z",
           lastActivityAt: "2026-04-25T12:00:00.000Z"
         },
-        answers: [],
+        answers: options.detailAnswers ?? [],
         runtime: { state: "degraded", activeTurns: [] },
         pendingInteractions: { state: "unavailable", pendingInteractions: [] },
         readiness: { state: "ready", missingGates: [] },
@@ -318,6 +327,62 @@ test("authenticated conversation detail route uses only opaque handles and keeps
     assert.match(result.headers.get("content-security-policy") ?? "", /default-src 'none'/);
     assert.equal(result.headers.get("x-content-type-options"), "nosniff");
     assert.match(result.headers.get("content-type") ?? "", /^text\/html; charset=utf-8/);
+  });
+});
+
+test("authenticated conversation detail renders available final-answer body escaped and readable", async () => {
+  const calls: string[] = [];
+  await withServer({
+    provider: makeProvider(calls, {
+      detailAnswers: [
+        {
+          answerId: "answer-safe",
+          kind: "final_answer",
+          deliveryState: "delivered",
+          createdAt: "2026-04-25T12:10:00.000Z",
+          body: {
+            state: "available",
+            text: "Useful result:\n- Render <result> & \"details\" safely."
+          },
+          summary: "Final answer body was provided by a Web-safe source."
+        }
+      ]
+    }),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["conversation:cv_1234567890abcdef"]);
+    assert.match(result.text, /<pre class="console-result-body">Useful result:/);
+    assert.match(result.text, /Render &lt;result&gt; &amp; &quot;details&quot; safely\./);
+    assert.equal(result.text.includes("<result>"), false);
+    assert.equal(result.text.includes("Final answer body unavailable"), false);
+  });
+});
+
+test("authenticated conversation detail explains rejected final-answer body source", async () => {
+  const calls: string[] = [];
+  await withServer({
+    provider: makeProvider(calls, {
+      detailAnswers: [
+        {
+          answerId: "answer-unsafe",
+          kind: "final_answer",
+          deliveryState: "delivered",
+          createdAt: "2026-04-25T12:10:00.000Z",
+          body: { state: "unavailable", reason: "unsafe_final_answer_body" },
+          summary: "Final answer body was rejected by the Web safety filter."
+        }
+      ]
+    }),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["conversation:cv_1234567890abcdef"]);
+    assert.match(result.text, /Final answer body unavailable/);
+    assert.match(result.text, /rejected by the Web safety filter/);
+    assert.equal(result.text.includes("<table"), false);
   });
 });
 

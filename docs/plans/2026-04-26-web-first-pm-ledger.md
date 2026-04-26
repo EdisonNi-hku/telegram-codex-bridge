@@ -354,3 +354,24 @@ Controller smoke proof after the code slice:
 - Authenticated `/` returned 200, included the shared Console shell/nav, and did not contain the temporary bearer token, raw `/sessions/` links, local absolute paths, callback payload labels, or message-id labels.
 - Authenticated first `/conversations/:handle` returned 200, included the result panel, and passed the same leak checks.
 - Smoke HTML files were deleted and the local harness process was killed after proof.
+
+## Phase 3 Final Answer Body Source Refinement
+
+Completed on 2026-04-26 as Product Web Console MVP code slice 2.
+
+Result:
+
+- Conversation/task detail continues to render only existing sanitized Web-neutral final-answer body data from the optional sanitizer seam.
+- Available final-answer text is rendered as escaped readable result body content.
+- Missing body sources keep explicit unavailable copy; rejected bodies now show explicit Web safety-filter unavailable copy.
+- Injected bodies containing local paths or tokenized URLs are rejected instead of being redacted into visible body text.
+- `previewHtml` and `pages` remain forbidden as body sources; no platform preview/page scraping, routes, actions, downloads, uploads, raw terminal/protocol output, or auth/service wiring were added.
+
+TDD/verification evidence is recorded in `.hermes/phase3-final-answer-body-status.md`.
+
+Verification passed:
+
+- `node --import tsx --test src/service/web-readonly-view-model.test.ts src/web/readonly-http-server.test.ts`
+- `node --import tsx --test src/web/readonly-http-server.test.ts src/web/readonly-cli.test.ts src/service/web-readonly-live-provider.test.ts src/service/web-readonly-view-model.test.ts`
+- `npm run check`
+- `git diff --check`

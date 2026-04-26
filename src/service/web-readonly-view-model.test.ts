@@ -476,6 +476,60 @@ test("allowlists injected final-answer body text and rejects action/control mark
   assertNoForbiddenViewModelData(vm);
 });
 
+test("rejects injected final-answer bodies with local paths or tokenized URLs", () => {
+  const provider = createWebReadonlyViewModelProvider({
+    now: () => fixedNow,
+    operatorBinding: { chatId: "telegram-chat-123" },
+    store: {
+      listSessions: () => [session],
+      listFinalAnswerViews: () => [
+        {
+          answerId: "answer-path",
+          chatId: "telegram-chat-123",
+          deliveryMessageId: 100,
+          sessionId: "session-1",
+          threadId: "thread-secret-1",
+          turnId: "turn-secret-1",
+          kind: "final_answer",
+          deliveryState: "delivered",
+          previewHtml: "<b>Do not use Telegram preview</b>",
+          pages: ["Do not use Telegram-rendered pages"],
+          primaryActionConsumed: false,
+          createdAt: "2026-04-25T12:10:00.000Z"
+        },
+        {
+          answerId: "answer-url",
+          chatId: "telegram-chat-123",
+          deliveryMessageId: 101,
+          sessionId: "session-1",
+          threadId: "thread-secret-1",
+          turnId: "turn-secret-1",
+          kind: "final_answer",
+          deliveryState: "delivered",
+          previewHtml: "<b>Do not use Telegram preview</b>",
+          pages: ["Do not use Telegram-rendered pages"],
+          primaryActionConsumed: false,
+          createdAt: "2026-04-25T12:11:00.000Z"
+        }
+      ]
+    },
+    getSanitizedFinalAnswerBody: (answer) =>
+      answer.answerId === "answer-path"
+        ? "Completed in /home/ubuntu/secret-workspace/result.txt"
+        : "Download result at https://example.invalid/result.txt?token=abc123"
+  });
+
+  const workspace = provider.listWorkspaceViewModels().workspaces[0];
+  assert.ok(workspace);
+  const handle = provider.listWorkspaceConversationViewModels(workspace.workspaceId).conversations[0]?.conversationHandle ?? "";
+  const vm = provider.getConversationResultViewModel(handle);
+
+  assert.equal(vm.answers.length, 2);
+  assert.deepEqual(vm.answers[0]?.body, { state: "unavailable", reason: "unsafe_final_answer_body" });
+  assert.deepEqual(vm.answers[1]?.body, { state: "unavailable", reason: "unsafe_final_answer_body" });
+  assertNoForbiddenViewModelData(vm);
+});
+
 test("conversation results expose final-answer availability but not raw Telegram HTML by default", () => {
   const provider = createWebReadonlyViewModelProvider({
     now: () => fixedNow,

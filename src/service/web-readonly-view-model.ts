@@ -632,9 +632,7 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
             body: safeBody.state === "available"
               ? { state: "available", text: safeBody.text }
               : { state: "unavailable", reason: safeBody.reason },
-            summary: safeBody.state === "available"
-              ? "Final answer body was provided by an injected Web-safe sanitizer."
-              : "Final answer is available, but body is hidden until a Web-safe sanitized body is provided."
+            summary: finalAnswerSummary(safeBody)
           };
         });
 
@@ -1321,6 +1319,9 @@ function sanitizeFinalAnswerBody(value: string | null | undefined): WebReadonlyA
   if (containsUnsafeControlMarkup(raw)) {
     return { state: "unavailable", reason: "unsafe_final_answer_body" };
   }
+  if (containsForbiddenBodySource(raw)) {
+    return { state: "unavailable", reason: "unsafe_final_answer_body" };
+  }
 
   const stripped = stripTinySafeHtml(raw);
   if (!stripped) {
@@ -1329,6 +1330,9 @@ function sanitizeFinalAnswerBody(value: string | null | undefined): WebReadonlyA
 
   const decoded = decodeBasicHtmlEntities(stripped);
   if (containsUnsafeControlMarkup(decoded)) {
+    return { state: "unavailable", reason: "unsafe_final_answer_body" };
+  }
+  if (containsForbiddenBodySource(decoded)) {
     return { state: "unavailable", reason: "unsafe_final_answer_body" };
   }
 
@@ -1344,6 +1348,16 @@ function sanitizeFinalAnswerBody(value: string | null | undefined): WebReadonlyA
     return { state: "unavailable", reason: "unsafe_final_answer_body" };
   }
   return { state: "available", text };
+}
+
+function finalAnswerSummary(body: WebReadonlyAnswerBodyUnavailable | WebReadonlyAnswerBodyAvailable): string {
+  if (body.state === "available") {
+    return "Final answer body was provided by an injected Web-safe sanitizer.";
+  }
+  if (body.reason === "unsafe_final_answer_body") {
+    return "Final answer body was rejected by the Web safety filter.";
+  }
+  return "Final answer is available, but body is hidden until a Web-safe sanitized body is provided.";
 }
 
 function stripTinySafeHtml(value: string): string | null {
@@ -1378,6 +1392,15 @@ function containsUnsafeControlMarkup(value: string): boolean {
     /\b(?:submit|approve|interrupt|upload|switch|resume)\b/i,
     /(?:^|["'(\s])(?:tg|javascript|callback):/i,
     /\[[^\]]+\]\((?:tg|javascript|callback):[^)]*\)/i
+  ].some((pattern) => pattern.test(value));
+}
+
+function containsForbiddenBodySource(value: string): boolean {
+  return [
+    /\bfile:\/\/[^\s"'<>)]*/i,
+    /(?:^|[\s"'(])(?:\/(?:home|tmp|var|etc|root|Users|usr)\/[^\s<>"']*|~\/[^\s<>"']*|[A-Za-z]:\\[^\s<>"']*)/,
+    /\bhttps?:\/\/[^\s"'<>)]*[?&](?:access_?token|auth|authorization|bearer|key|sig|signature|token)=[^\s"'<>)]*/i,
+    /(?:^|["'(\s])(?:feishu|lark):\/\//i
   ].some((pattern) => pattern.test(value));
 }
 
