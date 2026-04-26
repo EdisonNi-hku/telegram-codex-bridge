@@ -4,6 +4,7 @@ layer: 2
 parent: docs/INDEX.md
 children:
   - docs/operations/install-and-admin.md
+  - docs/operations/web-preview-runbook.md
   - docs/operations/web-vps-mobile-access-and-security.md
 summary: router for install, configuration, service management, update, diagnostics, and future Web prototype access/security docs
 read_when:
@@ -19,11 +20,12 @@ source_of_truth:
 
 # Operations Index
 
-Use this directory for install, configuration, service management, update, diagnostics, and future Web prototype access/security planning.
+Use this directory for install, configuration, service management, update, diagnostics, the active owner Web preview runbook, and future Web prototype access/security planning.
 
 ## Open One Leaf
 
 - `install-and-admin.md` - install flow, config keys, paths, services, voice-input backends, update and restart behavior, and diagnostics.
+- `web-preview-runbook.md` - active owner-only Codex Console Web preview operations: start, stop, status, smoke, rotate, and rollback.
 - `web-vps-mobile-access-and-security.md` - future Web prototype VPS/mobile validation phases, protected URL exposure choices, access-control gates, forbidden-data defaults, and shutdown plan.
 
 ## Skip This Directory When

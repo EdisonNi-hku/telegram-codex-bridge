@@ -162,6 +162,11 @@ documents:
   layer: 3
   parent: docs/operations/README.md
   summary: current install, config, service-management, active-pack selection, update, and diagnostics contract for operators
+- path: docs/operations/web-preview-runbook.md
+  role: leaf
+  layer: 3
+  parent: docs/operations/README.md
+  summary: active owner-only Codex Console Web preview operations for start, stop, status, smoke, rotate, and rollback
 - path: docs/operations/web-vps-mobile-access-and-security.md
   role: leaf
   layer: 3
