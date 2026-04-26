@@ -435,7 +435,7 @@ test("authenticated HTML escapes hostile strings and emits no raw script/action/
     assert.match(result.text, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
     assert.match(result.text, /Codex Console/);
     assert.match(result.text, /Web Chat/);
-    assert.match(result.text, /Chat-first, view-only preview/);
+    assert.match(result.text, /Chat-first owner preview/);
     assert.match(result.text, /<header class="console-shell__header">/);
     assert.match(result.text, /<nav class="console-shell__nav" aria-label="Console navigation">/);
     for (const [href, label] of [

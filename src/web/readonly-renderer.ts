@@ -35,8 +35,14 @@ type WebSendFlashStatus = "accepted" | "blocked" | "rejected" | "unavailable" | 
 
 export function renderHomePage(vm: WebReadonlyHomeViewModel, options: WebReadonlyRenderOptions = {}): string {
   const resultRows = vm.recentConversations.filter((row) => row.finalAnswerAvailable || conversationGroup(row.status) === "completed");
+  const sendReady = Boolean(options.send?.csrfToken);
   return page("Web Chat", "home", [
-    hero("Web Chat", "Conversation work queue for Codex Bridge. Sending from Web is landing next; this slice is a safe read-only thread view."),
+    hero(
+      "Web Chat",
+      sendReady
+        ? "Conversation work queue for Codex Bridge. Send text from the browser and refresh the thread to watch runtime and result state."
+        : "Conversation work queue for Codex Bridge. Sending from Web is landing next; this slice is a safe read-only thread view."
+    ),
     chatHomeSection(vm, options),
     homeOwnerAttentionSection(vm.pendingInteractions.state, vm.pendingInteractions.pendingInteractions),
     cardListSection(
@@ -94,6 +100,7 @@ export function renderWorkspaceConversationListPage(vm: WebReadonlyWorkspaceConv
 export function renderConversationResultPage(vm: WebReadonlyConversationResultViewModel, options: WebReadonlyRenderOptions = {}): string {
   const conversation = vm.conversation;
   const title = conversation?.title ?? "Conversation unavailable";
+  const sendReady = Boolean(options.send?.csrfToken);
   const statusRows = conversation
     ? [
       field("Workspace", conversation.workspaceLabel),
@@ -105,8 +112,13 @@ export function renderConversationResultPage(vm: WebReadonlyConversationResultVi
     : [field("Status", "Unavailable"), field("Note", "This task is not available in the Web preview yet.")];
 
   return page("Task page", "none", [
-    hero("Conversation thread", "Read the selected Codex thread, latest result, attention state, and runtime summary."),
-    `<section class="console-panel console-detail-heading" aria-labelledby="detail-heading"><p class="console-eyebrow">Read-only thread</p><h2 id="detail-heading">${escapeHtml(title)}</h2><p><span class="console-badge">${escapeHtml(statusLabel(conversation?.status ?? vm.state))}</span> ${escapeHtml(statusCopy(conversation?.status ?? vm.state))}</p><div class="console-fields">${statusRows.join("")}</div></section>`,
+    hero(
+      "Conversation thread",
+      sendReady
+        ? "Read and continue the selected Codex thread, then refresh for runtime, attention, and result updates."
+        : "Read the selected Codex thread, latest result, attention state, and runtime summary. Sending from Web is landing next."
+    ),
+    `<section class="console-panel console-detail-heading" aria-labelledby="detail-heading"><p class="console-eyebrow">${sendReady ? "Live thread" : "Read-only thread"}</p><h2 id="detail-heading">${escapeHtml(title)}</h2><p><span class="console-badge">${escapeHtml(statusLabel(conversation?.status ?? vm.state))}</span> ${escapeHtml(statusCopy(conversation?.status ?? vm.state))}</p><div class="console-fields">${statusRows.join("")}</div></section>`,
     refreshPanel(conversation?.conversationHandle ?? null, conversation?.status ?? vm.state, options.flash?.status ?? null),
     composerPanel(
       vm.composer,
@@ -225,7 +237,7 @@ function page(title: string, active: NavKey, sections: string[]): string {
     "</head>",
     "<body class=\"console-shell\">",
     "<header class=\"console-shell__header\">",
-    "<div class=\"console-brand\"><p class=\"console-eyebrow\">Web Chat</p><h1>Codex Console</h1><p class=\"console-posture\">Chat-first, view-only preview for Codex Bridge work.</p></div>",
+    "<div class=\"console-brand\"><p class=\"console-eyebrow\">Web Chat</p><h1>Codex Console</h1><p class=\"console-posture\">Chat-first owner preview for Codex Bridge work.</p></div>",
     "<nav class=\"console-shell__nav\" aria-label=\"Console navigation\">",
     navLink("/", "Chat", active === "home"),
     navLink("/workspaces", "Workspaces", active === "workspaces"),
