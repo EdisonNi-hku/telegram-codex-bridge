@@ -31,10 +31,10 @@ Use this as the first low-context task handoff for future Codex Console / multi-
 
 ## One-Screen Current State
 
-**Owner direction, do not miss:** this is a personal owner project. The Web Console should now move toward a real, useful Web app experience, not a security/admin/readiness dashboard. Keep only right-sized safety guardrails in the background: token gate, no secret/token leaks, no raw local paths or platform IDs by default, and no destructive/write actions until explicitly approved. Product work should prioritize dashboard, workspace/conversation browsing, readable task/detail pages, recent results, and owner attention flows.
+**Owner direction, do not miss:** this is a personal owner project. The Web Console direction has pivoted to **Web Chat Platform**: Web should become a first-class chat surface for Codex Bridge, analogous to Telegram/Feishu. Do not steer future work back to dashboard/status/security/admin pages. Keep right-sized safety guardrails in the background: token gate, no secret/token leaks, no raw local paths or platform IDs by default, and no destructive/write actions beyond the explicitly chosen chat send lane.
 
 - Compatibility names stay unchanged: repo/package `telegram-codex-bridge`, CLI `ctb`, existing service/config/state paths.
-- Product language is **Codex Console**.
+- Product language is **Codex Console**; the primary Web experience is a chat/work conversation surface.
 - Internal shared direction is **Codex Bridge Core**.
 - Telegram is the stable first/default pack.
 - Feishu is a serious current pack with explicit setup/readiness caveats.
@@ -126,7 +126,7 @@ At closeout:
 2. **Owner proof package.** Capture sanitized mobile-width screenshot/HTML proof from the live owner preview now that the Runtime/Readiness slice has landed; verify no tokens, raw paths, raw IDs, conversation text overexposure, callback payloads, or platform internals.
 3. **Independent overclaim/security review.** Read-only review of Web UI copy, docs routing, forbidden data, and action-disabled boundaries before declaring the MVP reviewable.
 4. **Managed owner preview hardening.** Convert today’s temporary process chain into an explicit managed preview workflow only after owner approval: stable start/stop/rotate scripts, auth/session hardening, health checks, shutdown drill. Do not make it default service startup.
-5. **First gated action lane decision.** Only after read UX + protected access + overclaim/security review pass: choose approval/question answer or submit draft. Start with a no-op capability/readiness display before any mutating action.
+5. **First gated action lane decision.** Current pivot chooses text submit as the first Web Chat action lane after Phase B read UI. Start with a no-op/disabled composer in Phase B, then a text-only `POST /conversations/:handle/messages` in Phase C using the live bridge submit path.
 6. **Live Feishu tenant smoke.** Separate current-pack readiness track: verify text, cards, callbacks, file/image upload/download, long output, status/inspect, project/session selection, and degraded recovery.
 7. **Feishu UX hardening.** Convert smoke results into specific pack/readiness fixes; keep non-native pin/menu/audio/image-url limits explicit.
 8. **Docs context budget enforcement.** Keep routers pointing to this brief plus one leaf; archive or demote temporary plan files after each closeout.

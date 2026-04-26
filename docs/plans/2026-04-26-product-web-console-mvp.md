@@ -33,7 +33,7 @@ Phase 3 shifts the lane from substrate/security plumbing toward a real Product W
 
 ## Product Goal
 
-The MVP should let the owner open a browser on phone or desktop and immediately answer:
+The MVP direction has been superseded by the Web Chat Platform pivot: the owner should open a browser on phone or desktop and land in a conversation-first surface. The browser home should still answer:
 
 - What is my Codex Bridge doing right now?
 - Which workspaces/projects and conversations/tasks exist?
@@ -41,13 +41,13 @@ The MVP should let the owner open a browser on phone or desktop and immediately 
 - What was the final useful result, shown in a readable Web layout?
 - What needs my attention, without exposing raw platform internals or unsafe controls?
 
-A usable Web Console is not a debug portal and not a security center. It should feel like a workspace/conversation/task product surface: clear navigation, readable details, human status copy, friendly empty states, recent results, and mobile-first result reading. Runtime, readiness, and access information support the product experience; they are secondary utilities, not the product by themselves.
+A usable Web Console is not a debug portal, status dashboard, or security center. It should feel like a chat platform for Codex Bridge: conversations first, composer posture visible, readable details/results, human status copy, friendly empty states, recent results, and mobile-first result reading. Runtime, readiness, and access information support the product experience; they are secondary utilities, not the product by themselves.
 
 ## MVP Navigation And Information Architecture
 
 ### 1. Home
 
-Purpose: fast orientation and continuation, like a personal work console home screen.
+Purpose: primary chat home for continuing Codex Bridge conversations. `/` is the canonical Web Chat landing route; `/chat` may exist only as an alias.
 
 Content:
 
@@ -57,6 +57,7 @@ Content:
   - `Needs attention`: blocked turns, pending questions/approvals, failed/degraded tasks, shown as read-only cards in this lane;
   - `Recent results`: recent completed conversations/tasks and whether a readable result is available;
   - `Projects / workspaces`: safe workspace cards with counts and last activity.
+- Composer posture for the active/open conversation. It may be disabled in the read-only slice, but it must point clearly to the message-send slice.
 - Secondary utility links/cards for Runtime, Readiness, and Settings. These must not dominate the Home page.
 - Friendly empty states when data is absent: explain what will appear here once the bridge has conversations/results, rather than leading with scary degraded/security language.
 
