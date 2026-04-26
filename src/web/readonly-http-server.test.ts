@@ -20,6 +20,7 @@ function makeProvider(
   calls: string[],
   options: {
     throwOnHome?: boolean;
+    homeWorkspaces?: ReturnType<WebReadonlyViewModelProvider["getHomeViewModel"]>["workspaces"];
     homeConversations?: WebReadonlyConversationRow[];
     workspaceConversations?: WebReadonlyConversationRow[];
     detailAnswers?: WebReadonlyConversationResultViewModel["answers"];
@@ -42,7 +43,7 @@ function makeProvider(
         pageId: "web_home",
         state: "available",
         operator: { binding: "available" },
-        workspaces: [
+        workspaces: options.homeWorkspaces ?? [
           {
             workspaceId: "wk_safe_1",
             label: "<script>alert('x')</script> Console /home/ubuntu/secret token=abc callback_data=approve messageId=5",
@@ -69,7 +70,9 @@ function makeProvider(
             finalAnswerAvailable: true
           }
         ],
-        runtime: {
+        runtime: options.runtime
+          ? { state: options.runtime.state, activeTurns: options.runtime.activeTurns }
+          : {
           state: "available",
           activeTurns: [
             {
@@ -390,8 +393,8 @@ test("authenticated HTML escapes hostile strings and emits no raw script/action/
     assert.deepEqual(calls, ["home"]);
     assert.match(result.text, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
     assert.match(result.text, /Codex Console/);
-    assert.match(result.text, /Owner preview/);
-    assert.match(result.text, /read-only/i);
+    assert.match(result.text, /Personal workspace/);
+    assert.match(result.text, /View-only preview/);
     assert.match(result.text, /<header class="console-shell__header">/);
     assert.match(result.text, /<nav class="console-shell__nav" aria-label="Console navigation">/);
     for (const [href, label] of [
@@ -404,8 +407,8 @@ test("authenticated HTML escapes hostile strings and emits no raw script/action/
       assert.match(result.text, new RegExp(`<a[^>]*href="${href.replace("/", "\\/")}"[^>]*>${label}</a>`), `missing nav link ${href}: ${result.text}`);
     }
     assert.match(result.text, /class="console-card"/);
-    assert.match(result.text, /Recent conversations/);
-    assert.match(result.text, /Active turns/);
+    assert.match(result.text, /Recent results/);
+    assert.match(result.text, /Active \/ needs attention/);
     assert.equal(result.text.includes("<table"), false, `home should use card/list shell, not primary tables: ${result.text}`);
     assert.equal(result.text.includes("<script>"), false);
     assert.equal(result.text.includes("<img"), false);
@@ -423,17 +426,76 @@ test("authenticated HTML escapes hostile strings and emits no raw script/action/
   });
 });
 
+test("home renders a product dashboard with personal workflow sections", async () => {
+  const calls: string[] = [];
+  await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["home"]);
+    assert.match(result.text, /<h2 id="page-heading">Codex Console<\/h2>/);
+    assert.match(result.text, /Your personal console for continuing Codex work, reviewing results, and browsing projects\./);
+    for (const heading of [
+      "Continue working",
+      "Active / needs attention",
+      "Recent results",
+      "Projects / workspaces"
+    ]) {
+      assert.match(result.text, new RegExp(`<h2[^>]*>${escapeRegExp(heading)}</h2>`), `missing dashboard section ${heading}: ${result.text}`);
+    }
+    assert.match(result.text, /View-only preview/);
+    assert.match(result.text, /Open/);
+    assert.equal(result.text.includes("Current state"), false, `home should not be centered on status metrics: ${result.text}`);
+    assert.equal(result.text.includes("Settings / access posture"), false, `home should keep access posture off the landing dashboard: ${result.text}`);
+  });
+});
+
+test("home empty state is friendly product copy, not degraded/security copy", async () => {
+  const calls: string[] = [];
+  await withServer({
+    provider: makeProvider(calls, {
+      homeWorkspaces: [],
+      homeConversations: [],
+      runtime: {
+        generatedAt: "2026-04-26T00:00:00.000Z",
+        prototypeOnly: true,
+        readonly: true,
+        pageId: "web_runtime_context",
+        state: "available",
+        activeTurns: [],
+        warnings: []
+      }
+    }),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["home"]);
+    for (const copy of [
+      "No active work needs attention right now.",
+      "Recent results will appear here after Codex finishes work.",
+      "Projects and workspaces will appear here once the bridge has recent workspace history."
+    ]) {
+      assert.match(result.text, new RegExp(escapeRegExp(copy)), `missing friendly empty copy ${copy}: ${result.text}`);
+    }
+    assert.equal(result.text.includes("degraded"), false, `empty home should not lead with degraded copy: ${result.text}`);
+    assert.equal(result.text.includes("denied-by-default"), false, `empty home should not lead with security posture: ${result.text}`);
+  });
+});
+
 test("authenticated conversation detail route uses only opaque handles and keeps security headers", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
     const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef`, token);
     assert.equal(result.status, 200);
     assert.deepEqual(calls, ["conversation:cv_1234567890abcdef"]);
-    assert.match(result.text, /Conversation\/task detail/);
+    assert.match(result.text, /Task page/);
+    assert.match(result.text, /<h2 id="detail-heading">Readonly detail<\/h2>/);
+    assert.match(result.text, /Last updated/);
+    assert.match(result.text, /View-only preview/);
     assert.match(result.text, /<section class="console-panel console-result" aria-labelledby="result-heading">/);
-    assert.match(result.text, /Final answer\/result/);
-    assert.match(result.text, /Final answer body unavailable: this run has no sanitized Web-readable answer source yet\./);
-    assert.match(result.text, /Pending interactions/);
+    assert.match(result.text, /Result/);
+    assert.match(result.text, /No Web-ready final answer has been captured yet\. When Codex finishes with a shareable result, it will appear in this panel\./);
+    assert.match(result.text, /Needs attention/);
     assert.match(result.text, /Runtime/);
     assert.match(result.text, /Readiness/);
     assert.match(result.text, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
@@ -500,8 +562,8 @@ test("authenticated conversation detail explains rejected final-answer body sour
     const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef`, token);
     assert.equal(result.status, 200);
     assert.deepEqual(calls, ["conversation:cv_1234567890abcdef"]);
-    assert.match(result.text, /Final answer body unavailable/);
-    assert.match(result.text, /rejected by the Web safety filter/);
+    assert.match(result.text, /This result is available in the bridge conversation, but it is not shown in the Web preview yet\./);
+    assert.equal(result.text.includes("Web safety filter"), false);
     assert.equal(result.text.includes("<table"), false);
   });
 });
@@ -568,7 +630,7 @@ test("conversation detail pending panel shares read-only pending cards and actio
     const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef`, token);
     assert.equal(result.status, 200);
     assert.deepEqual(calls, ["conversation:cv_1234567890abcdef"]);
-    assert.match(result.text, /Pending interactions/);
+    assert.match(result.text, /Needs attention/);
     assert.match(result.text, /Needs owner attention/);
     assert.match(result.text, /Codex needs a sizing answer\./);
     assert.match(result.text, /Codex asked a question; responses are not enabled in this preview\./);

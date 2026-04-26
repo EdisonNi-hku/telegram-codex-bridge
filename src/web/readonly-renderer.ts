@@ -21,49 +21,49 @@ interface SafeHtmlCell {
 type NavKey = "home" | "workspaces" | "pending" | "runtime" | "readiness" | "none";
 
 export function renderHomePage(vm: WebReadonlyHomeViewModel): string {
-  const pendingCount = vm.runtime.activeTurns.filter((row) => isAttentionState(row.status) || Boolean(row.blockedReason)).length;
+  const continueRows = vm.recentConversations.filter((row) => conversationGroup(row.status) !== "completed");
+  const resultRows = vm.recentConversations.filter((row) => row.finalAnswerAvailable || conversationGroup(row.status) === "completed");
   return page("Home", "home", [
-    hero("Owner preview", "Read-only prototype for understanding current workspace, conversation/task, runtime, pending, and readiness state."),
-    `<section class="console-section" aria-labelledby="home-orientation"><h2 id="home-orientation">Current state</h2><div class="console-card-grid">${[
-      metricCard("Runtime", vm.runtime.state, runtimeCopy(vm.runtime.state, vm.runtime.activeTurns.length)),
-      metricCard("Pending attention", String(pendingCount), pendingCount === 0 ? "No blocked task is visible in this read-only preview." : "One or more conversation/tasks may need owner attention."),
-      metricCard("Operator", vm.operator.binding, vm.operator.binding === "available" ? "Private owner binding is available for this preview." : "Owner binding is unavailable; visible data may be incomplete."),
-      metricCard("Readiness", vm.readiness.state, readinessCopy(vm.readiness.state, vm.readiness.missingGates.length))
-    ].join("")}</div></section>`,
-    cardListSection(
-      "home-workspaces",
-      "Workspaces",
-      vm.workspaces,
-      (row) => workspaceCard(row),
-      "Workspace data is unavailable in this read-only preview."
-    ),
+    hero("Codex Console", "Your personal console for continuing Codex work, reviewing results, and browsing projects."),
     conversationListSection(
-      "home-recent-conversations",
-      "Recent conversations",
-      vm.recentConversations,
-      "No recent conversation/task data is available yet."
+      "home-continue-working",
+      "Continue working",
+      continueRows,
+      "No active work needs attention right now."
     ),
     cardListSection(
-      "home-active-turns",
-      "Active turns",
+      "home-active-attention",
+      "Active / needs attention",
       vm.runtime.activeTurns,
       (row) => runtimeTurnCard(row),
-      "No active task is known."
+      "No active work needs attention right now."
     ),
-    warnings(vm.warnings)
+    conversationListSection(
+      "home-recent-results",
+      "Recent results",
+      resultRows,
+      "Recent results will appear here after Codex finishes work."
+    ),
+    cardListSection(
+      "home-workspaces",
+      "Projects / workspaces",
+      vm.workspaces,
+      (row) => workspaceCard(row),
+      "Projects and workspaces will appear here once the bridge has recent workspace history."
+    ),
+    vm.warnings.length > 0 ? warnings(vm.warnings) : ""
   ]);
 }
 
 export function renderWorkspaceListPage(vm: WebReadonlyWorkspaceListViewModel): string {
   return page("Workspaces", "workspaces", [
-    hero("Workspaces", "Browse safe workspace context. Opening a workspace only reads conversation/task state."),
-    summaryPanel("Workspace status", [field("State", vm.state), field("Posture", "Read-only owner preview")]),
+    hero("Projects / workspaces", "Browse projects with recent Codex conversations and open the work you want to review."),
     cardListSection(
       "workspace-list",
-      "Workspace list",
+      "Projects / workspaces",
       vm.workspaces,
       (row) => workspaceCard(row),
-      "Workspace data is unavailable or no workspaces are visible."
+      "Projects and workspaces will appear here once the bridge has recent workspace history."
     ),
     warnings(vm.warnings)
   ]);
@@ -71,13 +71,12 @@ export function renderWorkspaceListPage(vm: WebReadonlyWorkspaceListViewModel): 
 
 export function renderWorkspaceConversationListPage(vm: WebReadonlyWorkspaceConversationListViewModel): string {
   return page("Workspace conversations", "workspaces", [
-    hero("Workspace conversations", "Open a conversation/task detail page through an opaque Console handle."),
-    summaryPanel("Conversation list status", [field("State", vm.state), field("Empty state", vm.emptyState ?? "—")]),
+    hero("Workspace conversations", "Pick a task or recent result from this workspace."),
     conversationListSection(
       "workspace-conversations",
-      "Conversations/tasks",
+      "Conversations",
       vm.conversations,
-      vm.emptyState === "no_conversations" ? "No conversation/task rows are visible for this workspace." : "Conversation/task data is unavailable."
+      vm.emptyState === "no_conversations" ? "No conversations are visible for this workspace yet." : "Conversations will appear here when workspace history is available."
     ),
     warnings(vm.warnings)
   ]);
@@ -89,20 +88,19 @@ export function renderConversationResultPage(vm: WebReadonlyConversationResultVi
   const statusRows = conversation
     ? [
       field("Workspace", conversation.workspaceLabel),
-      field("State", statusLabel(conversation.status)),
-      field("Status note", statusCopy(conversation.status)),
-      field("Archived", yesNo(conversation.archived)),
+      field("Status", statusLabel(conversation.status)),
+      field("Last updated", conversation.lastActivityAt),
       field("Created", conversation.createdAt),
-      field("Last activity", conversation.lastActivityAt)
+      field("Archive", conversation.archived ? "Archived" : "Active")
     ]
-    : [field("State", "Unavailable"), field("Note", "Conversation/task data is unavailable from the safe read model.")];
+    : [field("Status", "Unavailable"), field("Note", "This task is not available in the Web preview yet.")];
 
-  return page("Conversation/task detail", "none", [
-    hero("Conversation/task detail", "Read-only owner preview. Result, pending state, runtime, readiness, and warnings are separated for safe review."),
-    `<section class="console-panel console-detail-heading" aria-labelledby="detail-heading"><h2 id="detail-heading">${escapeHtml(title)}</h2><div class="console-fields">${statusRows.join("")}</div></section>`,
+  return page("Task page", "none", [
+    hero("Task page", "Review the latest result, attention state, and activity for this conversation."),
+    `<section class="console-panel console-detail-heading" aria-labelledby="detail-heading"><p class="console-eyebrow">View-only preview</p><h2 id="detail-heading">${escapeHtml(title)}</h2><p><span class="console-badge">${escapeHtml(statusLabel(conversation?.status ?? vm.state))}</span> ${escapeHtml(statusCopy(conversation?.status ?? vm.state))}</p><div class="console-fields">${statusRows.join("")}</div></section>`,
     statusPanel(conversation?.status ?? vm.state),
     resultPanel(vm.answers),
-    pendingPanel(vm.pendingInteractions.state, vm.pendingInteractions.pendingInteractions),
+    detailPendingPanel(vm.pendingInteractions.state, vm.pendingInteractions.pendingInteractions),
     runtimePanel(vm.runtime.state, vm.runtime.activeTurns),
     readinessPanel(vm.readiness.state, vm.readiness.missingGates),
     warnings(vm.warnings)
@@ -210,7 +208,7 @@ function page(title: string, active: NavKey, sections: string[]): string {
     "</head>",
     "<body class=\"console-shell\">",
     "<header class=\"console-shell__header\">",
-    "<div class=\"console-brand\"><p class=\"console-eyebrow\">Owner preview · read-only prototype</p><h1>Codex Console</h1><p class=\"console-posture\">Private, denied-by-default Console preview. Runtime data is read-only. Actions are not enabled.</p></div>",
+    "<div class=\"console-brand\"><p class=\"console-eyebrow\">Personal workspace</p><h1>Codex Console</h1><p class=\"console-posture\">View-only preview for continuing work and reviewing results.</p></div>",
     "<nav class=\"console-shell__nav\" aria-label=\"Console navigation\">",
     navLink("/", "Home", active === "home"),
     navLink("/workspaces", "Workspaces", active === "workspaces"),
@@ -234,10 +232,6 @@ function navLink(href: string, label: string, active: boolean): string {
 
 function hero(label: string, body: string): string {
   return `<section class="console-hero" aria-labelledby="page-heading"><p class="console-eyebrow">${escapeHtml(label)}</p><h2 id="page-heading">${escapeHtml(label)}</h2><p>${escapeHtml(body)}</p></section>`;
-}
-
-function metricCard(label: string, value: string, body: string): string {
-  return `<article class="console-card"><p class="console-eyebrow">${escapeHtml(label)}</p><p class="console-metric">${escapeHtml(value)}</p><p>${escapeHtml(body)}</p></article>`;
 }
 
 function summaryPanel(title: string, rows: string[]): string {
@@ -279,28 +273,50 @@ function statusPanel(status: string): string {
 
 function resultPanel(answers: WebReadonlyConversationResultViewModel["answers"]): string {
   if (answers.length === 0) {
-    return `<section class="console-panel console-result" aria-labelledby="result-heading"><h2 id="result-heading">Final answer/result</h2><p class="console-empty">Final answer body unavailable: this run has no sanitized Web-readable answer source yet.</p></section>`;
+    return `<section class="console-panel console-result" aria-labelledby="result-heading"><h2 id="result-heading">Result</h2><p class="console-empty">No Web-ready final answer has been captured yet. When Codex finishes with a shareable result, it will appear in this panel.</p></section>`;
   }
 
   const cards = answers.map((answer) => {
     const body = answer.body.state === "available"
       ? `<pre class="console-result-body">${escapeHtml(answer.body.text)}</pre>`
       : `<p class="console-empty">${escapeHtml(finalAnswerUnavailableCopy(answer.body.reason))}</p>`;
-    return `<article class="console-card console-result-card"><h3>${escapeHtml(answer.kind)}</h3><div class="console-fields">${[
-      field("Delivery", answer.deliveryState),
+    return `<article class="console-card console-result-card"><h3>${escapeHtml(answerKindLabel(answer.kind))}</h3><div class="console-fields">${[
+      field("Delivery", deliveryLabel(answer.deliveryState)),
       field("Created", answer.createdAt),
-      field("Summary", answer.summary)
+      field("Summary", resultSummary(answer))
     ].join("")}</div>${body}</article>`;
   }).join("");
 
-  return `<section class="console-panel console-result" aria-labelledby="result-heading"><h2 id="result-heading">Final answer/result</h2><div class="console-card-list">${cards}</div></section>`;
+  return `<section class="console-panel console-result" aria-labelledby="result-heading"><h2 id="result-heading">Result</h2><div class="console-card-list">${cards}</div></section>`;
 }
 
 function finalAnswerUnavailableCopy(reason: string): string {
   if (reason === "unsafe_final_answer_body") {
-    return "Final answer body unavailable: supplied answer text was rejected by the Web safety filter.";
+    return "This result is available in the bridge conversation, but it is not shown in the Web preview yet.";
   }
-  return "Result metadata is available, but the answer text was not captured in a Web-safe format.";
+  return "Result metadata is available, but the answer text has not been captured for this Web preview yet.";
+}
+
+function answerKindLabel(kind: string): string {
+  const normalized = kind.toLowerCase();
+  if (normalized.includes("final")) return "Final answer";
+  if (normalized.includes("summary")) return "Summary";
+  return "Result";
+}
+
+function deliveryLabel(state: string): string {
+  const normalized = state.toLowerCase();
+  if (normalized.includes("deliver")) return "Delivered";
+  if (normalized.includes("pending")) return "Pending";
+  if (normalized.includes("fail")) return "Not delivered";
+  return statusLabel(state);
+}
+
+function resultSummary(answer: WebReadonlyConversationResultViewModel["answers"][number]): string {
+  if (answer.body.state === "unavailable") {
+    return "Result metadata was captured, but the answer text is only available outside this Web preview.";
+  }
+  return answer.summary;
 }
 
 function runtimePanel(state: string, rows: WebReadonlyRuntimeTurnRow[]): string {
@@ -315,6 +331,10 @@ function runtimePanel(state: string, rows: WebReadonlyRuntimeTurnRow[]): string 
 
 function pendingPanel(state: string, rows: WebReadonlyPendingInteractionViewRow[]): string {
   return pendingInteractionListSection("pending-heading", "Pending interactions", state, rows);
+}
+
+function detailPendingPanel(state: string, rows: WebReadonlyPendingInteractionViewRow[]): string {
+  return pendingInteractionListSection("attention-heading", "Needs attention", state, rows);
 }
 
 function readinessPanel(state: string, missingGates: string[]): string {
@@ -359,18 +379,28 @@ function listItems(items: string[], emptyCopy: string): string {
 
 function workspaceCard(row: WebReadonlyWorkspaceRow): string {
   return `<article class="console-card"><h3>${cellHtml(workspaceLink(row.workspaceId, row.label))}</h3><div class="console-fields">${[
-    field("Availability", row.availability),
+    field("Status", availabilityLabel(row.availability)),
     field("Conversations", String(row.conversationCount)),
     field("Pinned", yesNo(row.pinned)),
-    field("Last activity", row.lastActivityAt ?? "—")
+    field("Last updated", row.lastActivityAt ?? "—"),
+    fieldHtml("Open", cellHtml(workspaceLink(row.workspaceId, "Open")))
   ].join("")}</div></article>`;
+}
+
+function availabilityLabel(state: string): string {
+  const normalized = state.toLowerCase();
+  if (normalized.includes("available") || normalized === "present") return "Available";
+  if (normalized.includes("degraded") || normalized.includes("partial")) return "Partial";
+  if (normalized.includes("empty")) return "No recent work";
+  return "Unavailable";
 }
 
 function conversationCard(row: WebReadonlyConversationRow): string {
   return `<article class="console-card"><h3>${cellHtml(conversationLink(row.conversationHandle, row.title))}</h3><p><span class="console-badge">${escapeHtml(statusLabel(row.status))}</span> ${escapeHtml(conversationCopy(row.status, row.finalAnswerAvailable))}</p><div class="console-fields">${[
-    field("Last activity", row.lastActivityAt),
-    field("Final result", row.finalAnswerAvailable ? "available" : "unavailable"),
-    field("Archived", yesNo(row.archived))
+    field("Last updated", row.lastActivityAt),
+    field("Result", row.finalAnswerAvailable ? "Available" : "Not ready yet"),
+    field("Archive", row.archived ? "Archived" : "Active"),
+    fieldHtml("Open", cellHtml(conversationLink(row.conversationHandle, "Open")))
   ].join("")}</div></article>`;
 }
 
@@ -473,10 +503,6 @@ function warnings(items: string[]): string {
 
 function yesNo(value: boolean): string {
   return value ? "yes" : "no";
-}
-
-function isAttentionState(status: string): boolean {
-  return /pending|blocked|question|approval|needs/i.test(status);
 }
 
 function conversationGroup(status: string): "attention" | "running" | "completed" | "other" {
