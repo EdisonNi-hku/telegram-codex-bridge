@@ -5,23 +5,21 @@ parent: docs/roadmap/README.md
 children: []
 summary: active continuation brief for the next Codex Console tasks, optimized for low-context agent handoff
 read_when:
-  - starting any new Codex Console platform-abstraction task
+  - starting any new Codex Console platform-abstraction or Web Console task
   - deciding which current docs are relevant and which historical docs to skip
   - preparing future implementation or review prompts after the current continuation baseline
 skip_when:
   - the task is only about shipped install/runtime behavior and a Tier-1 leaf is already known
 source_of_truth:
   - docs/roadmap/codex-console-continuation-brief.md
-  - docs/architecture/platform-capability-matrix.md
-  - docs/architecture/platform-pack-boundary.md
-  - docs/future/multi-platform-core-prd.md
-  - docs/future/web-app-control-surface-sketch.md
-  - docs/future/web-mvp-scope-and-readiness.md
-  - docs/operations/web-vps-mobile-access-and-security.md
-  - docs/architecture/web-app-preimplementation-contract.md
-  - docs/plans/2026-04-26-web-first-phase-1-closeout.md
+  - docs/plans/2026-04-26-product-web-console-mvp.md
+  - docs/plans/2026-04-26-web-first-pm-ledger.md
   - docs/plans/2026-04-26-web-protected-owner-access-plan.md
   - docs/plans/2026-04-26-web-gated-actions-design.md
+  - docs/architecture/platform-capability-matrix.md
+  - docs/architecture/platform-pack-boundary.md
+  - docs/future/web-mvp-scope-and-readiness.md
+  - docs/operations/web-vps-mobile-access-and-security.md
 -->
 
 # Codex Console Continuation Brief
@@ -29,7 +27,7 @@ source_of_truth:
 Status: active continuation entrypoint
 Last updated: 2026-04-26
 
-Use this as the first task handoff for future Codex Console / multi-platform bridge work. It replaces ad-hoc reading of older dated plans.
+Use this as the first low-context task handoff for future Codex Console / multi-platform bridge work. It replaces ad-hoc reading of older dated plans.
 
 ## One-Screen Current State
 
@@ -38,42 +36,45 @@ Use this as the first task handoff for future Codex Console / multi-platform bri
 - Internal shared direction is **Codex Bridge Core**.
 - Telegram is the stable first/default pack.
 - Feishu is a serious current pack with explicit setup/readiness caveats.
-- Web has a local, explicit, token-gated read-only prototype substrate on this branch with workspace rows, recent conversations, and opaque `cv_...` conversation detail handles; do not claim current support, public availability, mobile readiness, or action capability.
-- Future Web actions have a docs-only gated-actions design for sequencing and acceptance criteria; no Web submit, approval-answer, interrupt, upload/download, or raw terminal action is implemented.
+- Web has a temporary owner-only, read-only preview at `https://codex.guicheng.xyz` through Cloudflare Tunnel + local cookie proxy + localhost Web origin. This is **not** shipped/public/supported Web service.
+- PR #16 branch has landed Phase 3 Product Web Console MVP read UX slices through commit `d66ff3d`:
+  - real Product Web Console MVP IA/spec;
+  - mobile-first `Codex Console` shell and readable conversation/task detail;
+  - Web-safe final-answer body rendering only from injected sanitized sources;
+  - conversation/task grouping with user-language state labels;
+  - read-only Pending/Approvals cards with explicit action-disabled copy.
+- Web actions remain unimplemented: no submit, approval-answer, question-answer, interrupt, upload/download, raw terminal, or project/session writes.
 - App is alive but deferred until Web proves the shared contract path.
-- Recent Phase 2 work is captured in `docs/plans/2026-04-26-codex-console-phase2-release-note.md`.
+- Detailed run/verification/smoke state lives in `docs/plans/2026-04-26-web-first-pm-ledger.md`.
 
 ## Default Agent Reading Budget
 
 For a new task, read at most:
 
 1. this brief;
-2. one current-truth leaf from `docs/product/`, `docs/architecture/`, or `docs/operations/`;
-3. one implementation file or one protocol/future doc only if the task genuinely needs it.
+2. one active leaf from the table below;
+3. one implementation file only if the task is coding.
 
-Do not read the old dated plan archive by default. It is for archaeology, not active task context.
+Do not read archived dated plans by default. They are for archaeology, not active task context.
 
 ## Active Source Set
 
 | Need | Open |
 |---|---|
+| current Web Console MVP scope, IA, read UX acceptance, final-answer source rules, ordered next slices | `docs/plans/2026-04-26-product-web-console-mvp.md` |
+| detailed PM/controller ledger, exact commits, smoke proof, monitor cleanup, current branch state | `docs/plans/2026-04-26-web-first-pm-ledger.md` |
+| protected owner-only access design gate, threat model, auth/session requirements, rollback, acceptance checklist | `docs/plans/2026-04-26-web-protected-owner-access-plan.md` |
+| future Web submit, approval-answer, and interrupt action sequencing, safety preconditions, audit, tests, rollback gates | `docs/plans/2026-04-26-web-gated-actions-design.md` |
+| approved Web-first MVP scope/readiness, validation path, and support-claim guardrails | `docs/future/web-mvp-scope-and-readiness.md` |
+| future Web prototype VPS/mobile access, protected URL exposure, forbidden-data defaults, shutdown plan | `docs/operations/web-vps-mobile-access-and-security.md` |
+| Web/App pre-implementation Core/state/API contract and readiness gates | `docs/architecture/web-app-preimplementation-contract.md` |
 | current Telegram/Feishu capability and Web/App target rows | `docs/architecture/platform-capability-matrix.md` |
 | current pack contract and Telegram/Feishu ownership split | `docs/architecture/platform-pack-boundary.md` |
 | current install/admin and pack selection | `docs/operations/install-and-admin.md` |
 | current product scope and compatibility boundary | `docs/product/v1-scope.md` |
 | future Core product/architecture direction | `docs/future/multi-platform-core-prd.md` |
 | future Web/App control surface sketch | `docs/future/web-app-control-surface-sketch.md` |
-| approved Web-first MVP scope/readiness, action gates, VPS/mobile validation, and support-claim guardrails | `docs/future/web-mvp-scope-and-readiness.md` |
-| future Web prototype VPS/mobile access, protected URL exposure, forbidden-data defaults, and shutdown plan | `docs/operations/web-vps-mobile-access-and-security.md` |
-| Web/App pre-implementation contract and readiness gates | `docs/architecture/web-app-preimplementation-contract.md` |
-| Web-first Phase 1 local prototype closeout and next-stage tracker | `docs/plans/2026-04-26-web-first-phase-1-closeout.md` |
-| detailed PM/controller ledger for delegated implementation runs | `docs/plans/2026-04-26-web-first-pm-ledger.md` |
-| protected owner-only access design gate, threat model, auth/session requirements, rollback, and acceptance checklist | `docs/plans/2026-04-26-web-protected-owner-access-plan.md` |
-| future Web submit, approval-answer, and interrupt action sequencing, safety preconditions, audit, tests, and rollback gates | `docs/plans/2026-04-26-web-gated-actions-design.md` |
-| future read-only Web prototype implementation planning | `docs/plans/2026-04-26-web-readonly-prototype-implementation-plan.md` |
-| future read-only Web view-model inventory and first adapter seam | `docs/plans/2026-04-26-web-viewmodel-inventory.md` |
 | official-API-backed Feishu audit and live-smoke caveat | `docs/plans/2026-04-26-feishu-official-capability-audit.md` |
-| Phase 2 PR summary and verification | `docs/plans/2026-04-26-codex-console-phase2-release-note.md` |
 
 ## Archive Policy
 
@@ -81,42 +82,52 @@ Move a doc to `docs/archive/` when all are true:
 
 - it describes a closed historical milestone, superseded PRD, or implementation plan;
 - it is not the smallest source for any current or next task;
-- reading it before current docs would likely bias an agent toward stale Telegram-only or pre-Core assumptions.
+- reading it before current docs would likely bias an agent toward stale assumptions.
 
 Archived docs remain searchable for reconstruction, but routers must not send agents there unless the task explicitly asks for history or current sources conflict.
 
 ## Current Archive Decisions
 
-Archived from active routing in this cleanup:
+Archived from active routing in this closeout:
 
-- old V2/V3 future PRDs and engineering-evaluation material;
-- old March implementation plans for V2/V3, runtime-card, project-picker, runtime-hub, systemd, performance, and final-answer recovery work.
+- Phase 2 plan and release note;
+- Web-first project command board;
+- Web MVP controller triage;
+- Web view-model inventory;
+- Web read-only prototype implementation plan;
+- Web-first Phase 1 closeout.
 
-Kept outside archive because they still help the current direction:
+Kept active because they still gate the next work:
 
-- March 23 and March 30 multi-platform Core / binding / surface notes;
-- April 8 multi-platform Core + Feishu implementation plan;
-- April 9 Feishu hardening plan;
-- April 26 Feishu official capability audit;
-- April 26 Phase 2 plan and release note.
+- Product Web Console MVP spec;
+- PM/controller ledger;
+- protected owner access plan;
+- gated actions design;
+- current Feishu audit / hardening context.
+
+## Current Runtime / Monitor State
+
+At closeout:
+
+- Hermes cron monitors for this PR/workstream: none enabled.
+- Temporary owner preview may be running as manual processes:
+  - `node --import tsx src/cli.ts web readonly --platform feishu --port 45682`;
+  - `/tmp/ctb_web_cookie_proxy.py` on `127.0.0.1:45683`;
+  - `cloudflared tunnel --config /home/ubuntu/.cloudflared/codex-console.yml run codex-console`.
+- This preview is intentionally temporary. Use `/tmp/ctb-stop-codex-console-preview.sh` or kill the tracked processes when the owner is done reviewing.
+- Local `.hermes/` status artifacts are scratch evidence and are intentionally uncommitted.
 
 ## Next Sustainable Task Queue
 
-1. **W4 formal Web MVP docs landing — complete/landed.** Use the Web MVP scope/readiness leaf as the owner-readable source for the approved Web-first, App-later, read-mostly first lane.
-2. **W5 VPS/mobile access and security plan — complete/landed.** Use the operations access/security plan as the owner-readable source for screenshot-first validation, protected URL exposure choices, forbidden-data defaults, phone checklist, and shutdown gates.
-3. **Independent scope/readiness/security review — complete/landed.** The action-control wording blocker was fixed; first lane is strictly read-mostly with actions deferred to later lanes.
-4. **Web prototype implementation planning — complete/landed.** Use the read-only prototype implementation plan for page skeletons, candidate Core/state surfaces, redacted data contracts, auth assumptions, validation flow, forbidden scope, and future coding milestones.
-5. **W9 read-only Web view-model inventory — complete/landed.** Use the inventory for the service-level adapter seam and remaining read-only gaps, not routes, auth middleware, task submission, or action controls.
-6. **Web-first Phase 1 local read-only prototype — complete/landed on branch.** Use the closeout leaf for the exact commits, source files, smoke proof, verification, and current non-claims.
-7. **Phase 2A owner-reviewable proof — complete/landed as sanitized controller evidence.** Use the PM ledger for the local proof notes; do not expose a public URL for proof review.
-8. **Phase 2B useful read-only data depth — partial/landed.** Conversation detail now uses opaque `cv_...` handles; final-answer body readability remains gated on a safe source.
-9. **Phase 2C protected owner access design — complete/landed as docs-only gate.** Use the protected owner access plan before any URL exposure; no unauthenticated URL, action controls, service-default Web exposure, or support claim.
-10. **Phase 2D gated actions design — complete/landed as docs-only gate.** Use the gated-actions design before any Web submit, approval-answer, or interrupt implementation; actions remain unimplemented and blocked behind read-only MVP plus protected owner access acceptance.
-11. **Protected owner access implementation slices.** Later work should start with config seam, explicit command flag, auth/session hardening, one private-network/tunnel wrapper, health/shutdown check, and smoke proof.
-12. **Future Web action lane 0 only after access gates pass.** First action-adjacent slice should be no-op readiness/capability display, not submit; approval-answer, interrupt, and submit remain separately gated.
-13. **Live Feishu tenant smoke.** Verify text, cards, callbacks, file/image upload/download, long output, status/inspect, project/session selection, and degraded recovery as a separate current-pack readiness track.
-14. **Feishu UX hardening.** Convert smoke results into specific pack/readiness fixes; keep non-native pin/menu/audio/image-url limits explicit.
-15. **Docs context budget enforcement and PR hygiene.** Keep routers pointing to this brief plus one leaf; archive or demote temporary plan files after closeout, and include verification commands in each continuation PR.
+1. **PR #16 check/merge path.** Confirm latest Ubuntu checks pass; Windows failures are a documented non-Web baseline unless a new Web-specific failure appears. Update PR body if needed before merge.
+2. **Runtime / Readiness / Settings read page.** Next Product Web Console MVP code slice: turn runtime/readiness/settings into safe owner-language panels. No actions.
+3. **Owner proof package.** Capture sanitized mobile-width screenshot/HTML proof from the live owner preview after the Runtime/Readiness slice; verify no tokens, raw paths, raw IDs, conversation text overexposure, callback payloads, or platform internals.
+4. **Managed owner preview hardening.** Convert today’s temporary process chain into an explicit managed preview workflow only after owner approval: stable start/stop/rotate scripts, auth/session hardening, health checks, shutdown drill. Do not make it default service startup.
+5. **Independent overclaim/security review.** Read-only review of Web UI copy, docs routing, forbidden data, and action-disabled boundaries before declaring the MVP reviewable.
+6. **First gated action lane decision.** Only after read UX and protected owner access pass: choose approval/question answer or submit draft. Start with a no-op capability/readiness display before any mutating action.
+7. **Live Feishu tenant smoke.** Separate current-pack readiness track: verify text, cards, callbacks, file/image upload/download, long output, status/inspect, project/session selection, and degraded recovery.
+8. **Feishu UX hardening.** Convert smoke results into specific pack/readiness fixes; keep non-native pin/menu/audio/image-url limits explicit.
+9. **Docs context budget enforcement.** Keep routers pointing to this brief plus one leaf; archive or demote temporary plan files after each closeout.
 
 ## Noise Checks Before Adding A New Doc
 

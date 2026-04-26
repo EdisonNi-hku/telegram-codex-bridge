@@ -14,7 +14,7 @@ skip_when:
 source_of_truth:
   - docs/plans/2026-04-26-web-first-pm-ledger.md
   - docs/roadmap/codex-console-continuation-brief.md
-  - docs/plans/2026-04-26-web-viewmodel-inventory.md
+  - docs/plans/2026-04-26-product-web-console-mvp.md
   - docs/plans/2026-04-26-web-gated-actions-design.md
 -->
 
@@ -301,7 +301,7 @@ Controller smoke proof showed `--platform feishu` can make the local authenticat
 
 ## Phase 3 Current State: Product Web Console MVP
 
-Phase 3 has started as a docs/planning landing, not runtime implementation.
+Phase 3 has landed the first product-shaped read-only Web Console MVP slices on PR #16 through `d66ff3d`.
 
 Durable MVP spec:
 
@@ -408,3 +408,39 @@ Result:
 - No action controls, forms, POST method hints, submit/approval/question/interrupt URLs, callback payloads, raw pending IDs, platform message IDs, tokens, or local paths were added.
 
 TDD/verification evidence is recorded in `.hermes/phase3-pending-approvals-status.md`.
+
+Verification passed:
+
+- `node --import tsx --test src/web/readonly-http-server.test.ts src/service/web-readonly-view-model.test.ts`
+- `node --import tsx --test src/web/readonly-http-server.test.ts src/web/readonly-cli.test.ts src/service/web-readonly-live-provider.test.ts src/service/web-readonly-view-model.test.ts`
+- `npm run check`
+- `git diff --check`
+
+## Session Closeout: Phase 3 Read-only MVP Slices
+
+Closeout state on 2026-04-26:
+
+- Latest pushed PR #16 commit: `d66ff3d feat: add Web pending approvals read view`.
+- Hermes cron monitors for this workstream: none enabled after closeout checks.
+- GitHub checks at closeout: latest Ubuntu jobs were running/passing in the expected pattern; Windows jobs remain the documented baseline risk unless a new Web-specific failure appears.
+- Temporary owner preview was restarted on the latest branch and verified through `https://codex.guicheng.xyz/owner-login` with cookie proxy and localhost Web origin.
+- Public owner preview verification passed: login page 200, authenticated Home 200, authenticated conversation detail 200, shared Console shell/nav present, result panel present, and no bearer token, `/sessions/`, local path, callback payload label, or message-id label in captured HTML.
+- Scratch `.hermes/` status artifacts remain uncommitted intentionally.
+
+Archived/demoted during closeout:
+
+- Phase 2 plan and release note.
+- Web-first project command board.
+- Web MVP controller triage.
+- Web view-model inventory.
+- Web read-only prototype implementation plan.
+- Web-first Phase 1 closeout.
+
+Next recommended queue:
+
+1. Finish PR #16 checks/merge path, treating Windows failures as baseline only if they match prior non-Web failures.
+2. Implement Runtime/Readiness/Settings read-only page in safe owner language.
+3. Produce owner-reviewable screenshot/HTML proof from the protected preview.
+4. Harden managed owner preview start/stop/rotate workflow; do not make Web default service startup.
+5. Run independent overclaim/security review before any MVP-support wording.
+6. Decide first gated action lane only after read UX + protected access gates pass.

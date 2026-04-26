@@ -1,3 +1,4 @@
+<!-- archived: moved from active plans after Phase 3 closeout; historical reconstruction only. Start new work from docs/roadmap/codex-console-continuation-brief.md. -->
 <!-- docmeta
 role: leaf
 layer: 3

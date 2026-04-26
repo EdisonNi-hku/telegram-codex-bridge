@@ -1,3 +1,4 @@
+<!-- archived: moved from active plans after Phase 3 closeout; historical reconstruction only. Start new work from docs/roadmap/codex-console-continuation-brief.md. -->
 # Codex Console Phase 2 Release Note
 
 Status: ready for PR

@@ -293,26 +293,24 @@ Non-goals for this MVP lane:
 
 Order matters: the immediate next code slice should deliver the first real Console shell/readable conversation detail UI, not more substrate-only work.
 
-1. **Console shell and readable conversation detail UI**
-   - Convert the existing read-only HTML into a mobile-first Console shell with Home navigation, safe badges, readable cards, and conversation/task detail layout.
-   - Use existing safe view-model fields only.
-   - Preserve token/auth gate and opaque handles.
-   - Tests: static render assertions for nav, mobile-friendly structure classes/sections, escaped content, no raw IDs/paths/tokens, and unavailable final-answer copy.
+1. **Console shell and readable conversation detail UI — landed in `75271a6`**
+   - Existing read-only HTML now uses a mobile-first Console shell with Home navigation, safe badges, readable cards, and conversation/task detail layout.
+   - Token/auth gate, opaque handles, escaping/scrubbing, and unavailable final-answer copy were preserved.
 
-2. **Final-answer body source refinement**
-   - Wire only existing sanitized Web-neutral final-answer body where present.
-   - Add explicit unavailable/degraded rendering when absent.
-   - Tests: present body renders escaped/readable; absent source never scrapes Telegram/Feishu/debug HTML.
+2. **Final-answer body source refinement — landed in `530b9d3`**
+   - Existing sanitized Web-neutral final-answer body renders when present.
+   - Missing/rejected body sources render explicit unavailable/degraded copy.
+   - Telegram/Feishu/debug HTML, local paths, token URLs, callbacks, raw logs, and protocol payloads remain forbidden body sources.
 
-3. **Conversation/task list grouping and state language**
-   - Add user-language groups and state labels for running, blocked, pending question, pending approval, done, failed, degraded, unavailable.
-   - Tests: all canonical states render safe copy and no platform enum leaks.
+3. **Conversation/task list grouping and state language — landed in `afcf574`**
+   - Home and workspace conversation/task rows are grouped into owner-visible states such as Needs attention, Running now, Recently completed, and Other/Older.
+   - Canonical states render user-language labels/copy instead of raw enum-style display.
 
-4. **Pending/Approvals read-only page or section**
-   - Surface pending interactions as read-only cards linked to source conversation/task.
-   - Tests: pending/resolved/expired/stale/duplicate/failed states render; no action submission endpoints or controls are active.
+4. **Pending/Approvals read-only page or section — landed in `d66ff3d`**
+   - Pending interactions render as read-only owner attention cards with safe grouped states.
+   - Responses are explicitly disabled; no action submission endpoints or controls are active.
 
-5. **Runtime/readiness/settings read page**
+5. **Runtime/readiness/settings read page — next**
    - Render compact and detailed runtime/readiness matrix in safe owner language.
    - Tests: degraded/unavailable runtime copy, denied-by-default posture, no secrets/paths/log dumps.
 
