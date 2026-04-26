@@ -87,10 +87,23 @@ Goal: restart managed preview, smoke public URL, capture proof, update PR, mark 
 ## Active processes
 
 - Phase D live wiring: completed and accepted 2026-04-27.
+- Phase E live preview proof: completed 2026-04-27.
 
 ## Next action
 
-Commit/push Phase D live Web Chat wiring, then execute Phase E: enable live managed preview, smoke owner login/home/conversation/composer/POST behavior, verify no raw internals leak, update PR body, and pause this cron when Web Chat is proven usable.
+Web Chat is live on the managed owner preview. The browser chat surface is owner-authenticated, shows conversations, exposes an enabled composer, accepts Web POST submissions into the live bridge, and shows refresh/status affordances. No further autonomous PM loop is needed unless the owner reopens scope.
+
+## Phase E live proof
+
+Completed: 2026-04-27
+
+- Deployed the live Web Chat build to the managed bridge install.
+- Enabled the bridge-owned local Web Chat upstream behind the owner cookie proxy.
+- Restarted the managed preview in live mode at `https://codex.guicheng.xyz`.
+- Smoked owner login, Home, conversation detail, composer presence, direct unauthenticated upstream denial, public URL auth, and safe POST behavior.
+- Sent one harmless local live Web message through the Web composer path and received `accepted` from the bridge submit seam.
+- Verified smoke responses did not include bearer/session/owner secrets, raw chat/session/thread/turn ids, local paths, stack traces, or app-server payloads.
+- Updated PR #16 with live Web Chat scope, tests, preview URL, and Ubuntu/Windows scope note.
 
 ## Phase A findings
 
