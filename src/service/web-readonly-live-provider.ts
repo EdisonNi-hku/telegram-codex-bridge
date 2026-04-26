@@ -133,7 +133,8 @@ function createScopedStoreReader(
 
   const scopedStore: WebReadonlyStoreReader = {};
   if (store.listSessions) {
-    scopedStore.listSessions = (_chatId, options) => store.listSessions?.(binding.chatId, options) ?? [];
+    scopedStore.listSessions = (_chatId, options) =>
+      (store.listSessions?.(binding.chatId, options) ?? []).filter((session) => scopedSession(session, binding));
   }
   if (store.getSessionById) {
     scopedStore.getSessionById = (sessionId) => scopedSession(store.getSessionById?.(sessionId) ?? null, binding);

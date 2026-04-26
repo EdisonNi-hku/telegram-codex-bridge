@@ -119,9 +119,9 @@ test("one binding scopes sessions and final-answer metadata internally without e
         calls.push(`sessions:${chatId}`);
         return [safeSession];
       },
-      getSessionById: (sessionId) => {
-        calls.push(`session:${sessionId}`);
-        return safeSession;
+      getSessionById: (_sessionId) => {
+        calls.push("session:raw");
+        throw new Error("detail lookup must not use raw session id");
       },
       listFinalAnswerViews: (chatId) => {
         calls.push(`answers:${chatId}`);
@@ -160,13 +160,17 @@ test("one binding scopes sessions and final-answer metadata internally without e
   const workspace = provider.listWorkspaceViewModels().workspaces[0];
   assert.ok(workspace);
   const conversations = provider.listWorkspaceConversationViewModels(workspace.workspaceId);
-  const result = provider.getConversationResultViewModel("session-1");
+  const conversationHandle = conversations.conversations[0]?.conversationHandle ?? "";
+  const result = provider.getConversationResultViewModel(conversationHandle);
+  const rawResult = provider.getConversationResultViewModel("session-1");
   const pending = provider.getPendingInteractionsViewModel();
 
   assert.equal(conversations.state, "available");
-  assert.equal(conversations.conversations[0]?.conversationId, "session-1");
+  assert.match(conversations.conversations[0]?.conversationId ?? "", /^cv_[a-f0-9]{16}$/);
+  assert.equal(conversations.conversations[0]?.conversationId, conversationHandle);
   assert.equal(conversations.conversations[0]?.finalAnswerAvailable, true);
   assert.equal(result.state, "available");
+  assert.equal(rawResult.state, "unavailable");
   assert.equal(result.answers[0]?.answerId, "answer-1");
   assert.deepEqual(result.answers[0]?.body, { state: "unavailable", reason: "sanitized_body_not_provided" });
   assert.equal(pending.state, "available");
@@ -174,6 +178,9 @@ test("one binding scopes sessions and final-answer metadata internally without e
     "answers:chat-secret",
     "answers:chat-secret",
     "pending:chat-secret",
+    "pending:chat-secret",
+    "sessions:chat-secret",
+    "sessions:chat-secret",
     "sessions:chat-secret",
     "sessions:chat-secret"
   ]);
@@ -218,6 +225,49 @@ test("unscoped recent project and stat readers cannot populate live Web workspac
     assert.equal(text.includes(forbidden), false, `live view model leaked ${forbidden}: ${text}`);
   }
   assertNoForbiddenLiveData(vm);
+});
+
+test("conversation detail resolves only through the single binding's opaque handle", () => {
+  const otherSession = {
+    ...safeSession,
+    sessionId: "session-other",
+    chatId: "chat-other",
+    telegramChatId: "telegram-chat-other",
+    displayName: "Other operator conversation",
+    lastTurnId: "turn-other"
+  };
+  const store = {
+    listSessions: () => [safeSession, otherSession],
+    listFinalAnswerViews: () => []
+  };
+  const secretProvider = createWebReadonlyLiveProvider({
+    now: () => fixedNow,
+    auth: { listOperatorBindings: () => [{ chatId: "chat-secret" }] },
+    store
+  });
+  const otherProvider = createWebReadonlyLiveProvider({
+    now: () => fixedNow,
+    auth: { listOperatorBindings: () => [{ chatId: "chat-other" }] },
+    store
+  });
+
+  const secretWorkspace = secretProvider.listWorkspaceViewModels().workspaces[0];
+  assert.ok(secretWorkspace);
+  const secretHandle = secretProvider.listWorkspaceConversationViewModels(secretWorkspace.workspaceId).conversations[0]?.conversationHandle ?? "";
+  const otherWorkspace = otherProvider.listWorkspaceViewModels().workspaces[0];
+  assert.ok(otherWorkspace);
+  const otherHandle = otherProvider.listWorkspaceConversationViewModels(otherWorkspace.workspaceId).conversations[0]?.conversationHandle ?? "";
+
+  assert.match(secretHandle, /^cv_[a-f0-9]{16}$/);
+  assert.match(otherHandle, /^cv_[a-f0-9]{16}$/);
+  assert.notEqual(secretHandle, otherHandle);
+  assert.equal(secretProvider.getConversationResultViewModel(secretHandle).state, "available");
+  assert.equal(secretProvider.getConversationResultViewModel(otherHandle).state, "unavailable");
+  assert.equal(secretProvider.getConversationResultViewModel("session-1").state, "unavailable");
+  assertNoForbiddenLiveData({
+    secret: secretProvider.getConversationResultViewModel(secretHandle),
+    otherAttempt: secretProvider.getConversationResultViewModel(otherHandle)
+  });
 });
 
 test("multiple bindings return safe unavailable/degraded behavior instead of guessing", () => {
@@ -281,7 +331,7 @@ test("store throws surface generic warnings only", () => {
   assert.equal(workspaces.state, "degraded");
   assert.deepEqual(workspaces.warnings, ["sessions_unavailable"]);
   assert.equal(result.state, "unavailable");
-  assert.deepEqual(result.warnings, ["conversation_not_available"]);
+  assert.deepEqual(result.warnings, ["conversation_data_unavailable"]);
   assert.equal(pending.state, "unavailable");
   assert.deepEqual(pending.warnings, ["pending_interactions_unavailable"]);
   assertNoForbiddenLiveData({ workspaces, result, pending });

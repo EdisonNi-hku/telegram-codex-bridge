@@ -37,7 +37,8 @@ function makeProvider(calls: string[], options: { throwOnHome?: boolean } = {}):
         ],
         recentConversations: [
           {
-            conversationId: "session-1",
+            conversationId: "cv_1234567890abcdef",
+            conversationHandle: "cv_1234567890abcdef",
             workspaceId: "wk_safe_1",
             title: "Need <b>escape</b> & no submit approve interrupt upload switch resume",
             status: "running",
@@ -85,21 +86,49 @@ function makeProvider(calls: string[], options: { throwOnHome?: boolean } = {}):
         pageId: "web_workspace_conversations",
         state: "available",
         workspaceId,
-        conversations: [],
-        emptyState: "no_conversations",
+        conversations: [
+          {
+            conversationId: "cv_1234567890abcdef",
+            conversationHandle: "cv_1234567890abcdef",
+            workspaceId,
+            title: "Readonly detail",
+            status: "completed",
+            failureReason: null,
+            archived: false,
+            createdAt: "2026-04-25T10:00:00.000Z",
+            lastActivityAt: "2026-04-25T12:00:00.000Z",
+            lastTurnStatus: "completed",
+            finalAnswerAvailable: true
+          }
+        ],
+        emptyState: null,
         warnings: []
       };
     },
-    getConversationResultViewModel(sessionId: string) {
-      calls.push(`session:${sessionId}`);
+    getConversationResultViewModel(conversationHandle: string) {
+      calls.push(`conversation:${conversationHandle}`);
       return {
         generatedAt: "2026-04-26T00:00:00.000Z",
         prototypeOnly: true,
         readonly: true,
         pageId: "web_conversation_result",
         state: "available",
-        conversation: null,
+        conversation: {
+          conversationId: conversationHandle,
+          conversationHandle,
+          workspaceId: "wk_safe_1",
+          title: "Readonly detail",
+          workspaceLabel: "Console Core",
+          status: "completed",
+          failureReason: null,
+          archived: false,
+          createdAt: "2026-04-25T10:00:00.000Z",
+          lastActivityAt: "2026-04-25T12:00:00.000Z"
+        },
         answers: [],
+        runtime: { state: "degraded", activeTurns: [] },
+        pendingInteractions: { state: "unavailable", pendingInteractions: [] },
+        readiness: { state: "ready", missingGates: [] },
         warnings: []
       };
     },
@@ -239,9 +268,53 @@ test("authenticated HTML escapes hostile strings and emits no raw script/action/
     for (const forbidden of ["/home/ubuntu/secret", "token=abc", "callback_data", "messageId"]) {
       assert.equal(result.text.includes(forbidden), false, `rendered forbidden raw value ${forbidden}: ${result.text}`);
     }
-    for (const forbidden of ["<form", "<button", "<input", "onclick", "href=", "submit", "approve", "interrupt", "upload", "switch", "resume"]) {
+    assert.match(result.text, /href="\/workspaces\/wk_safe_1\/conversations"/);
+    assert.match(result.text, /href="\/conversations\/cv_1234567890abcdef"/);
+    assert.equal(result.text.includes("/sessions/"), false);
+    for (const forbidden of ["<form", "<button", "<input", "onclick", "download=", "?token", "href=\"#", "submit", "approve", "interrupt", "upload", "switch", "resume"]) {
       assert.equal(result.text.toLowerCase().includes(forbidden), false, `rendered forbidden content ${forbidden}: ${result.text}`);
     }
+  });
+});
+
+test("authenticated conversation detail route uses only opaque handles and keeps security headers", async () => {
+  const calls: string[] = [];
+  await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/conversations/cv_1234567890abcdef`, token);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls, ["conversation:cv_1234567890abcdef"]);
+    assert.match(result.text, /Conversation result/);
+    assert.match(result.text, /Readonly detail/);
+    assert.equal(result.text.includes("/sessions/"), false);
+    assert.equal(result.text.includes("session-1"), false);
+    for (const forbidden of [token, "/home/ubuntu/secret", "callback_data", "messageId", "<form", "<button", "<input", "onclick", "download=", "?token", "href=\"#"]) {
+      assert.equal(result.text.includes(forbidden), false, `detail leaked ${forbidden}: ${result.text}`);
+    }
+    assert.equal(result.headers.get("cache-control"), "no-store");
+    assert.match(result.headers.get("content-security-policy") ?? "", /default-src 'none'/);
+    assert.equal(result.headers.get("x-content-type-options"), "nosniff");
+    assert.match(result.headers.get("content-type") ?? "", /^text\/html; charset=utf-8/);
+  });
+});
+
+test("raw session and unsafe conversation route parts are generic 404s", async () => {
+  const calls: string[] = [];
+  await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
+    for (const path of [
+      "/sessions/session-1",
+      "/sessions/session-1/artifacts",
+      "/conversations/session-1",
+      "/conversations/cv_1234567890abcdeg",
+      "/conversations/%2Ftmp%2Fsecret",
+      "/workspaces/%2Ftmp%2Fsecret/conversations"
+    ]) {
+      const result = await get(`${baseUrl}${path}`, token);
+      assert.equal(result.status, 404, path);
+      assert.match(result.text, /Not found/);
+      assert.equal(result.text.includes("session-1"), false);
+      assert.equal(result.text.includes("/tmp/secret"), false);
+    }
+    assert.deepEqual(calls, []);
   });
 });
 

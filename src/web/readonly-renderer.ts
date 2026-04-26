@@ -11,6 +11,10 @@ import type {
   WebReadonlyWorkspaceListViewModel
 } from "../service/web-readonly-view-model.js";
 
+interface SafeHtmlCell {
+  __safeHtml: string;
+}
+
 export function renderHomePage(vm: WebReadonlyHomeViewModel): string {
   return page("Codex Console Web prototype", [
     section("Prototype", [
@@ -23,12 +27,22 @@ export function renderHomePage(vm: WebReadonlyHomeViewModel): string {
     table(
       "Workspaces",
       ["Workspace", "Conversations", "Pinned", "Last activity"],
-      vm.workspaces.map((row) => [row.label, String(row.conversationCount), yesNo(row.pinned), row.lastActivityAt ?? "—"])
+      vm.workspaces.map((row) => [
+        workspaceLink(row.workspaceId, row.label),
+        String(row.conversationCount),
+        yesNo(row.pinned),
+        row.lastActivityAt ?? "—"
+      ])
     ),
     table(
       "Recent conversations",
       ["Conversation", "Status", "Last activity", "Final answer"],
-      vm.recentConversations.map((row) => [row.title, row.status, row.lastActivityAt, yesNo(row.finalAnswerAvailable)])
+      vm.recentConversations.map((row) => [
+        conversationLink(row.conversationHandle, row.title),
+        row.status,
+        row.lastActivityAt,
+        yesNo(row.finalAnswerAvailable)
+      ])
     ),
     table(
       "Active turns",
@@ -46,7 +60,7 @@ export function renderWorkspaceListPage(vm: WebReadonlyWorkspaceListViewModel): 
       "Workspaces",
       ["Workspace", "Availability", "Conversations", "Pinned", "Last activity", "Source"],
       vm.workspaces.map((row) => [
-        row.label,
+        workspaceLink(row.workspaceId, row.label),
         row.availability,
         String(row.conversationCount),
         yesNo(row.pinned),
@@ -65,7 +79,7 @@ export function renderWorkspaceConversationListPage(vm: WebReadonlyWorkspaceConv
       "Conversations",
       ["Conversation", "Status", "Archived", "Created", "Last activity", "Final answer"],
       vm.conversations.map((row) => [
-        row.title,
+        conversationLink(row.conversationHandle, row.title),
         row.status,
         yesNo(row.archived),
         row.createdAt,
@@ -102,6 +116,17 @@ export function renderConversationResultPage(vm: WebReadonlyConversationResultVi
         answer.body.state === "available" ? answer.body.text : answer.body.reason
       ])
     ),
+    table(
+      "Runtime",
+      ["Status", "Summary", "Blocked"],
+      vm.runtime.activeTurns.map((row) => [row.status, row.summary ?? "—", row.blockedReason ?? "—"])
+    ),
+    table(
+      "Pending interactions",
+      ["Status", "Kind", "Blocking reason", "Summary", "Created", "Availability"],
+      vm.pendingInteractions.pendingInteractions.map((row) => pendingInteractionRow(row))
+    ),
+    list("Readiness missing gates", vm.readiness.missingGates),
     warnings(vm.warnings)
   ]);
 }
@@ -199,9 +224,9 @@ function pair(label: string, value: unknown): string {
   return `<strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}`;
 }
 
-function table(title: string, headings: string[], rows: unknown[][]): string {
+function table(title: string, headings: string[], rows: Array<Array<unknown | SafeHtmlCell>>): string {
   const body = rows.length > 0
-    ? rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("\n")
+    ? rows.map((row) => `<tr>${row.map((cell) => `<td>${cellHtml(cell)}</td>`).join("")}</tr>`).join("\n")
     : `<tr><td colspan="${headings.length}">${escapeHtml("No rows")}</td></tr>`;
   return [
     `<section><h2>${escapeHtml(title)}</h2>`,
@@ -210,6 +235,31 @@ function table(title: string, headings: string[], rows: unknown[][]): string {
     `<tbody>${body}</tbody>`,
     "</table></section>"
   ].join("\n");
+}
+
+function cellHtml(value: unknown | SafeHtmlCell): string {
+  if (isSafeHtmlCell(value)) {
+    return value.__safeHtml;
+  }
+  return escapeHtml(value);
+}
+
+function isSafeHtmlCell(value: unknown): value is SafeHtmlCell {
+  return typeof value === "object" && value !== null && typeof (value as SafeHtmlCell).__safeHtml === "string";
+}
+
+function conversationLink(handle: string, label: string): SafeHtmlCell {
+  if (!/^cv_[a-f0-9]{16}$/.test(handle)) {
+    return { __safeHtml: escapeHtml(label) };
+  }
+  return { __safeHtml: `<a href="/conversations/${handle}">${escapeHtml(label)}</a>` };
+}
+
+function workspaceLink(workspaceId: string, label: string): SafeHtmlCell {
+  if (!/^wk_[A-Za-z0-9_-]{1,80}$/.test(workspaceId)) {
+    return { __safeHtml: escapeHtml(label) };
+  }
+  return { __safeHtml: `<a href="/workspaces/${workspaceId}/conversations">${escapeHtml(label)}</a>` };
 }
 
 function list(title: string, items: string[]): string {

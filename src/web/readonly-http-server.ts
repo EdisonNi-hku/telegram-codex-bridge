@@ -3,7 +3,6 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { WebReadonlyViewModelProvider } from "../service/web-readonly-view-model.js";
 import type { ReadonlyAccessGate } from "./readonly-access.js";
 import {
-  renderConversationArtifactCatalogPage,
   renderConversationResultPage,
   renderGenericErrorPage,
   renderGenericNotFoundPage,
@@ -80,39 +79,23 @@ function resolveRoute(urlValue: string, provider: WebReadonlyViewModelProvider):
     return { status: 200, html: renderPendingInteractionsPage(provider.getPendingInteractionsViewModel()) };
   }
 
-  const artifactsMatch = /^\/sessions\/([^/]+)\/artifacts$/.exec(pathname);
-  if (artifactsMatch?.[1]) {
+  const conversationMatch = /^\/conversations\/(cv_[a-f0-9]{16})$/.exec(pathname);
+  if (conversationMatch?.[1]) {
     return {
       status: 200,
-      html: renderConversationArtifactCatalogPage(provider.getConversationArtifactCatalogViewModel(decodeRoutePart(artifactsMatch[1])))
+      html: renderConversationResultPage(provider.getConversationResultViewModel(conversationMatch[1]))
     };
   }
 
-  const sessionMatch = /^\/sessions\/([^/]+)$/.exec(pathname);
-  if (sessionMatch?.[1]) {
-    return {
-      status: 200,
-      html: renderConversationResultPage(provider.getConversationResultViewModel(decodeRoutePart(sessionMatch[1])))
-    };
-  }
-
-  const workspaceMatch = /^\/workspaces\/([^/]+)\/conversations$/.exec(pathname);
+  const workspaceMatch = /^\/workspaces\/(wk_[A-Za-z0-9_-]{1,80})\/conversations$/.exec(pathname);
   if (workspaceMatch?.[1]) {
     return {
       status: 200,
-      html: renderWorkspaceConversationListPage(provider.listWorkspaceConversationViewModels(decodeRoutePart(workspaceMatch[1])))
+      html: renderWorkspaceConversationListPage(provider.listWorkspaceConversationViewModels(workspaceMatch[1]))
     };
   }
 
   return { status: 404, html: renderGenericNotFoundPage() };
-}
-
-function decodeRoutePart(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
 }
 
 function send(response: ServerResponse, status: number, html: string, headOnly: boolean): void {

@@ -272,7 +272,9 @@ test("home rows come from scoped sessions and expose final-answer availability w
     operatorBinding: { chatId: "telegram-chat-123" },
     store: {
       listSessions: () => [session],
-      getSessionById: () => session,
+      getSessionById: () => {
+        throw new Error("detail lookup must not use raw session id");
+      },
       listFinalAnswerViews: () => [
         {
           answerId: "answer-1",
@@ -292,18 +294,23 @@ test("home rows come from scoped sessions and expose final-answer availability w
   });
 
   const home = provider.getHomeViewModel();
-  const result = provider.getConversationResultViewModel("session-1");
+  const conversationHandle = home.recentConversations[0]?.conversationHandle ?? "";
+  const result = provider.getConversationResultViewModel(conversationHandle);
+  const rawResult = provider.getConversationResultViewModel("session-1");
 
   assert.equal(home.state, "available");
   assert.equal(home.workspaces.length, 1);
   assert.equal(home.recentConversations.length, 1);
-  assert.equal(home.recentConversations[0]?.conversationId, "session-1");
+  assert.match(home.recentConversations[0]?.conversationId ?? "", /^cv_[a-f0-9]{16}$/);
+  assert.equal(home.recentConversations[0]?.conversationId, conversationHandle);
   assert.equal(home.recentConversations[0]?.workspaceId, home.workspaces[0]?.workspaceId);
   assert.equal(home.recentConversations[0]?.finalAnswerAvailable, true);
+  assert.equal(rawResult.state, "unavailable");
   assert.deepEqual(result.answers[0]?.body, { state: "unavailable", reason: "sanitized_body_not_provided" });
   const text = serialized({ home, result });
   for (const forbidden of [
     "/home/ubuntu/secret-workspace",
+    "session-1",
     "telegram-chat-123",
     "thread-secret-1",
     "Secret final answer body"
@@ -388,8 +395,10 @@ test("derives safe conversation rows for a workspace without platform ids, paths
 
   assert.equal(vm.state, "available");
   assert.equal(vm.conversations.length, 1);
+  assert.match(vm.conversations[0]?.conversationHandle ?? "", /^cv_[a-f0-9]{16}$/);
   assert.deepEqual(vm.conversations[0], {
-    conversationId: "session-1",
+    conversationId: vm.conversations[0]?.conversationHandle,
+    conversationHandle: vm.conversations[0]?.conversationHandle,
     workspaceId: workspace.workspaceId,
     title: "Implement read-only Web adapter",
     status: "running",
@@ -400,6 +409,7 @@ test("derives safe conversation rows for a workspace without platform ids, paths
     lastTurnStatus: "running",
     finalAnswerAvailable: false
   });
+  assert.equal(serialized(vm).includes("session-1"), false);
   assertNoForbiddenViewModelData(vm);
 });
 
@@ -408,7 +418,10 @@ test("allowlists injected final-answer body text and rejects action/control mark
     now: () => fixedNow,
     operatorBinding: { chatId: "telegram-chat-123" },
     store: {
-      getSessionById: () => session,
+      listSessions: () => [session],
+      getSessionById: () => {
+        throw new Error("detail lookup must not use raw session id");
+      },
       listFinalAnswerViews: () => [
         {
           answerId: "answer-safe",
@@ -446,7 +459,10 @@ test("allowlists injected final-answer body text and rejects action/control mark
         : '<a href="tg://callback?data=approve">Approve</a> callback messageId=123 submit interrupt upload switch resume'
   });
 
-  const vm = provider.getConversationResultViewModel("session-1");
+  const workspace = provider.listWorkspaceViewModels().workspaces[0];
+  assert.ok(workspace);
+  const handle = provider.listWorkspaceConversationViewModels(workspace.workspaceId).conversations[0]?.conversationHandle ?? "";
+  const vm = provider.getConversationResultViewModel(handle);
 
   assert.equal(vm.answers.length, 2);
   assert.deepEqual(vm.answers[0]?.body, {
@@ -465,7 +481,10 @@ test("conversation results expose final-answer availability but not raw Telegram
     now: () => fixedNow,
     operatorBinding: { chatId: "telegram-chat-123" },
     store: {
-      getSessionById: () => session,
+      listSessions: () => [session],
+      getSessionById: () => {
+        throw new Error("detail lookup must not use raw session id");
+      },
       listFinalAnswerViews: () => [
         {
           answerId: "answer-1",
@@ -485,7 +504,10 @@ test("conversation results expose final-answer availability but not raw Telegram
     }
   });
 
-  const vm = provider.getConversationResultViewModel("session-1");
+  const workspace = provider.listWorkspaceViewModels().workspaces[0];
+  assert.ok(workspace);
+  const handle = provider.listWorkspaceConversationViewModels(workspace.workspaceId).conversations[0]?.conversationHandle ?? "";
+  const vm = provider.getConversationResultViewModel(handle);
 
   assert.equal(vm.state, "available");
   assert.equal(vm.answers.length, 1);
@@ -532,8 +554,9 @@ test("sanitizes runtime and readiness view models with strict allowlists", () =>
 
   const runtime = provider.getRuntimeContextViewModel();
   assert.equal(runtime.state, "available");
+  assert.match(runtime.activeTurns[0]?.sessionId ?? "", /^cv_[a-f0-9]{16}$/);
   assert.deepEqual(runtime.activeTurns[0], {
-    sessionId: "session-1",
+    sessionId: runtime.activeTurns[0]?.sessionId,
     status: "running",
     summary: "Running tests; raw output omitted",
     blockedReason: "awaiting_approval"
@@ -605,10 +628,11 @@ test("normalizes and redacts pending interactions without exposing platform payl
   assert.equal(vm.state, "degraded");
   assert.equal(vm.pendingInteractions.length, 2);
   assert.match(vm.pendingInteractions[0]?.interactionId ?? "", /^pi_[a-f0-9]{16}$/);
+  assert.match(vm.pendingInteractions[0]?.conversationId ?? "", /^cv_[a-f0-9]{16}$/);
   assert.deepEqual(vm.pendingInteractions[0], {
     interactionId: vm.pendingInteractions[0]?.interactionId,
-    conversationId: "session-1",
-    sessionId: "session-1",
+    conversationId: vm.pendingInteractions[0]?.conversationId,
+    sessionId: null,
     status: "pending",
     kind: "interaction",
     createdAt: "2026-04-25T12:00:00.000Z",
@@ -618,10 +642,12 @@ test("normalizes and redacts pending interactions without exposing platform payl
     availability: "degraded",
     warnings: ["pending_interaction_details_redacted"]
   });
+  assert.match(vm.pendingInteractions[1]?.interactionId ?? "", /^pi_[a-f0-9]{16}$/);
+  assert.match(vm.pendingInteractions[1]?.conversationId ?? "", /^cv_[a-f0-9]{16}$/);
   assert.deepEqual(vm.pendingInteractions[1], {
-    interactionId: "pending_safe_1",
-    conversationId: "session-2",
-    sessionId: "session-2",
+    interactionId: vm.pendingInteractions[1]?.interactionId,
+    conversationId: vm.pendingInteractions[1]?.conversationId,
+    sessionId: null,
     status: "awaiting_user_input",
     kind: "question",
     createdAt: "2026-04-25T13:00:00.000Z",
@@ -632,5 +658,7 @@ test("normalizes and redacts pending interactions without exposing platform payl
     warnings: []
   });
   assert.deepEqual(vm.warnings, ["pending_interaction_details_redacted"]);
+  assert.equal(serialized(vm).includes("session-1"), false);
+  assert.equal(serialized(vm).includes("session-2"), false);
   assertNoForbiddenViewModelData(vm);
 });

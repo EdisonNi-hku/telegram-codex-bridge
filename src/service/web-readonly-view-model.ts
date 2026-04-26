@@ -170,6 +170,7 @@ export interface WebReadonlyWorkspaceListViewModel extends WebReadonlyEnvelope {
 
 export interface WebReadonlyConversationRow {
   conversationId: string;
+  conversationHandle: string;
   workspaceId: string;
   title: string;
   status: string;
@@ -214,6 +215,7 @@ export interface WebReadonlyConversationResultViewModel extends WebReadonlyEnvel
   state: WebReadonlyAvailability;
   conversation: {
     conversationId: string;
+    conversationHandle: string;
     workspaceId: string;
     title: string;
     workspaceLabel: string;
@@ -224,6 +226,9 @@ export interface WebReadonlyConversationResultViewModel extends WebReadonlyEnvel
     lastActivityAt: string;
   } | null;
   answers: WebReadonlyAnswerRow[];
+  runtime: Pick<WebReadonlyRuntimeContextViewModel, "state" | "activeTurns">;
+  pendingInteractions: Pick<WebReadonlyPendingInteractionsViewModel, "state" | "pendingInteractions">;
+  readiness: Pick<WebReadonlyReadinessGuardrailViewModel, "state" | "missingGates">;
   warnings: string[];
 }
 
@@ -333,7 +338,7 @@ export interface WebReadonlyViewModelProvider {
   getHomeViewModel(): WebReadonlyHomeViewModel;
   listWorkspaceViewModels(): WebReadonlyWorkspaceListViewModel;
   listWorkspaceConversationViewModels(workspaceId: string): WebReadonlyWorkspaceConversationListViewModel;
-  getConversationResultViewModel(sessionId: string): WebReadonlyConversationResultViewModel;
+  getConversationResultViewModel(conversationHandle: string): WebReadonlyConversationResultViewModel;
   getConversationArtifactCatalogViewModel(sessionId: string, artifactId?: string): WebReadonlyConversationArtifactCatalogViewModel;
   getRuntimeContextViewModel(): WebReadonlyRuntimeContextViewModel;
   getPendingInteractionsViewModel(): WebReadonlyPendingInteractionsViewModel;
@@ -364,6 +369,7 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
   });
 
   const workspaceIdForPath = (projectPath: string): string => `wk_${hashOpaque(idSalt, projectPath)}`;
+  const conversationHandleForSessionId = (sessionId: string): string => `cv_${hashOpaque(idSalt, sessionId)}`;
 
   const buildWorkspaceIndex = (): { state: WebReadonlyAvailability; rows: WorkspaceAccumulator[]; warnings: string[] } => {
     const store = deps.store;
@@ -476,13 +482,22 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
     return new Set(callSafely(() => deps.store?.listFinalAnswerViews?.(chatId) ?? [], [], [], "").map((answer) => answer.sessionId));
   };
 
-  const listBoundSessions = (warnings: string[]): WebReadonlySessionRow[] | null => {
+  const listBoundSessions = (warnings: string[], archived = false): WebReadonlySessionRow[] | null => {
     const chatId = deps.operatorBinding?.chatId;
     if (!chatId || !deps.store?.listSessions) {
       return null;
     }
-    return callSafely(() => deps.store?.listSessions?.(chatId, { archived: false, limit: 100 }) ?? [], [], warnings, "sessions_unavailable")
-      .filter((session) => !session.archived);
+    return callSafely(() => deps.store?.listSessions?.(chatId, { archived, limit: 100 }) ?? [], [], warnings, "sessions_unavailable")
+      .filter((session) => Boolean(session.archived) === archived);
+  };
+
+  const listBoundSessionsForDetail = (warnings: string[]): WebReadonlySessionRow[] | null => {
+    const active = listBoundSessions(warnings, false);
+    if (!active) {
+      return null;
+    }
+    const archived = listBoundSessions(warnings, true) ?? [];
+    return [...active, ...archived];
   };
 
   const toWorkspaceRow = (row: WorkspaceAccumulator): WebReadonlyWorkspaceRow => {
@@ -502,18 +517,22 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
   const toConversationRow = (
     session: WebReadonlySessionRow,
     finalAnswerSessionIds: Set<string>
-  ): WebReadonlyConversationRow => ({
-    conversationId: session.sessionId,
-    workspaceId: workspaceIdForPath(session.projectPath),
-    title: safeLabel(session.displayName, "Untitled conversation"),
-    status: safeLabel(session.status, "unknown"),
-    failureReason: session.failureReason ? safeLabel(session.failureReason, "failed") : null,
-    archived: Boolean(session.archived),
-    createdAt: session.createdAt,
-    lastActivityAt: session.lastUsedAt,
-    lastTurnStatus: session.lastTurnStatus ? safeLabel(session.lastTurnStatus, "unknown") : null,
-    finalAnswerAvailable: finalAnswerSessionIds.has(session.sessionId)
-  });
+  ): WebReadonlyConversationRow => {
+    const conversationHandle = conversationHandleForSessionId(session.sessionId);
+    return {
+      conversationId: conversationHandle,
+      conversationHandle,
+      workspaceId: workspaceIdForPath(session.projectPath),
+      title: safeLabel(session.displayName, "Untitled conversation"),
+      status: safeLabel(session.status, "unknown"),
+      failureReason: session.failureReason ? safeLabel(session.failureReason, "failed") : null,
+      archived: Boolean(session.archived),
+      createdAt: session.createdAt,
+      lastActivityAt: session.lastUsedAt,
+      lastTurnStatus: session.lastTurnStatus ? safeLabel(session.lastTurnStatus, "unknown") : null,
+      finalAnswerAvailable: finalAnswerSessionIds.has(session.sessionId)
+    };
+  };
 
   const provider: WebReadonlyViewModelProvider = {
     getHomeViewModel() {
@@ -586,17 +605,20 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
       };
     },
 
-    getConversationResultViewModel(sessionId) {
+    getConversationResultViewModel(conversationHandle) {
+      const requestedConversationHandle = conversationHandle.trim();
       const chatId = deps.operatorBinding?.chatId;
-      if (!chatId || !deps.store?.getSessionById) {
+      if (!chatId || !deps.store?.listSessions || !isSafeConversationHandle(requestedConversationHandle)) {
         return unavailableConversationResult(envelope(), "conversation_data_unavailable");
       }
 
       const warnings: string[] = [];
-      const session = callSafely(() => deps.store?.getSessionById?.(sessionId) ?? null, null, warnings, "conversation_data_unavailable");
-      if (!session || (session.chatId && session.chatId !== chatId)) {
+      const sessions = listBoundSessionsForDetail(warnings);
+      const session = sessions?.find((row) => conversationHandleForSessionId(row.sessionId) === requestedConversationHandle) ?? null;
+      if (!session) {
         return unavailableConversationResult(envelope(), "conversation_not_available");
       }
+      const safeConversationHandle = conversationHandleForSessionId(session.sessionId);
 
       const answers = callSafely(() => deps.store?.listFinalAnswerViews?.(chatId) ?? [], [], warnings, "final_answers_unavailable")
         .filter((answer) => answer.sessionId === session.sessionId)
@@ -621,7 +643,8 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
         pageId: "web_conversation_result",
         state: warnings.length > 0 ? "degraded" : "available",
         conversation: {
-          conversationId: session.sessionId,
+          conversationId: safeConversationHandle,
+          conversationHandle: safeConversationHandle,
           workspaceId: workspaceIdForPath(session.projectPath),
           title: safeLabel(session.displayName, "Untitled conversation"),
           workspaceLabel: safeWorkspaceLabel(workspaceIdForPath(session.projectPath), session.projectAlias ?? null),
@@ -632,6 +655,9 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
           lastActivityAt: session.lastUsedAt
         },
         answers,
+        runtime: runtimePanelForConversation(provider.getRuntimeContextViewModel(), safeConversationHandle),
+        pendingInteractions: pendingPanelForConversation(provider.getPendingInteractionsViewModel(), safeConversationHandle),
+        readiness: readinessPanel(provider.getReadinessGuardrailViewModel()),
         warnings: unique(warnings)
       };
     },
@@ -690,7 +716,7 @@ export function createWebReadonlyViewModelProvider(deps: WebReadonlyViewModelDep
       const warnings: string[] = [];
       const activeTurns = callSafely(() => deps.listActiveTurns?.() ?? [], [], warnings, "runtime_data_unavailable").map(
         (turn): WebReadonlyRuntimeTurnRow => ({
-          sessionId: turn.sessionId,
+          sessionId: isSafeConversationHandle(turn.sessionId) ? turn.sessionId : conversationHandleForSessionId(turn.sessionId),
           status: safeLabel(turn.status, "unknown"),
           summary: turn.summary ? redactText(turn.summary) : null,
           blockedReason: turn.blockedReason ? safeLabel(turn.blockedReason, "blocked") : null
@@ -799,7 +825,39 @@ function unavailableConversationResult(
     state: "unavailable",
     conversation: null,
     answers: [],
+    runtime: { state: "degraded", activeTurns: [] },
+    pendingInteractions: { state: "unavailable", pendingInteractions: [] },
+    readiness: { state: "unavailable", missingGates: [] },
     warnings: [warning]
+  };
+}
+
+function runtimePanelForConversation(
+  vm: WebReadonlyRuntimeContextViewModel,
+  conversationHandle: string
+): Pick<WebReadonlyRuntimeContextViewModel, "state" | "activeTurns"> {
+  return {
+    state: vm.state,
+    activeTurns: vm.activeTurns.filter((turn) => turn.sessionId === conversationHandle)
+  };
+}
+
+function pendingPanelForConversation(
+  vm: WebReadonlyPendingInteractionsViewModel,
+  conversationHandle: string
+): Pick<WebReadonlyPendingInteractionsViewModel, "state" | "pendingInteractions"> {
+  return {
+    state: vm.state,
+    pendingInteractions: vm.pendingInteractions.filter((row) => row.conversationId === conversationHandle)
+  };
+}
+
+function readinessPanel(
+  vm: WebReadonlyReadinessGuardrailViewModel
+): Pick<WebReadonlyReadinessGuardrailViewModel, "state" | "missingGates"> {
+  return {
+    state: vm.state,
+    missingGates: vm.missingGates
   };
 }
 
@@ -1025,8 +1083,10 @@ function normalizePendingInteraction(
 ): WebReadonlyPendingInteractionViewRow {
   const rawSessionId = primitiveString(row.sessionId);
   const rawConversationId = primitiveString(row.conversationId) ?? rawSessionId;
-  const sessionId = safePublicEntityId(rawSessionId);
-  const conversationId = safePublicEntityId(rawConversationId) ?? sessionId;
+  const sessionId = null;
+  const conversationId = rawConversationId
+    ? isSafeConversationHandle(rawConversationId) ? rawConversationId : conversationHandleForRawSessionId(idSalt, rawConversationId)
+    : null;
   const summary = sanitizePendingInteractionSummary(firstPrimitiveString(row, ["summary"]));
   const blockingReason = sanitizePendingInteractionText(
     firstPrimitiveString(row, ["blockingReason", "blockedReason", "reason"])
@@ -1056,10 +1116,6 @@ function normalizePendingInteraction(
 
 function safePendingInteractionId(row: WebReadonlyPendingInteractionInputRow, index: number, idSalt: string): string {
   const rawId = firstPrimitiveString(row, ["interactionId", "id", "pendingInteractionId"]);
-  if (rawId && isSafePublicOpaqueId(rawId)) {
-    return rawId;
-  }
-
   const stableKey = [
     rawId,
     primitiveString(row.sessionId),
@@ -1087,6 +1143,14 @@ function isSafePublicOpaqueId(value: string): boolean {
     && !containsUnsafePendingValue(trimmed)
     && !/^(?:ou|oc|om|on|cli|msg|message|chat)_/i.test(trimmed)
     && !/\b(?:telegram|feishu|chat|message|platform|path)\b/i.test(trimmed);
+}
+
+function conversationHandleForRawSessionId(idSalt: string, sessionId: string): string {
+  return `cv_${hashOpaque(idSalt, sessionId)}`;
+}
+
+function isSafeConversationHandle(value: string): boolean {
+  return /^cv_[a-f0-9]{16}$/.test(value.trim());
 }
 
 function safePendingLabel(value: string | null, fallback: string): string {

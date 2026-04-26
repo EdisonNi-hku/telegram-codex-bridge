@@ -168,6 +168,51 @@ This is an owner-visible local proof path, but still not public, not mobile-expo
 6. Controller smoke proof: `CTB_WEB_READONLY_TOKEN=*** node --import tsx src/cli.ts web readonly --platform feishu --port 45679` listened on `127.0.0.1`, authenticated `/` returned 200 with operator binding available and no `workspace_data_unavailable`; smoke instance was killed.
 7. Later lanes may include persisted neutral final-answer bodies, readiness model refinement, screenshot/proof artifacts, or protected owner-review exposure planning; do not add publicly reachable routes, owner/mobile URL exposure, action controls, uploads/downloads, or support claims without an explicit controller gate.
 
+## Phase 2 Web Console MVP Todo
+
+Controller direction: move from local read-only substrate to an owner-visible Web Console MVP while preserving denied-by-default, read-only-first guardrails.
+
+Active todo list:
+
+1. PR #16 review/merge path: keep the Draft PR tracked, keep Ubuntu-pass/Windows-baseline context documented, and do not let existing Windows baseline failures block Web-specific progress unless a new Web regression appears.
+2. Owner-visible proof artifact: run the local token-gated Web prototype with `--platform feishu`, capture a safe screenshot/recording or HTML proof that can be reviewed without exposing token, raw IDs, local paths, terminal logs, or platform internals.
+3. More useful read-only dashboard: add safe conversation detail, sanitized final-answer body where a safe source exists, runtime/readiness panels, and pending-interaction read-only visibility.
+4. Protected owner access plan: design the narrow path from localhost-only to owner phone/browser preview, including auth/session, binding, threat model, and rollback; no public/mobile exposure until this gate is explicit.
+5. Gated actions design: separately design submit/approval/interrupt with audit and scope controls; do not implement actions in the read-only MVP lane.
+
+Phase 2B investigation completed:
+
+- Process: `proc_a1293acfebc9` exited 0.
+- Monitor: `f9c6382df17c` paused.
+- Prompt: `/tmp/codex-web-dashboard-data-investigation.md`
+- Report: `/tmp/codex-web-dashboard-data-investigation-report.md`
+- Accepted controller direction: implement a safe conversation detail slice with Web-only opaque `cv_...` handles and same-origin links; keep final-answer body unavailable unless supplied through the existing sanitizer seam; keep runtime degraded in the local harness unless a live runtime reader is injected; no public exposure or actions.
+
+Phase 2B implementation completed and controller-verified:
+
+- Process: `proc_3ff3c8824320` exited 0.
+- Monitor: `e7de34953605` paused.
+- Status: `.hermes/web-conversation-detail-status.md`
+- Result: Web rows now expose `cv_...` opaque conversation handles; local HTTP shell supports token-gated `GET /conversations/:handle`; renderer links use only same-origin opaque handles; raw `/sessions/:id` routes are not linked and unsafe route parts return generic 404.
+- Controller verification passed:
+  - `node --import tsx --test src/service/web-readonly-view-model.test.ts src/service/web-readonly-live-provider.test.ts src/web/readonly-http-server.test.ts src/web/readonly-cli.test.ts` passed with 38 tests.
+  - `npm run check` passed.
+  - `git diff --check` passed.
+- Controller smoke proof on current local state passed with command shape `CTB_WEB_READONLY_TOKEN=*** node --import tsx src/cli.ts web readonly --platform feishu --port 45681`: authenticated home returned 200 with `cv_...` conversation links, no `/sessions/` links, no token leak; authenticated first `/conversations/:handle` returned 200, no `/sessions/` links and no token leak; smoke server was killed and token file removed.
+
+Current first execution item: owner-visible proof artifact, because it most directly validates the user's original goal: a Web end that can access Bridge/Codex state in a browser.
+
+Owner-visible proof artifact completed by controller:
+
+- Started local prototype with command shape `CTB_WEB_READONLY_TOKEN=*** node --import tsx src/cli.ts web readonly --platform feishu --port 45680`.
+- Authenticated `/` returned 200 and contained `Codex Console Web prototype` with operator binding available, readiness ready, workspace rows, and recent conversation rows.
+- Raw proof HTML was sanitized for owner review: workspace labels and conversation text were redacted.
+- Sanitized artifacts:
+  - `/tmp/ctb-web-proof-safe.html`
+  - `/tmp/codex-console-web-proof-safe.png`
+- Vision verification confirmed the sanitized screenshot shows title/workspace/recent-conversation tables and does not show bearer token, raw paths, raw IDs, or conversation text.
+- The local server was killed after proof and the temporary token file was removed.
+
 ## Guardrails
 
 Do not claim Web is shipped, supported, enabled, public, or browser-usable yet.
