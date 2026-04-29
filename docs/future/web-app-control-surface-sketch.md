@@ -12,6 +12,7 @@ skip_when:
   - the request is asking for Web/App implementation details or source code
 source_of_truth:
   - docs/future/web-app-control-surface-sketch.md
+  - docs/architecture/web-app-preimplementation-contract.md
   - docs/future/multi-platform-core-prd.md
   - docs/architecture/platform-capability-matrix.md
 -->
@@ -23,9 +24,11 @@ Owner: Product / Architecture
 Last updated: 2026-04-26
 
 This sketch describes how a future Web or App surface for **Codex Console** could use
-**Codex Bridge Core** without becoming a fake chat pack. It is forward-looking only:
-Telegram remains the stable/default pack, Feishu is a serious current pack, and Web/App
-support is not claimed by this document.
+**Codex Bridge Core** without becoming a fake chat pack or a generic admin dashboard. The preferred
+product shape is workspace/session/conversation centric: start from workspaces, inspect a
+workspace's conversations, and open or resume a conversation when the relevant action gates exist.
+It is forward-looking only: Telegram remains the stable/default pack, Feishu is a serious current
+pack, and Web/App support is not claimed by this document.
 
 ## Goal
 
@@ -33,8 +36,9 @@ Define a Web/App control surface direction that:
 
 - reuses shared Core semantics for projects, sessions, turns, interactions, runtime state,
   final answers, artifacts, and delivery outcomes
-- presents those semantics through native Web/App affordances such as dashboards, panels,
-  forms, modals, durable history, file pickers, uploads, and live updates
+- presents those semantics through native Web/App affordances such as Web Home, Workspace Home,
+  conversation/session lists, result detail pages, contextual panels, forms, modals, durable history,
+  file pickers, uploads, and live updates
 - keeps platform-specific transport, credentials, layout, browser/app storage, and notification
   behavior out of Core
 - makes readiness measurable before any user-facing claim that Web/App is supported
@@ -48,7 +52,7 @@ This sketch does not:
 - replace Telegram or Feishu as current packs
 - copy Telegram chat UX into a browser or app shell
 - expand scope into multi-user collaboration, provider setup, raw terminal access, project write
-  operations, or team permissions unless those are chosen as explicit future decisions
+  operations, generic admin dashboards, or team permissions unless those are chosen as explicit future decisions
 - make browser, desktop, and mobile app packaging decisions
 
 ## Core Reuse Target
@@ -69,8 +73,10 @@ workflow logic behind a richer UI.
 
 ## Core, State, And API Surfaces To Expose Or Stabilize
 
-Before Web/App can be considered more than a prototype, these surfaces need explicit contracts.
-They may be internal APIs first; the point is stable ownership, not public network API shape.
+The contract pass for these surfaces now lives in `../architecture/web-app-preimplementation-contract.md`.
+That document is the required pre-implementation artifact for neutral Core/state/API meanings,
+ownership boundaries, and readiness gates. The sketch below remains future design context, not
+a current support claim or public network API shape.
 
 1. **Project/session surface**
    - list selectable projects and recent sessions
@@ -111,8 +117,8 @@ They may be internal APIs first; the point is stable ownership, not public netwo
 
 8. **Auth, binding, and readiness surface**
    - bind the authorized operator/control surface without assuming Telegram chat ids or Feishu tenant ids
-   - expose readiness levels: static declared, configured, observed, and UX-exposed
-   - report setup gaps and health checks in terms a Web/App admin page can render
+   - expose readiness levels: declared, configured, observed, and UX-exposed
+   - report setup gaps and health checks in terms a Web/App setup or readiness page can render
 
 ## Pack And Presentation Responsibilities
 
@@ -121,13 +127,13 @@ reached, rendered, and delivered.
 
 | Area | Web/App responsibility |
 |---|---|
-| Routes | Define pages for dashboard, projects, sessions, runtime, interactions, artifacts, settings, and setup. |
-| Dashboards/panels | Render active session, running turn, blocked interactions, recent output, inspect/status detail, and degraded notices. |
+| Routes | Define pages for Web Home, Workspace Home, workspace sessions/conversations, conversation results, runtime context, interactions, artifacts, settings, and setup/readiness. |
+| Workspace/session panels | Render active workspace/session, conversation list/detail, running turn, blocked interactions, recent output, inspect/status detail, and degraded notices. |
 | Forms/modals | Collect approvals, questionnaire answers, project/session choices, setup inputs, and destructive-action confirmations. |
 | Live transport | Use Web/App-appropriate push such as WebSocket, SSE, native app bridge, or polling fallback; Core should not own transport plumbing. |
 | Notifications | Map Core notices to browser/app badges, toasts, native notifications, and unread counters with user-controlled settings. |
 | File picker/uploads | Own browser/app file selection, upload progress, previews, local permission errors, and conversion into neutral attachment descriptors. |
-| Admin/setup pages | Render credentials, pack readiness, app-server health, MCP/tooling state, diagnostics, and repair guidance. |
+| Setup/readiness pages | Render access status, pack readiness, app-server health, MCP/tooling state, diagnostics, and repair guidance without making setup the primary UX. |
 | Layout/navigation | Choose sidebars, tabs, responsive panels, command palette, and history views without forcing chat chronology. |
 | Platform storage | Own cookies, browser/app storage, push subscription ids, CSRF/session mechanisms, and platform-specific security controls. |
 
@@ -136,7 +142,7 @@ reached, rendered, and delivered.
 Do not advertise Web/App as a supported Codex Console surface until every baseline journey has
 at least fallback support and each required capability has crossed the right readiness level.
 
-1. **Static declared capability**
+1. **Declared capability**
    - Web/App declares baseline text input, interactions, live or refreshable updates, final-answer
      delivery, media/file handling, auth binding, setup/health, and degraded-state rendering.
 
@@ -193,8 +199,8 @@ These decisions are intentionally not made by this sketch:
 
 A safe sequence is:
 
-1. **Contract pass** — document the neutral Core/state/API surfaces above and map existing Telegram and
-   Feishu behavior to them without changing product support claims.
+1. **Contract pass** — complete in `../architecture/web-app-preimplementation-contract.md`; use it
+   as the required pre-implementation contract before any Web/App source work.
 2. **Readiness model pass** — make declared/configured/observed/UX-exposed readiness reportable for
    every required Web/App baseline capability.
 3. **Prototype shell** — build a non-public Web/App shell that reads status, project/session, runtime,

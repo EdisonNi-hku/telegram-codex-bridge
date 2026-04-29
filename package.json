@@ -36,7 +36,12 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test \"src/**/*.test.ts\""
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "web:preview:start": "bash scripts/web-preview-start.sh",
+    "web:preview:stop": "bash scripts/web-preview-stop.sh",
+    "web:preview:status": "bash scripts/web-preview-status.sh",
+    "web:preview:rotate": "bash scripts/web-preview-rotate-secrets.sh",
+    "web:preview:smoke": "bash scripts/web-preview-smoke.sh"
   },
   "engines": {
     "node": ">=24.0.0"

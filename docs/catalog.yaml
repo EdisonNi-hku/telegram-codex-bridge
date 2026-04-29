@@ -1,242 +1,329 @@
 version: 1
 documents:
-  - path: README.md
-    role: entry
-    layer: 1
-    parent: null
-    summary: public repository entry point for Codex Console and its documentation trees
-  - path: AGENTS.md
-    role: agent
-    layer: 1
-    parent: null
-    summary: root routing contract for coding agents working in this repository
-  - path: docs/INDEX.md
-    role: entry
-    layer: 1
-    parent: null
-    summary: canonical docs router with active continuation, current truth, protocol evidence, future/planning, and archive tiers
-  - path: docs/README.md
-    role: entry
-    layer: 1
-    parent: null
-    summary: human-readable companion to the canonical docs router
-  - path: docs/AGENTS.md
-    role: agent
-    layer: 2
-    parent: AGENTS.md
-    summary: docs-first routing contract for coding agents
-  - path: src/AGENTS.md
-    role: agent
-    layer: 2
-    parent: AGENTS.md
-    summary: code-first routing contract for current implementation work
-  - path: scripts/AGENTS.md
-    role: agent
-    layer: 2
-    parent: AGENTS.md
-    summary: local router for top-level GitHub install scripts
-  - path: skills/AGENTS.md
-    role: agent
-    layer: 2
-    parent: AGENTS.md
-    summary: local router for bundled Codex skills
-  - path: docs/roadmap/codex-console-continuation-brief.md
-    role: leaf
-    layer: 3
-    parent: docs/roadmap/README.md
-    summary: active low-context handoff for future Codex Console / multi-platform bridge continuation tasks and archive/noise decisions
-  - path: docs/product/README.md
-    role: domain
-    layer: 2
-    parent: docs/INDEX.md
-    summary: router for current Codex Console product behavior, Telegram-first baseline, and user-facing command surfaces
-  - path: docs/architecture/README.md
-    role: domain
-    layer: 2
-    parent: docs/INDEX.md
-    summary: router for current runtime shape, decoupling status, state model, pack boundary, capability matrix, and app-server adoption boundary
-  - path: docs/operations/README.md
-    role: domain
-    layer: 2
-    parent: docs/INDEX.md
-    summary: router for install, active-pack selection, configuration, service management, update, and diagnostics docs
-  - path: docs/research/README.md
-    role: domain
-    layer: 2
-    parent: docs/INDEX.md
-    summary: router for Codex app-server protocol evidence and verification material
-  - path: docs/future/README.md
-    role: domain
-    layer: 2
-    parent: docs/INDEX.md
-    summary: router for future repository direction and forward-looking product or architecture intent
-  - path: docs/plans/README.md
-    role: domain
-    layer: 2
-    parent: docs/INDEX.md
-    summary: router for active trackers, implementation sequencing, and closeout notes
-  - path: docs/roadmap/README.md
-    role: domain
-    layer: 2
-    parent: docs/INDEX.md
-    summary: router for delivery ordering, continuation handoff, and acceptance intent
-  - path: docs/archive/README.md
-    role: domain
-    layer: 2
-    parent: docs/INDEX.md
-    summary: router for archived historical material kept for reconstruction only
-  - path: docs/architecture/platform-decoupling-status.md
-    role: leaf
-    layer: 3
-    parent: docs/architecture/README.md
-    summary: current bridge-versus-platform decoupling status, including what has landed and what remains Telegram-shaped
-  - path: docs/architecture/runtime-and-state.md
-    role: leaf
-    layer: 3
-    parent: docs/architecture/README.md
-    summary: current runtime lifecycle, SQLite state, recovery, and delivery rules for the Telegram-first bridge
-  - path: docs/architecture/current-code-organization.md
-    role: leaf
-    layer: 3
-    parent: docs/architecture/README.md
-    summary: verified owner map for the current src tree after the Core seam and pack boundary landed
-  - path: docs/architecture/codex-app-server-adoption.md
-    role: leaf
-    layer: 3
-    parent: docs/architecture/README.md
-    summary: current bridge-owned Codex app-server adoption boundary, request families, server requests, and notification reduction
-  - path: docs/architecture/platform-pack-boundary.md
-    role: leaf
-    layer: 3
-    parent: docs/architecture/README.md
-    summary: current pack boundary for active-pack selection, runtime factory ownership, platform capabilities, and Telegram vs Feishu split
-  - path: docs/architecture/platform-capability-matrix.md
-    role: leaf
-    layer: 3
-    parent: docs/architecture/README.md
-    summary: current Telegram and Feishu capability matrix, common expectations, platform-specific features, and future Web/App target rows
-  - path: docs/product/v1-scope.md
-    role: leaf
-    layer: 3
-    parent: docs/product/README.md
-    summary: current shipped v1 scope, trust model, and out-of-scope boundary for Codex Console's Telegram-first baseline
-  - path: docs/product/chat-and-project-flow.md
-    role: leaf
-    layer: 3
-    parent: docs/product/README.md
-    summary: lightweight product router for current Telegram chat, project, command, runtime, and callback UX docs
-  - path: docs/product/auth-and-project-flow.md
-    role: leaf
-    layer: 3
-    parent: docs/product/README.md
-    summary: current authorization, project picker, session management, and browse-flow contract for Telegram
-  - path: docs/product/codex-command-reference.md
-    role: leaf
-    layer: 3
-    parent: docs/product/README.md
-    summary: current Telegram UX contract for Codex-backed commands and structured rich-input submission
-  - path: docs/product/runtime-and-delivery.md
-    role: leaf
-    layer: 3
-    parent: docs/product/README.md
-    summary: current runtime-hub, inspect, status, interrupt, and final-answer delivery contract for Telegram
-  - path: docs/product/callback-contract.md
-    role: leaf
-    layer: 3
-    parent: docs/product/README.md
-    summary: current callback namespace families, encoding rules, and stale-click contract for bridge-owned Telegram UI
-  - path: docs/operations/install-and-admin.md
-    role: leaf
-    layer: 3
-    parent: docs/operations/README.md
-    summary: current install, config, service-management, active-pack selection, update, and diagnostics contract for operators
-  - path: docs/generated/current-snapshot.md
-    role: leaf
-    layer: 2
-    parent: docs/INDEX.md
-    summary: high-drift snapshot for current package version, source-tree size, and locally verifiable tooling facts
-  - path: docs/research/codex-app-server-authoritative-reference.md
-    role: leaf
-    layer: 3
-    parent: docs/research/README.md
-    summary: protocol-first authoritative reference for Codex app-server capability, schema inventory, host baseline, and refresh workflow
-  - path: docs/research/codex-app-server-api-quick-reference.md
-    role: leaf
-    layer: 3
-    parent: docs/research/README.md
-    summary: per-method quick reference for Codex app-server requests, notifications, and server-request gotchas
-  - path: docs/research/app-server-phase-0-verification.md
-    role: leaf
-    layer: 3
-    parent: docs/research/README.md
-    summary: dated phase-0 runtime verification sample kept as historical protocol evidence only
-  - path: docs/future/multi-platform-core-prd.md
-    role: leaf
-    layer: 3
-    parent: docs/future/README.md
-    summary: future product direction for Codex Console and Codex Bridge Core with Telegram as the stable first pack
-  - path: docs/future/web-app-control-surface-sketch.md
-    role: leaf
-    layer: 3
-    parent: docs/future/README.md
-    summary: future design sketch for a richer Web/App Codex Console control surface powered by Codex Bridge Core
-  - path: docs/plans/2026-04-26-codex-console-phase2-release-note.md
-    role: leaf
-    layer: 3
-    parent: docs/plans/README.md
-    summary: PR-ready Phase 2 closeout note with commits, user-visible impact, known gaps, and verification commands
-  - path: docs/plans/2026-04-26-codex-console-phase2-plan.md
-    role: leaf
-    layer: 3
-    parent: docs/plans/README.md
-    summary: five-phase plan for install-path docs, Feishu audit, metadata cleanup, Web/App sketch, and release note
-  - path: docs/plans/2026-04-26-feishu-official-capability-audit.md
-    role: leaf
-    layer: 3
-    parent: docs/plans/README.md
-    summary: official Feishu API backed capability audit and live-smoke checklist
-  - path: docs/plans/2026-04-09-feishu-pack-setup-capability-and-hardening-plan.md
-    role: leaf
-    layer: 3
-    parent: docs/plans/README.md
-    summary: Feishu setup and hardening backlog for validation, binding, callbacks, and readiness
-  - path: docs/plans/2026-04-08-multi-platform-core-and-feishu-implementation-plan.md
-    role: leaf
-    layer: 3
-    parent: docs/plans/README.md
-    summary: four-phase implementation plan that completed platform abstraction and landed Feishu as the second platform
-  - path: docs/plans/2026-03-30-binding-model-neutralization-note.md
-    role: leaf
-    layer: 3
-    parent: docs/plans/README.md
-    summary: design note for neutralizing Telegram-first auth and session binding fields without overclaiming support
-  - path: docs/plans/2026-03-30-platform-binding-boundary-design.md
-    role: leaf
-    layer: 3
-    parent: docs/plans/README.md
-    summary: design note for platform principal, surface target, and bridge session ownership boundaries
-  - path: docs/plans/2026-03-30-platform-surface-adapter-and-capability-prep.md
-    role: leaf
-    layer: 3
-    parent: docs/plans/README.md
-    summary: predesign note for platform surface adapter boundaries and capability vocabulary
-  - path: docs/plans/2026-03-23-multi-platform-core-phase-1-implementation-plan.md
-    role: leaf
-    layer: 3
-    parent: docs/plans/README.md
-    summary: historical plan and landed outcome for the first internal multi-platform Core abstraction wave
-  - path: docs/plans/2026-03-23-multi-platform-core-pending-task-tracker.md
-    role: leaf
-    layer: 3
-    parent: docs/plans/README.md
-    summary: Phase-1 deferred-work baseline kept as sequencing context rather than current status truth
-  - path: docs/archive/future/README.md
-    role: archive
-    layer: 3
-    parent: docs/archive/README.md
-    summary: local index for superseded V2/V3 future PRDs and engineering evaluations; historical reconstruction only
-  - path: docs/archive/plans/README.md
-    role: archive
-    layer: 3
-    parent: docs/archive/README.md
-    summary: local index for closed March implementation plans removed from active agent routing; historical reconstruction only
+- path: README.md
+  role: entry
+  layer: 1
+  parent: null
+  summary: public repository entry point for Codex Console and its documentation trees
+- path: AGENTS.md
+  role: agent
+  layer: 1
+  parent: null
+  summary: root routing contract for coding agents working in this repository
+- path: docs/INDEX.md
+  role: entry
+  layer: 1
+  parent: null
+  summary: canonical docs router with active continuation, current truth, protocol evidence, future/planning, and archive
+    tiers
+- path: docs/README.md
+  role: entry
+  layer: 1
+  parent: null
+  summary: human-readable companion to the canonical docs router
+- path: docs/AGENTS.md
+  role: agent
+  layer: 2
+  parent: AGENTS.md
+  summary: docs-first routing contract for coding agents
+- path: src/AGENTS.md
+  role: agent
+  layer: 2
+  parent: AGENTS.md
+  summary: code-first routing contract for current implementation work
+- path: scripts/AGENTS.md
+  role: agent
+  layer: 2
+  parent: AGENTS.md
+  summary: local router for top-level GitHub install scripts
+- path: skills/AGENTS.md
+  role: agent
+  layer: 2
+  parent: AGENTS.md
+  summary: local router for bundled Codex skills
+- path: docs/roadmap/codex-console-continuation-brief.md
+  role: leaf
+  layer: 3
+  parent: docs/roadmap/README.md
+  summary: active low-context handoff for future Codex Console / multi-platform bridge continuation tasks and archive/noise
+    decisions
+- path: docs/product/README.md
+  role: domain
+  layer: 2
+  parent: docs/INDEX.md
+  summary: router for current Codex Console product behavior, Telegram-first baseline, and user-facing command surfaces
+- path: docs/architecture/README.md
+  role: domain
+  layer: 2
+  parent: docs/INDEX.md
+  summary: router for current runtime shape, decoupling status, state model, pack boundary, capability matrix, app-server
+    adoption boundary, and Web/App pre-implementation contract
+- path: docs/operations/README.md
+  role: domain
+  layer: 2
+  parent: docs/INDEX.md
+  summary: router for install, active-pack selection, configuration, service management, update, diagnostics, and future Web
+    prototype access/security docs
+- path: docs/research/README.md
+  role: domain
+  layer: 2
+  parent: docs/INDEX.md
+  summary: router for Codex app-server protocol evidence and verification material
+- path: docs/future/README.md
+  role: domain
+  layer: 2
+  parent: docs/INDEX.md
+  summary: router for future repository direction, forward-looking product or architecture intent, and Web/App contract-pass
+    handoff
+- path: docs/plans/README.md
+  role: domain
+  layer: 2
+  parent: docs/INDEX.md
+  summary: router for active trackers, implementation sequencing, and closeout notes
+- path: docs/roadmap/README.md
+  role: domain
+  layer: 2
+  parent: docs/INDEX.md
+  summary: router for delivery ordering, continuation handoff, and acceptance intent
+- path: docs/archive/README.md
+  role: domain
+  layer: 2
+  parent: docs/INDEX.md
+  summary: router for archived historical material kept for reconstruction only
+- path: docs/architecture/platform-decoupling-status.md
+  role: leaf
+  layer: 3
+  parent: docs/architecture/README.md
+  summary: current bridge-versus-platform decoupling status, including what has landed and what remains Telegram-shaped
+- path: docs/architecture/runtime-and-state.md
+  role: leaf
+  layer: 3
+  parent: docs/architecture/README.md
+  summary: current runtime lifecycle, SQLite state, recovery, and delivery rules for the Telegram-first bridge
+- path: docs/architecture/current-code-organization.md
+  role: leaf
+  layer: 3
+  parent: docs/architecture/README.md
+  summary: verified owner map for the current src tree after the Core seam and pack boundary landed
+- path: docs/architecture/codex-app-server-adoption.md
+  role: leaf
+  layer: 3
+  parent: docs/architecture/README.md
+  summary: current bridge-owned Codex app-server adoption boundary, request families, server requests, and notification reduction
+- path: docs/architecture/platform-pack-boundary.md
+  role: leaf
+  layer: 3
+  parent: docs/architecture/README.md
+  summary: current pack boundary for active-pack selection, runtime factory ownership, platform capabilities, and Telegram
+    vs Feishu split
+- path: docs/architecture/platform-capability-matrix.md
+  role: leaf
+  layer: 3
+  parent: docs/architecture/README.md
+  summary: current Telegram and Feishu capability matrix, common expectations, platform-specific features, and future Web/App
+    target rows
+- path: docs/architecture/web-app-preimplementation-contract.md
+  role: leaf
+  layer: 3
+  parent: docs/architecture/README.md
+  summary: pre-implementation Core/state/API contracts and readiness gates for future Web/App Codex Console surfaces
+- path: docs/product/v1-scope.md
+  role: leaf
+  layer: 3
+  parent: docs/product/README.md
+  summary: current shipped v1 scope, trust model, and out-of-scope boundary for Codex Console's Telegram-first baseline
+- path: docs/product/chat-and-project-flow.md
+  role: leaf
+  layer: 3
+  parent: docs/product/README.md
+  summary: lightweight product router for current Telegram chat, project, command, runtime, and callback UX docs
+- path: docs/product/auth-and-project-flow.md
+  role: leaf
+  layer: 3
+  parent: docs/product/README.md
+  summary: current authorization, project picker, session management, and browse-flow contract for Telegram
+- path: docs/product/codex-command-reference.md
+  role: leaf
+  layer: 3
+  parent: docs/product/README.md
+  summary: current Telegram UX contract for Codex-backed commands and structured rich-input submission
+- path: docs/product/runtime-and-delivery.md
+  role: leaf
+  layer: 3
+  parent: docs/product/README.md
+  summary: current runtime-hub, inspect, status, interrupt, and final-answer delivery contract for Telegram
+- path: docs/product/callback-contract.md
+  role: leaf
+  layer: 3
+  parent: docs/product/README.md
+  summary: current callback namespace families, encoding rules, and stale-click contract for bridge-owned Telegram UI
+- path: docs/operations/install-and-admin.md
+  role: leaf
+  layer: 3
+  parent: docs/operations/README.md
+  summary: current install, config, service-management, active-pack selection, update, and diagnostics contract for operators
+- path: docs/operations/web-preview-runbook.md
+  role: leaf
+  layer: 3
+  parent: docs/operations/README.md
+  summary: active owner-only Codex Console Web preview operations for start, stop, status, smoke, rotate, and rollback
+- path: docs/operations/web-vps-mobile-access-and-security.md
+  role: leaf
+  layer: 3
+  parent: docs/operations/README.md
+  summary: future workspace/session-centric Web prototype VPS/mobile validation, protected URL exposure, access-control, forbidden-data,
+    and shutdown plan
+- path: docs/generated/current-snapshot.md
+  role: leaf
+  layer: 2
+  parent: docs/INDEX.md
+  summary: high-drift snapshot for current package version, source-tree size, and locally verifiable tooling facts
+- path: docs/research/codex-app-server-authoritative-reference.md
+  role: leaf
+  layer: 3
+  parent: docs/research/README.md
+  summary: protocol-first authoritative reference for Codex app-server capability, schema inventory, host baseline, and refresh
+    workflow
+- path: docs/research/codex-app-server-api-quick-reference.md
+  role: leaf
+  layer: 3
+  parent: docs/research/README.md
+  summary: per-method quick reference for Codex app-server requests, notifications, and server-request gotchas
+- path: docs/research/app-server-phase-0-verification.md
+  role: leaf
+  layer: 3
+  parent: docs/research/README.md
+  summary: dated phase-0 runtime verification sample kept as historical protocol evidence only
+- path: docs/future/multi-platform-core-prd.md
+  role: leaf
+  layer: 3
+  parent: docs/future/README.md
+  summary: future product direction for Codex Console and Codex Bridge Core with Telegram as the stable first pack
+- path: docs/future/web-app-control-surface-sketch.md
+  role: leaf
+  layer: 3
+  parent: docs/future/README.md
+  summary: future workspace/session/conversation-centric Web/App Codex Console surface powered by Codex Bridge Core
+- path: docs/future/web-mvp-scope-and-readiness.md
+  role: leaf
+  layer: 3
+  parent: docs/future/README.md
+  summary: approved workspace/session-centric Web-first MVP scope, readiness model, validation path, and support-claim guardrails
+- path: docs/archive/plans/2026-04-26-codex-console-phase2-release-note.md
+  role: archive
+  layer: 3
+  parent: docs/archive/plans/README.md
+  summary: archived historical PR-ready Phase 2 closeout note with commits, user-visible impact, known gaps, and verification
+    commands
+- path: docs/plans/2026-04-26-product-web-console-mvp.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: Phase 3 Product Web Console MVP information architecture, core flows, acceptance criteria, guardrails, and next
+    implementation slices
+- path: docs/archive/plans/2026-04-26-web-first-project-command-board.md
+  role: archive
+  layer: 3
+  parent: docs/archive/plans/README.md
+  summary: archived historical PM command board for the Web-first continuation with closeout state and prototype-planning
+    next step
+- path: docs/archive/plans/2026-04-26-web-mvp-controller-triage.md
+  role: archive
+  layer: 3
+  parent: docs/archive/plans/README.md
+  summary: archived historical controller-approved workspace/session-centric Web MVP scope cut that keeps the first lane read-mostly,
+    Web-only, and prototype-only
+- path: docs/archive/plans/2026-04-26-web-viewmodel-inventory.md
+  role: archive
+  layer: 3
+  parent: docs/archive/plans/README.md
+  summary: archived historical implementation-facing inventory of read-only Core/state/source facades, landed first adapter
+    seam, redaction needs, and remaining read-only gaps for the future Web prototype
+- path: docs/archive/plans/2026-04-26-web-readonly-prototype-implementation-plan.md
+  role: archive
+  layer: 3
+  parent: docs/archive/plans/README.md
+  summary: archived historical guardrails and future-work route for the read-only workspace/session-centric Web prototype
+    after the first service adapter seam landed, including page skeletons, redacted data contracts, auth assumptions, validation
+    flow, and forbidden first-lane scope
+- path: docs/archive/plans/2026-04-26-web-first-phase-1-closeout.md
+  role: archive
+  layer: 3
+  parent: docs/archive/plans/README.md
+  summary: archived historical phase-1 closeout for the local token-gated read-only Web prototype, including commits, verification,
+    smoke proof, non-claims, and next-stage task board
+- path: docs/plans/2026-04-26-web-first-pm-ledger.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: detailed PM/controller ledger for delegated Codex Console Web-first implementation runs, smoke evidence, guardrails,
+    and recovery state
+- path: docs/plans/2026-04-26-web-protected-owner-access-plan.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: protected owner-only access design gate for the local token-gated read-only Web prototype, including threat model,
+    auth/session requirements, rollback drill, and acceptance checklist
+- path: docs/plans/2026-04-26-web-gated-actions-design.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: docs-only design gate for future gated Web submit, approval-answer, and interrupt actions after read-only MVP and
+    protected owner access pass
+- path: docs/archive/plans/2026-04-26-codex-console-phase2-plan.md
+  role: archive
+  layer: 3
+  parent: docs/archive/plans/README.md
+  summary: archived historical five-phase plan for install-path docs, Feishu audit, metadata cleanup, Web/App sketch, and
+    release note
+- path: docs/plans/2026-04-26-feishu-official-capability-audit.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: official Feishu API backed capability audit and live-smoke checklist
+- path: docs/plans/2026-04-09-feishu-pack-setup-capability-and-hardening-plan.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: Feishu setup and hardening backlog for validation, binding, callbacks, and readiness
+- path: docs/plans/2026-04-08-multi-platform-core-and-feishu-implementation-plan.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: four-phase implementation plan that completed platform abstraction and landed Feishu as the second platform
+- path: docs/plans/2026-03-30-binding-model-neutralization-note.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: design note for neutralizing Telegram-first auth and session binding fields without overclaiming support
+- path: docs/plans/2026-03-30-platform-binding-boundary-design.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: design note for platform principal, surface target, and bridge session ownership boundaries
+- path: docs/plans/2026-03-30-platform-surface-adapter-and-capability-prep.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: predesign note for platform surface adapter boundaries and capability vocabulary
+- path: docs/plans/2026-03-23-multi-platform-core-phase-1-implementation-plan.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: historical plan and landed outcome for the first internal multi-platform Core abstraction wave
+- path: docs/plans/2026-03-23-multi-platform-core-pending-task-tracker.md
+  role: leaf
+  layer: 3
+  parent: docs/plans/README.md
+  summary: Phase-1 deferred-work baseline kept as sequencing context rather than current status truth
+- path: docs/archive/future/README.md
+  role: archive
+  layer: 3
+  parent: docs/archive/README.md
+  summary: local index for superseded V2/V3 future PRDs and engineering evaluations; historical reconstruction only
+- path: docs/archive/plans/README.md
+  role: archive
+  layer: 3
+  parent: docs/archive/README.md
+  summary: local index for closed March implementation plans removed from active agent routing; historical reconstruction
+    only

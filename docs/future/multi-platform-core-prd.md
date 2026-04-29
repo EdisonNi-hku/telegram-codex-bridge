@@ -119,7 +119,7 @@ Use `../architecture/platform-capability-matrix.md` as the current planning tabl
 It translates implementation-level capability fields into owner-facing product expectations, UX richness tiers, ingress/egress rows, readiness levels, and new-platform decision rules.
 Do not use the matrix to claim broad multi-platform maturity; use it to keep Core semantics and platform-specific affordances separated.
 
-For a narrower future Web/App integration sketch, use `web-app-control-surface-sketch.md`. It describes how a richer native surface could reuse Core semantics through dashboards, panels, forms, live transport, media flows, readiness gates, and setup/admin pages without becoming a fake chat pack or claiming current support.
+For a narrower future Web/App integration sketch, use `web-app-control-surface-sketch.md`. It describes how a richer native surface could reuse Core semantics through Web Home, Workspace Home, workspace sessions/conversations, conversation results, contextual panels, forms, live transport, media flows, readiness gates, and setup/readiness pages without becoming a fake chat pack, generic admin dashboard, or current support claim. Before any Web/App implementation begins, use `../architecture/web-app-preimplementation-contract.md` as the contract-pass output for neutral Core/state/API surfaces and support-readiness gates.
 
 ## Relationship To Skills
 

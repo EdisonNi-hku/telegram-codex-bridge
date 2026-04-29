@@ -1,3 +1,4 @@
+<!-- archived: moved from active plans after Phase 3 closeout; historical reconstruction only. Start new work from docs/roadmap/codex-console-continuation-brief.md. -->
 # Codex Console Phase 2 Implementation Plan
 
 > **For Hermes:** Coordinate with real Codex high runs phase-by-phase, then perform controller-side verification before each commit.

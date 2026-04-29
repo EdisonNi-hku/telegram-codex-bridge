@@ -41,6 +41,9 @@ If you are starting a new Codex Console continuation task, open `docs/roadmap/co
 - Exact Codex app-server capability or payload shape: `docs/research/README.md`
 - Future Codex Bridge Core direction: `docs/future/multi-platform-core-prd.md`
 - Future Web/App control surface sketch: `docs/future/web-app-control-surface-sketch.md`
+- Web-first MVP scope/readiness and VPS/mobile validation gates: `docs/future/web-mvp-scope-and-readiness.md`
+- Future Web prototype protected URL and mobile-access security plan: `docs/operations/web-vps-mobile-access-and-security.md`
+- Web/App pre-implementation contract and readiness gates: `docs/architecture/web-app-preimplementation-contract.md`
 - Phase 2 summary / PR note: `docs/plans/2026-04-26-codex-console-phase2-release-note.md`
 
 ## Rules That Matter

@@ -79,7 +79,9 @@ Read the smallest matching leaf doc.
 | current Codex app-server adoption, supported request families, notification reduction, approvals, and rejected server requests | `docs/architecture/codex-app-server-adoption.md` |
 | current pack boundary, active pack selection, Telegram vs Feishu pack ownership, or platform capability routing | `docs/architecture/platform-pack-boundary.md` |
 | current Telegram/Feishu capability table, common capability vs platform-specific features, or future Web/App target capability rows | `docs/architecture/platform-capability-matrix.md` |
+| Web/App pre-implementation Core/state/API contract, readiness gates, or support-claim guardrails | `docs/architecture/web-app-preimplementation-contract.md` |
 | install flow, config keys, paths, services, update, diagnostics | `docs/operations/install-and-admin.md` |
+| active owner Web preview start/stop/status/smoke/rotate/rollback | `docs/operations/web-preview-runbook.md` |
 | exact current versions, module counts, size snapshot, other high-drift facts | `docs/generated/current-snapshot.md` |
 | authoritative Codex app-server protocol reference | `docs/research/codex-app-server-authoritative-reference.md` |
 | method-by-method protocol lookup | `docs/research/codex-app-server-api-quick-reference.md` |

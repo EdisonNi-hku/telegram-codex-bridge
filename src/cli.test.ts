@@ -82,5 +82,34 @@ test("cli usage includes app-server guard install flags", async () => {
     assert.match(stdout, /--app-server-guard-mcp-worker-threshold/u);
     assert.match(stdout, /--app-server-guard-consecutive-windows/u);
     assert.match(stdout, /--app-server-guard-cooldown-ms/u);
+    assert.match(stdout, /ctb web readonly \[--token <token>\] \[--port <port>\]/u);
+  }
+});
+
+test("cli web readonly refuses to start without token", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "ctb-cli-web-readonly-home-"));
+  const repoRoot = process.cwd();
+
+  try {
+    await execFile(
+      process.execPath,
+      ["--import", "tsx", "src/cli.ts", "web", "readonly"],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          HOME: homeDir,
+          CTB_WEB_READONLY_TOKEN: ""
+        }
+      }
+    );
+    assert.fail("cli should refuse web readonly without token");
+  } catch (error) {
+    const stdout = (error as { stdout?: string }).stdout ?? "";
+    const stderr = (error as { stderr?: string }).stderr ?? "";
+    assert.equal(stdout.includes("http://127.0.0.1"), false);
+    assert.match(stderr, /CTB_WEB_READONLY_TOKEN|--token/u);
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
   }
 });

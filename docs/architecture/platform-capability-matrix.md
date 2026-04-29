@@ -152,7 +152,7 @@ These rows decide how good the experience can be on a platform. They should not 
 
 For future pack planning, track four readiness levels separately:
 
-1. **Static declared capability** — the pack says the platform can do it.
+1. **Declared capability** — the pack says the platform can do it.
 2. **Configured capability** — credentials, scopes, app settings, and local dependencies are present.
 3. **Observed capability** — the bridge has seen text ingress, callback/action events, uploads, or other required platform signals.
 4. **UX-exposed capability** — users can reach it through menus, cards, commands, buttons, or docs.
@@ -195,7 +195,7 @@ But it should use native Web/App presentation:
 - live updates through Web/App transport
 - explicit admin/setup pages
 
-Separate product decisions are still required before Web/App expands scope into multi-user collaboration, provider setup, raw terminal views, project write operations, or team permissions.
+Before any Web/App implementation begins, use `web-app-preimplementation-contract.md` as the required neutral Core/state/API contract and readiness-gate artifact. Separate product decisions are still required before Web/App expands scope into multi-user collaboration, provider setup, raw terminal views, project write operations, or team permissions.
 
 ## Owner Decision Rules
 
