@@ -2,6 +2,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createHash } from "node:crypto";
 
 import type { WebReadonlyViewModelProvider } from "../service/web-readonly-view-model.js";
+import type { ConsoleBridgeReadAdapter } from "./console-bridge-read-adapter.js";
+import { handleConsoleApiHttpRequest, isConsoleApiPath, sendConsoleApiDenied } from "./console-api-http.js";
 import type { ReadonlyAccessGate } from "./readonly-access.js";
 import {
   renderConversationResultPage,
@@ -19,6 +21,7 @@ import {
 export interface ReadonlyHttpServerOptions {
   provider: WebReadonlyViewModelProvider;
   access: ReadonlyAccessGate;
+  consoleReadAdapter?: ConsoleBridgeReadAdapter;
   send?: WebMessageSendOptions;
 }
 
@@ -72,8 +75,19 @@ async function handleRequest(
   response: ServerResponse
 ): Promise<void> {
   try {
+    const apiPath = isConsoleApiPath(request.url ?? "/");
     if (!options.access.authorize(request.headers)) {
+      if (apiPath) {
+        return sendConsoleApiDenied(response, request.method === "HEAD");
+      }
       return send(response, 404, renderGenericNotFoundPage(), request.method === "HEAD");
+    }
+
+    const apiOptions = options.consoleReadAdapter
+      ? { provider: options.provider, adapter: options.consoleReadAdapter }
+      : { provider: options.provider };
+    if (apiPath && handleConsoleApiHttpRequest(apiOptions, request, response)) {
+      return;
     }
 
     if (request.method === "POST") {
