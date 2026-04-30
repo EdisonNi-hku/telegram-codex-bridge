@@ -88,6 +88,15 @@ export interface ConsoleProject {
   lastActivityAt?: string;
 }
 
+export interface ConsoleArchiveProjectRequest {
+  projectId: ConsoleProjectId;
+}
+
+export interface ConsoleCreateSessionRequest {
+  projectId: ConsoleProjectId;
+  title?: string;
+}
+
 export type ConsoleSessionStatus =
   | "empty"
   | "idle"

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 
 import type { WebReadonlyViewModelProvider } from "../service/web-readonly-view-model.js";
 import type { ConsoleBridgeReadAdapter } from "./console-bridge-read-adapter.js";
-import { handleConsoleApiHttpRequest, isConsoleApiPath, sendConsoleApiDenied } from "./console-api-http.js";
+import { handleConsoleApiHttpRequest, isConsoleApiPath, sendConsoleApiDenied, type ConsoleApiWriteAdapter } from "./console-api-http.js";
 import type { ReadonlyAccessGate } from "./readonly-access.js";
 import {
   renderConversationResultPage,
@@ -22,6 +22,7 @@ export interface ReadonlyHttpServerOptions {
   provider: WebReadonlyViewModelProvider;
   access: ReadonlyAccessGate;
   consoleReadAdapter?: ConsoleBridgeReadAdapter;
+  consoleWriteAdapter?: ConsoleApiWriteAdapter;
   send?: WebMessageSendOptions;
 }
 
@@ -83,9 +84,12 @@ async function handleRequest(
       return send(response, 404, renderGenericNotFoundPage(), request.method === "HEAD");
     }
 
-    const apiOptions = options.consoleReadAdapter
-      ? { provider: options.provider, adapter: options.consoleReadAdapter }
-      : { provider: options.provider };
+    const apiOptions = {
+      provider: options.provider,
+      ...(options.consoleReadAdapter ? { adapter: options.consoleReadAdapter } : {}),
+      ...(options.consoleWriteAdapter ? { writeAdapter: options.consoleWriteAdapter } : {}),
+      ...(options.send ? { csrfToken: () => currentCsrfToken(options.send!) } : {})
+    };
     if (apiPath && handleConsoleApiHttpRequest(apiOptions, request, response)) {
       return;
     }

@@ -6,7 +6,14 @@ import type { AddressInfo } from "node:net";
 import { createReadonlyAccessGate } from "./readonly-access.js";
 import { createReadonlyHttpServer } from "./readonly-http-server.js";
 import { createConsoleBridgeReadAdapter, type ConsoleBridgeReadAdapter } from "./console-bridge-read-adapter.js";
+import type { ConsoleApiWriteAdapter } from "./console-api-http.js";
 import { isConsoleOpaqueId, type ConsoleApiError, type ConsoleOpaqueIdKind } from "./console-api-contract.js";
+import type {
+  ConsoleApprovalAnswerResult,
+  ConsoleProject,
+  ConsoleSendMessageResult,
+  ConsoleSessionDetail
+} from "./console-api-contract.js";
 import type {
   WebReadonlyConversationResultViewModel,
   WebReadonlyViewModelProvider
@@ -241,6 +248,53 @@ function conversationDetail(conversationHandle: string): WebReadonlyConversation
   };
 }
 
+const validProject: ConsoleProject = {
+  projectId: "prj_7f3Kp9Qm2Aa",
+  title: "Console Core",
+  archived: true,
+  sessionCount: 1,
+  activeSessionId: "ses_8h4Lm2Np6Bb",
+  lastActivityAt: fixedNow
+};
+
+const validSession: ConsoleSessionDetail = {
+  sessionId: "ses_8h4Lm2Np6Bb",
+  projectId: "prj_7f3Kp9Qm2Aa",
+  title: "Implement API wiring",
+  status: "idle",
+  archived: false,
+  createdAt: fixedNow,
+  lastActivityAt: fixedNow,
+  pendingApprovalCount: 0,
+  artifactCount: 0,
+  messages: [],
+  diffs: [],
+  approvals: [],
+  artifacts: [],
+  eventsUrl: "/api/sessions/ses_8h4Lm2Np6Bb/events"
+};
+
+const validSendResult: ConsoleSendMessageResult = {
+  accepted: true,
+  sessionId: "ses_8h4Lm2Np6Bb",
+  message: {
+    messageId: "msg_3k9Pq1Rs7Cc",
+    sessionId: "ses_8h4Lm2Np6Bb",
+    role: "user",
+    text: "Continue the safe API wiring.",
+    format: "plain_text",
+    status: "pending",
+    createdAt: fixedNow
+  }
+};
+
+const validApprovalAnswer: ConsoleApprovalAnswerResult = {
+  approvalId: "apr_5n7Yb3Za8Ee",
+  sessionId: "ses_8h4Lm2Np6Bb",
+  status: "approved",
+  answeredAt: fixedNow
+};
+
 async function withServer<T>(
   options: Parameters<typeof createReadonlyHttpServer>[0],
   run: (baseUrl: string) => Promise<T>
@@ -257,19 +311,39 @@ async function withServer<T>(
 
 async function request(
   url: string,
-  options: { bearer?: string; method?: string } = {}
+  options: { bearer?: string; method?: string; body?: string; headers?: Record<string, string> } = {}
 ): Promise<{ status: number; text: string; headers: Headers }> {
+  const headers: Record<string, string> = { ...(options.headers ?? {}) };
+  if (options.bearer) {
+    headers.Authorization = `Bearer ${options.bearer}`;
+  }
   const init: RequestInit = {
     method: options.method ?? "GET",
-    redirect: "manual"
+    redirect: "manual",
+    headers,
+    ...(options.body !== undefined ? { body: options.body } : {})
   };
-  if (options.bearer) {
-    init.headers = { Authorization: `Bearer ${options.bearer}` };
-  }
   const response = await fetch(url, {
     ...init
   });
   return { status: response.status, text: await response.text(), headers: response.headers };
+}
+
+function jsonPost(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  options: { bearer?: string; headers?: Record<string, string> } = {}
+): Promise<{ status: number; text: string; headers: Headers }> {
+  return request(`${baseUrl}${path}`, {
+    bearer: options.bearer ?? token,
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers ?? {})
+    }
+  });
 }
 
 test("unauthenticated API request returns generic JSON denial and does not invoke provider or adapter", async () => {
@@ -433,6 +507,301 @@ test("unsupported POST API routes remain denied/not found and do not invoke read
     assert.equal(result.status, 404);
     assert.deepEqual(JSON.parse(result.text), { code: "not_found", message: "Not found.", retryable: false });
     assert.deepEqual(calls, []);
+  });
+});
+
+test("unauthenticated POST API is denied and does not call write handlers", async () => {
+  const calls: string[] = [];
+  const writeCalls: string[] = [];
+  const writeAdapter: ConsoleApiWriteAdapter = {
+    sendMessage() {
+      writeCalls.push("send");
+      return validSendResult;
+    },
+    answerApproval() {
+      writeCalls.push("approval");
+      return validApprovalAnswer;
+    }
+  };
+
+  await withServer({
+    provider: makeProvider(calls),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    consoleWriteAdapter: writeAdapter,
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: () => ({ status: "accepted" })
+    }
+  }, async (baseUrl) => {
+    const result = await request(`${baseUrl}/api/sessions/ses_8h4Lm2Np6Bb/messages`, {
+      method: "POST",
+      body: JSON.stringify({ text: "hello" }),
+      headers: { "Content-Type": "application/json" }
+    });
+
+    assert.equal(result.status, 404);
+    assert.match(result.headers.get("content-type") ?? "", /^application\/json; charset=utf-8/);
+    assert.equal(result.headers.get("cache-control"), "no-store");
+    assert.deepEqual(JSON.parse(result.text), { code: "not_found", message: "Not found.", retryable: false });
+    assert.deepEqual(writeCalls, []);
+    assert.deepEqual(calls, []);
+  });
+});
+
+test("POST archive and create session are capability-disabled without handlers", async () => {
+  await withServer({
+    provider: makeProvider(),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const archive = await jsonPost(baseUrl, "/api/projects/prj_7f3Kp9Qm2Aa/archive", {});
+    const create = await jsonPost(baseUrl, "/api/projects/prj_7f3Kp9Qm2Aa/sessions", {});
+
+    assert.equal(archive.status, 409);
+    assert.equal(archive.headers.get("cache-control"), "no-store");
+    assert.match(archive.headers.get("content-type") ?? "", /^application\/json; charset=utf-8/);
+    assert.deepEqual(JSON.parse(archive.text), {
+      code: "capability_disabled",
+      message: "Console write capability is disabled.",
+      retryable: false,
+      capability: "archiveProject"
+    });
+
+    assert.equal(create.status, 409);
+    assert.deepEqual(JSON.parse(create.text), {
+      code: "capability_disabled",
+      message: "Console write capability is disabled.",
+      retryable: false,
+      capability: "createSession"
+    });
+  });
+});
+
+test("POST archive and create session respect disabled injected capabilities", async () => {
+  const writeCalls: string[] = [];
+  const writeAdapter: ConsoleApiWriteAdapter = {
+    capabilities: {
+      archiveProject: { state: "disabled" },
+      createSession: { state: "disabled" }
+    },
+    archiveProject() {
+      writeCalls.push("archive");
+      return validProject;
+    },
+    createSession() {
+      writeCalls.push("create");
+      return validSession;
+    }
+  };
+
+  await withServer({
+    provider: makeProvider(),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    consoleWriteAdapter: writeAdapter,
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: () => ({ status: "accepted" })
+    }
+  }, async (baseUrl) => {
+    const archive = await jsonPost(baseUrl, "/api/projects/prj_7f3Kp9Qm2Aa/archive", {}, {
+      headers: { "X-CSRF-Token": "csrf-safe-token" }
+    });
+    const create = await jsonPost(baseUrl, "/api/projects/prj_7f3Kp9Qm2Aa/sessions", {}, {
+      headers: { "X-CSRF-Token": "csrf-safe-token" }
+    });
+
+    assert.equal(archive.status, 409);
+    assert.equal(JSON.parse(archive.text).capability, "archiveProject");
+    assert.equal(create.status, 409);
+    assert.equal(JSON.parse(create.text).capability, "createSession");
+    assert.deepEqual(writeCalls, []);
+  });
+});
+
+test("POST send message rejects invalid/raw IDs, blank or oversize text, and malformed JSON", async () => {
+  const submitted: unknown[] = [];
+  await withServer({
+    provider: makeProvider(),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    consoleWriteAdapter: {
+      sendMessage(sessionId, request) {
+        submitted.push({ sessionId, request });
+        return validSendResult;
+      }
+    },
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: () => ({ status: "accepted" })
+    }
+  }, async (baseUrl) => {
+    const headers = { "X-CSRF-Token": "csrf-safe-token" };
+    for (const rawId of ["cv_1111222233334444", "session-1", "%2Ftmp%2Fsecret", "ses_callback_data_123"]) {
+      const result = await jsonPost(baseUrl, `/api/sessions/${rawId}/messages`, { text: "hello" }, { headers });
+      assert.equal(result.status, 400, rawId);
+      assert.equal(result.text.includes(rawId), false);
+      assertNoForbiddenConsoleData(JSON.parse(result.text));
+    }
+
+    const blank = await jsonPost(baseUrl, "/api/sessions/ses_8h4Lm2Np6Bb/messages", { text: "   " }, { headers });
+    assert.equal(blank.status, 400);
+
+    const oversize = await jsonPost(baseUrl, "/api/sessions/ses_8h4Lm2Np6Bb/messages", { text: "a".repeat(8001) }, { headers });
+    assert.equal(oversize.status, 400);
+
+    const malformed = await request(`${baseUrl}/api/sessions/ses_8h4Lm2Np6Bb/messages`, {
+      bearer: token,
+      method: "POST",
+      body: "{",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf-safe-token" }
+    });
+    assert.equal(malformed.status, 400);
+
+    const wrongCsrf = await jsonPost(baseUrl, "/api/sessions/ses_8h4Lm2Np6Bb/messages", { text: "hello" }, {
+      headers: { "X-CSRF-Token": "wrong-token" }
+    });
+    assert.equal(wrongCsrf.status, 403);
+
+    assert.deepEqual(submitted, []);
+  });
+});
+
+test("POST send message calls injected handler exactly once with ConsoleSendMessageRequest", async () => {
+  const submitted: unknown[] = [];
+  await withServer({
+    provider: makeProvider(),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    consoleWriteAdapter: {
+      sendMessage(sessionId, request) {
+        submitted.push({ sessionId, request });
+        return validSendResult;
+      }
+    },
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: () => ({ status: "accepted" })
+    }
+  }, async (baseUrl) => {
+    const result = await jsonPost(baseUrl, "/api/sessions/ses_8h4Lm2Np6Bb/messages", {
+      text: "  Continue the safe API wiring.  ",
+      model: "gpt-5.5",
+      mode: "auto",
+      attachmentArtifactIds: ["art_2m6Bc4De9Ff"]
+    }, {
+      headers: { "X-CSRF-Token": "csrf-safe-token" }
+    });
+    const body = JSON.parse(result.text) as ConsoleSendMessageResult;
+
+    assert.equal(result.status, 202);
+    assert.equal(result.headers.get("cache-control"), "no-store");
+    assert.match(result.headers.get("content-type") ?? "", /^application\/json; charset=utf-8/);
+    assert.deepEqual(submitted, [{
+      sessionId: "ses_8h4Lm2Np6Bb",
+      request: {
+        text: "Continue the safe API wiring.",
+        model: "gpt-5.5",
+        mode: "auto",
+        attachmentArtifactIds: ["art_2m6Bc4De9Ff"]
+      }
+    }]);
+    assert.equal(body.accepted, true);
+    assert.equal(body.sessionId, "ses_8h4Lm2Np6Bb");
+    assertNoForbiddenConsoleData(body);
+    assertConsoleIds(body);
+  });
+});
+
+test("POST approval answer rejects invalid decision and calls handler when valid", async () => {
+  const submitted: unknown[] = [];
+  await withServer({
+    provider: makeProvider(),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    consoleWriteAdapter: {
+      answerApproval(approvalId, request) {
+        submitted.push({ approvalId, request });
+        return validApprovalAnswer;
+      }
+    },
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: () => ({ status: "accepted" })
+    }
+  }, async (baseUrl) => {
+    const headers = { "X-CSRF-Token": "csrf-safe-token" };
+    const invalid = await jsonPost(baseUrl, "/api/approvals/apr_5n7Yb3Za8Ee/answer", { answer: "allow" }, { headers });
+    assert.equal(invalid.status, 400);
+    assert.deepEqual(submitted, []);
+
+    const valid = await jsonPost(baseUrl, "/api/approvals/apr_5n7Yb3Za8Ee/answer", {
+      answer: "approve",
+      scope: "single",
+      reason: "Run targeted tests."
+    }, { headers });
+    const body = JSON.parse(valid.text) as ConsoleApprovalAnswerResult;
+
+    assert.equal(valid.status, 200);
+    assert.deepEqual(submitted, [{
+      approvalId: "apr_5n7Yb3Za8Ee",
+      request: {
+        answer: "approve",
+        scope: "single",
+        reason: "Run targeted tests."
+      }
+    }]);
+    assert.equal(body.status, "approved");
+    assertNoForbiddenConsoleData(body);
+    assertConsoleIds(body);
+  });
+});
+
+test("raw platform, path, and token markers are rejected from write requests and responses", async () => {
+  const submitted: unknown[] = [];
+  await withServer({
+    provider: makeProvider(),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    consoleWriteAdapter: {
+      sendMessage(sessionId, request) {
+        submitted.push({ sessionId, request });
+        return {
+          accepted: true,
+          sessionId,
+          message: {
+            messageId: "msg_3k9Pq1Rs7Cc",
+            sessionId,
+            role: "user",
+            text: "token=abc telegram callback_data=raw /tmp/secret",
+            format: "plain_text",
+            status: "pending",
+            createdAt: fixedNow
+          }
+        } as never;
+      }
+    },
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: () => ({ status: "accepted" })
+    }
+  }, async (baseUrl) => {
+    const headers = { "X-CSRF-Token": "csrf-safe-token" };
+    const requestRejected = await jsonPost(baseUrl, "/api/sessions/ses_8h4Lm2Np6Bb/messages", {
+      text: "please use token=abc"
+    }, { headers });
+    assert.equal(requestRejected.status, 400);
+    assert.deepEqual(submitted, []);
+
+    const responseRejected = await jsonPost(baseUrl, "/api/sessions/ses_8h4Lm2Np6Bb/messages", {
+      text: "Please continue safely."
+    }, { headers });
+    const body = JSON.parse(responseRejected.text);
+
+    assert.equal(responseRejected.status, 500);
+    assert.deepEqual(body, {
+      code: "internal_error",
+      message: "Console API response is temporarily unavailable.",
+      retryable: true
+    });
+    assert.equal(submitted.length, 1);
+    for (const forbidden of ["/tmp/", "telegram", "callback_data", "token=", "secret"]) {
+      assert.equal(responseRejected.text.includes(forbidden), false, `leaked ${forbidden}: ${responseRejected.text}`);
+    }
   });
 });
 
