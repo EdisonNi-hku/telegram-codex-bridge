@@ -79,11 +79,38 @@ export function createConsoleProductMock(): ConsoleProductAppModel {
     },
     approvalCard: {
       title: "Approval required",
+      pendingCount: 2,
       items: [
         { title: "Run tests", detail: "Will run 128 tests" },
         { title: "Modify config", detail: "Update .env.example" }
       ],
       actions: ["Review", "Approve", "Approve all"]
+    },
+    contextCard: {
+      title: "Project context",
+      summary: "Using selected files and the current project summary before editing.",
+      chips: ["src/web/App.tsx", "src/web/auth.ts", "README.md", "Project notes"],
+      actionLabel: "Change context"
+    },
+    artifactCard: {
+      title: "Files & artifacts",
+      summary: "3 changed files and 1 generated summary are ready for review.",
+      files: [
+        { name: "src/web/App.tsx", status: "modified" },
+        { name: "src/web/auth.ts", status: "modified" },
+        { name: "run-summary.md", status: "generated" }
+      ],
+      actionLabel: "Open files"
+    },
+    emptyState: {
+      title: "Start a new session",
+      body: "New session will be created under acme/web with the same project context. Ask Codex what to change first.",
+      ctaLabel: "+ New session"
+    },
+    degradedState: {
+      title: "Connection needs attention",
+      body: "Codex can keep showing this workspace, but live updates may be delayed.",
+      ownerAction: "Workspace owner: check the bridge service before starting a long run."
     },
     composer: {
       placeholder: "Message Codex or type /",

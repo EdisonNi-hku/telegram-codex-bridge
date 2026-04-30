@@ -1,7 +1,11 @@
 import type {
   ConsoleProductAppModel,
   ConsoleProductApprovalCard,
+  ConsoleProductArtifactCard,
+  ConsoleProductContextCard,
+  ConsoleProductDegradedStateCard,
   ConsoleProductDiffCard,
+  ConsoleProductEmptyStateCard,
   ConsoleProductProject,
   ConsoleProductRunCard,
   ConsoleProductTimelineItem
@@ -30,44 +34,58 @@ export function renderConsoleProductHomePage(
 }
 
 function renderShell(model: ConsoleProductAppModel): string {
-  return `<main class="console-mobile-shell" aria-label="Codex Console fake-data product prototype">
+  return `<main class="console-mobile-shell desktop-console-shell" aria-label="Codex Console fake-data product prototype">
   <header class="console-topbar" aria-label="Current console context">
     <label class="console-icon-button" for="console-drawer-toggle" role="button" aria-label="Open project drawer">☰</label>
     <section class="console-context">
       <p class="console-kicker">${escapeHtml(model.currentProject)} · ${escapeHtml(model.currentSession)}</p>
       <h1>${escapeHtml(model.title)}</h1>
     </section>
-    <label class="console-select-pill console-model-selector">Model <select aria-label="Model">${renderOptions(model.modelOptions, model.currentModel)}</select></label>
-    <label class="console-select-pill console-mode-selector">Mode <select aria-label="Mode">${renderOptions(model.modeOptions, model.currentMode)}</select></label>
+    <label class="console-select-pill console-model-selector"><span>Current model</span><select aria-label="Current model">${renderOptions(model.modelOptions, model.currentModel)}</select></label>
+    <label class="console-select-pill console-mode-selector"><span>Work mode</span><select aria-label="Work mode">${renderOptions(model.modeOptions, model.currentMode)}</select></label>
     <span class="console-status-pill console-status-${escapeHtml(model.status)}"><span class="console-status-dot"></span>${escapeHtml(statusLabel(model.status))}</span>
   </header>
   <input class="console-drawer-toggle" id="console-drawer-toggle" type="checkbox" aria-label="Toggle project drawer">
   <section class="console-app-frame">
     <label class="console-drawer-scrim" for="console-drawer-toggle" aria-label="Close project drawer"></label>
-    ${renderProjectDrawer(model.projects)}
-    <section class="console-workspace" aria-label="Chat timeline and task cards">
-      ${renderCommandBar(model.commands)}
+    ${renderProjectDrawer(model)}
+    <section class="console-workspace desktop-main" aria-label="Chat timeline and task cards">
+      ${renderCommandBar(model)}
+      ${renderContextCard(model.contextCard)}
       <section class="console-chat-timeline" aria-label="Chat timeline">
         ${model.timeline.map(renderTimelineItem).join("")}
         ${renderRunCard(model.runCard)}
         ${renderDiffCard(model.diffCard)}
         ${renderApprovalCard(model.approvalCard)}
+        ${renderArtifactCompactCard(model.artifactCard)}
+        ${renderEmptyStateCard(model.emptyState)}
+        ${renderDegradedStateCard(model.degradedState)}
       </section>
       ${renderComposer(model)}
     </section>
+    ${renderDesktopInspector(model)}
   </section>
 </main>`;
 }
 
-function renderProjectDrawer(projects: ConsoleProductProject[]): string {
-  return `<aside class="console-project-drawer" aria-label="Projects and sessions">
+function renderProjectDrawer(model: ConsoleProductAppModel): string {
+  return `<aside class="console-project-drawer desktop-sidebar" aria-label="Projects and sessions">
     <section class="console-drawer-heading">
       <h2>Projects</h2>
       <label class="console-drawer-close" for="console-drawer-toggle" role="button" aria-label="Close project drawer">×</label>
     </section>
     <label class="console-search"><span>⌕</span><input aria-label="Search projects or sessions" placeholder="Search projects or sessions"></label>
+    <section class="console-new-session-preview" aria-label="New session preview">
+      <strong>New session under ${escapeHtml(model.currentProject)}</strong>
+      <p>Creates an empty chat in the selected project with current context ready to review.</p>
+      <button type="button">${escapeHtml(model.emptyState.ctaLabel)}</button>
+    </section>
     <section class="console-project-list">
-      ${projects.map(renderProject).join("")}
+      ${model.projects.map(renderProject).join("")}
+    </section>
+    <section class="console-archive-confirmation" aria-label="Archive confirmation copy">
+      <strong>Archive selected project</strong>
+      <p>Archives the selected project and moves its sessions to archived projects. Nothing is deleted in this prototype.</p>
     </section>
     <button class="console-archive-link" type="button">View archived projects <span>›</span></button>
   </aside>`;
@@ -93,10 +111,11 @@ function renderProject(project: ConsoleProductProject): string {
   </article>`;
 }
 
-function renderCommandBar(commands: string[]): string {
+function renderCommandBar(model: ConsoleProductAppModel): string {
   return `<nav class="console-command-bar" aria-label="Command selection">
-    ${commands.map((command) => `<button type="button">${escapeHtml(command)}</button>`).join("")}
-    <button type="button" aria-label="Command settings">☷</button>
+    <span class="console-command-summary">Commands · ${escapeHtml(model.currentMode)} mode</span>
+    ${model.commands.map((command) => `<button type="button">${escapeHtml(command)}</button>`).join("")}
+    <button type="button" aria-label="Command settings">Mode settings</button>
   </nav>`;
 }
 
@@ -146,6 +165,7 @@ function renderApprovalCard(card: ConsoleProductApprovalCard): string {
   return `<article class="console-approval-card" aria-label="Approval card">
     <section class="console-card-header console-card-header-warning">
       <h2>⚠ ${escapeHtml(card.title)}</h2>
+      <span class="console-approval-count">${escapeHtml(card.pendingCount)} pending</span>
     </section>
     <section class="console-approval-items">
       ${card.items.map((item) => `<article><span>⚙</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small><button type="button">Review</button></article>`).join("")}
@@ -154,6 +174,78 @@ function renderApprovalCard(card: ConsoleProductApprovalCard): string {
       ${card.actions.filter((action) => action !== "Review").map((action) => `<button type="button">${escapeHtml(action)}</button>`).join("")}
     </section>
   </article>`;
+}
+
+function renderContextCard(card: ConsoleProductContextCard): string {
+  return `<section class="console-context-card" aria-label="Selected project context">
+    <section>
+      <strong>${escapeHtml(card.title)}</strong>
+      <p>${escapeHtml(card.summary)}</p>
+    </section>
+    <section class="console-context-chips" aria-label="Selected files and context">
+      ${card.chips.map((chip) => `<span>${escapeHtml(chip)}</span>`).join("")}
+    </section>
+    <button type="button">${escapeHtml(card.actionLabel)}</button>
+  </section>`;
+}
+
+function renderArtifactCompactCard(card: ConsoleProductArtifactCard): string {
+  return `<article class="console-artifact-card console-mobile-artifact-card" aria-label="Files and artifacts">
+    <section class="console-card-header">
+      <h2>${escapeHtml(card.title)}</h2>
+      <span>${escapeHtml(card.files.length)} items</span>
+    </section>
+    <p>${escapeHtml(card.summary)}</p>
+    <section class="console-artifact-files">
+      ${card.files.slice(0, 2).map((file) => `<span>${escapeHtml(file.name)} · ${escapeHtml(file.status)}</span>`).join("")}
+    </section>
+    <button type="button">${escapeHtml(card.actionLabel)}</button>
+  </article>`;
+}
+
+function renderEmptyStateCard(card: ConsoleProductEmptyStateCard): string {
+  return `<article class="console-empty-state-card" aria-label="New session empty chat state">
+    <strong>${escapeHtml(card.title)}</strong>
+    <p>${escapeHtml(card.body)}</p>
+    <button type="button">${escapeHtml(card.ctaLabel)}</button>
+  </article>`;
+}
+
+function renderDegradedStateCard(card: ConsoleProductDegradedStateCard): string {
+  return `<article class="console-service-state-card" aria-label="Connection guidance">
+    <strong>${escapeHtml(card.title)}</strong>
+    <p>${escapeHtml(card.body)}</p>
+    <small>${escapeHtml(card.ownerAction)}</small>
+  </article>`;
+}
+
+function renderDesktopInspector(model: ConsoleProductAppModel): string {
+  return `<aside class="desktop-inspector console-inspector" aria-label="Task, files, activity, and approvals summary">
+    <section class="desktop-task-card console-inspector-card" aria-label="Task summary">
+      <p>Task</p>
+      <h2>${escapeHtml(model.runCard.title)}</h2>
+      <span>${escapeHtml(model.runCard.status)} · ${escapeHtml(model.runCard.progressLabel)}</span>
+    </section>
+    <section class="desktop-diff-panel console-inspector-card" aria-label="Files summary">
+      <p>Files & artifacts</p>
+      <h2>${escapeHtml(model.diffCard.filename)}</h2>
+      <span>+${model.diffCard.added} −${model.diffCard.removed}</span>
+      <ul>
+        ${model.artifactCard.files.map((file) => `<li><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.status)}</small></li>`).join("")}
+      </ul>
+    </section>
+    <section class="desktop-run-summary console-inspector-card" aria-label="Activity summary">
+      <p>Activity</p>
+      <ol>
+        ${model.runCard.steps.map((step) => `<li class="is-${escapeHtml(step.state)}">${escapeHtml(step.label)}</li>`).join("")}
+      </ol>
+    </section>
+    <section class="console-inspector-card console-inspector-approvals" aria-label="Approvals summary">
+      <p>Approvals</p>
+      <h2>${escapeHtml(model.approvalCard.pendingCount)} pending</h2>
+      <span>${model.approvalCard.items.map((item) => escapeHtml(item.title)).join(" · ")}</span>
+    </section>
+  </aside>`;
 }
 
 function renderComposer(model: ConsoleProductAppModel): string {
@@ -257,13 +349,17 @@ button,
 .console-icon-button,
 .console-drawer-close,
 .console-command-bar button,
+.console-new-session-preview button,
 .console-project-actions button,
 .console-session-child button,
 .console-card-actions button,
 .console-card-secondary,
 .console-composer button,
 .console-archive-link,
-.console-approval-items button {
+.console-approval-items button,
+.console-context-card button,
+.console-artifact-card button,
+.console-empty-state-card button {
   border: 1px solid var(--console-product-border);
   border-radius: 14px;
   background: #ffffff;
@@ -338,6 +434,11 @@ button,
 .console-run-card,
 .console-diff-card,
 .console-approval-card,
+.console-context-card,
+.console-artifact-card,
+.console-empty-state-card,
+.console-service-state-card,
+.console-inspector-card,
 .console-composer,
 .console-chat-bubble {
   border: 1px solid var(--console-product-border);
@@ -363,13 +464,17 @@ button,
 .console-card-actions,
 .console-progress-row,
 .console-approval-items article,
-.console-composer-tools {
+.console-composer-tools,
+.console-context-card,
+.console-context-chips,
+.console-artifact-files {
   display: flex;
   align-items: center;
 }
 .console-drawer-heading,
 .console-card-header,
-.console-project-row {
+.console-project-row,
+.console-context-card {
   justify-content: space-between;
   gap: 12px;
 }
@@ -401,6 +506,43 @@ button,
   border: 0;
   outline: 0;
   color: var(--console-product-text);
+}
+.console-new-session-preview,
+.console-archive-confirmation {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(185, 205, 245, 0.8);
+  border-radius: 18px;
+  background: #f8fbff;
+}
+.console-new-session-preview strong,
+.console-archive-confirmation strong {
+  font-size: 0.9rem;
+}
+.console-new-session-preview p,
+.console-archive-confirmation p,
+.console-context-card p,
+.console-artifact-card p,
+.console-empty-state-card p,
+.console-service-state-card p {
+  margin: 0;
+  color: var(--console-product-muted);
+  font-size: 0.86rem;
+}
+.console-new-session-preview button {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0 11px;
+  border-color: var(--console-product-blue);
+  border-radius: 999px;
+  color: var(--console-product-blue);
+  font-size: 0.84rem;
+  font-weight: 760;
+}
+.console-archive-confirmation {
+  border-color: #f4d29c;
+  background: #fffbeb;
 }
 .console-project-list {
   display: grid;
@@ -522,11 +664,25 @@ button,
   gap: 13px;
   min-width: 0;
 }
+.console-command-summary {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0 2px;
+  color: var(--console-product-muted);
+  font-size: 0.86rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
 .console-command-bar {
   display: flex;
   gap: 8px;
   overflow-x: auto;
   padding: 2px 0 4px;
+  scroll-padding-inline: 8px;
+}
+.console-command-bar::after {
+  content: "";
+  flex: 0 0 1px;
 }
 .console-command-bar button {
   flex: 0 0 auto;
@@ -537,6 +693,47 @@ button,
   background: rgba(255, 255, 255, 0.82);
   color: #3f4656;
   font-size: 0.9rem;
+}
+.console-context-card {
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 18px;
+  background: #ffffff;
+}
+.console-context-card > section:first-child {
+  min-width: 180px;
+}
+.console-context-card strong {
+  display: block;
+  color: #0f172a;
+}
+.console-context-chips {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+.console-context-chips span,
+.console-artifact-files span {
+  max-width: 170px;
+  overflow: hidden;
+  padding: 5px 9px;
+  border: 1px solid var(--console-product-border);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.console-context-card button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 11px;
+  border-radius: 999px;
+  color: var(--console-product-blue);
+  font-size: 0.84rem;
+  font-weight: 760;
 }
 .console-chat-timeline {
   display: grid;
@@ -575,7 +772,8 @@ button,
   font-size: 1rem;
 }
 .console-card-header span,
-.console-diff-stat {
+.console-diff-stat,
+.console-approval-count {
   border-radius: 999px;
   padding: 5px 9px;
   background: var(--console-product-blue-soft);
@@ -680,6 +878,10 @@ button,
 .console-card-header-warning h2 {
   color: #7c4a03;
 }
+.console-card-header-warning .console-approval-count {
+  background: #fff3cf;
+  color: #7c4a03;
+}
 .console-approval-items {
   display: grid;
   gap: 8px;
@@ -704,6 +906,94 @@ button,
   border-radius: 999px;
   color: #5f3b10;
   font-size: 0.86rem;
+}
+.console-artifact-card,
+.console-empty-state-card,
+.console-service-state-card {
+  display: grid;
+  gap: 9px;
+  padding: 13px;
+  border-radius: 18px;
+  background: #ffffff;
+}
+.console-artifact-card p,
+.console-empty-state-card p,
+.console-service-state-card p {
+  font-size: 0.9rem;
+}
+.console-artifact-files {
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.console-artifact-card button,
+.console-empty-state-card button {
+  justify-self: start;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border-color: var(--console-product-blue);
+  color: var(--console-product-blue);
+  font-weight: 760;
+}
+.console-empty-state-card {
+  border-style: dashed;
+  text-align: center;
+  place-items: center;
+  background: rgba(248, 251, 255, 0.9);
+}
+.console-service-state-card {
+  border-color: #f4d29c;
+  background: #fffbeb;
+  box-shadow: 0 10px 28px rgba(31, 42, 68, 0.08);
+}
+.console-service-state-card small {
+  color: #7c4a03;
+  font-weight: 760;
+}
+.console-inspector {
+  display: none;
+}
+.console-inspector-card {
+  gap: 8px;
+  padding: 14px;
+  border-radius: 20px;
+  background: #ffffff;
+}
+.console-inspector-card p,
+.console-inspector-card h2,
+.console-inspector-card ol,
+.console-inspector-card ul {
+  margin: 0;
+}
+.console-inspector-card p {
+  color: var(--console-product-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.console-inspector-card h2 {
+  font-size: 1rem;
+}
+.console-inspector-card span,
+.console-inspector-card small {
+  color: var(--console-product-muted);
+  font-size: 0.86rem;
+}
+.console-inspector-card ol,
+.console-inspector-card ul {
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  list-style: none;
+}
+.console-inspector-card li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 0;
+  border-top: 1px solid #eef2f7;
+  color: #334155;
+  font-size: 0.88rem;
 }
 .console-composer {
   position: sticky;
@@ -770,46 +1060,91 @@ button,
   .console-workspace {
     padding-right: 10px;
   }
+  .console-context-card {
+    align-items: stretch;
+    display: grid;
+  }
 }
 @media (max-width: 720px) {
   .console-mobile-shell {
     width: 100%;
-    height: 100vh;
-    height: 100dvh;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    overflow: hidden;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: block;
+    overflow: visible;
     padding: 0 0 calc(10px + env(safe-area-inset-bottom));
   }
   .console-topbar {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) max-content;
     gap: 8px;
+    align-items: start;
     padding: calc(10px + env(safe-area-inset-top)) 12px 10px;
   }
+  .console-context {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
   .console-context h1 {
-    font-size: 1.28rem;
+    overflow: hidden;
+    font-size: 1.08rem;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .console-kicker {
+    font-size: 0.78rem;
+  }
+  .console-select-pill {
+    width: 100%;
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 44px;
+    line-height: 1.2;
+  }
+  .console-select-pill span {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .console-select-pill span::after {
+    content: ":";
+  }
+  .console-select-pill select {
+    width: auto;
+    max-width: 58%;
+    min-height: 32px;
+    text-align: right;
   }
   .console-model-selector,
   .console-mode-selector {
-    grid-row: 2;
-    min-height: 36px;
-    padding: 0 9px;
-    border-radius: 999px;
+    min-width: 0;
+    padding: 6px 10px;
+    border-radius: 16px;
     font-size: 0.82rem;
   }
+  .console-model-selector {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
   .console-mode-selector {
-    grid-column: 2;
-    justify-self: start;
+    grid-column: 1 / -1;
+    grid-row: 3;
   }
   .console-status-pill {
     grid-column: 3;
-    grid-row: 1 / span 2;
+    grid-row: 1;
     min-height: 36px;
     padding: 0 10px;
     border-radius: 999px;
     font-size: 0.82rem;
+    white-space: nowrap;
   }
   .console-icon-button {
+    grid-column: 1;
+    grid-row: 1;
     width: 44px;
     min-height: 44px;
     border-radius: 16px;
@@ -819,16 +1154,17 @@ button,
     grid-template-columns: 1fr;
     gap: 0;
     align-items: stretch;
-    min-height: 0;
-    overflow: hidden;
+    min-height: auto;
+    overflow: visible;
     padding: 10px 10px 0;
   }
   .console-workspace {
     width: 100%;
     display: grid;
-    min-height: 0;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    overflow: hidden;
+    min-height: auto;
+    grid-template-rows: none;
+    align-content: start;
+    overflow: visible;
     padding: 0;
   }
   .console-drawer-scrim {
@@ -843,21 +1179,23 @@ button,
   }
   .console-project-drawer {
     position: fixed;
-    top: 8px;
-    right: auto;
-    bottom: 8px;
-    left: 14px;
+    top: calc(8px + env(safe-area-inset-top));
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    left: 8px;
     z-index: 8;
-    width: min(340px, calc(100vw - 28px));
-    max-width: calc(100vw - 28px);
-    max-height: calc(100dvh - 16px);
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     min-height: auto;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 14px;
     border-radius: 26px;
     background: rgba(255, 255, 255, 0.96);
     backdrop-filter: blur(20px);
-    transform: translateX(calc(-100% - 28px));
+    transform: translateX(calc(-100% - 16px));
     transition: transform 180ms ease;
   }
   #console-drawer-toggle:checked ~ .console-app-frame .console-drawer-scrim {
@@ -878,7 +1216,7 @@ button,
   }
   .console-project-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) max-content;
     gap: 8px;
   }
   .console-project-title-block {
@@ -889,6 +1227,8 @@ button,
     font-size: 0.78rem;
   }
   .console-project-actions {
+    min-width: max-content;
+    flex-wrap: nowrap;
     gap: 4px;
     justify-content: flex-end;
   }
@@ -911,18 +1251,47 @@ button,
     height: 30px;
   }
   .console-command-bar {
+    width: calc(100% + 20px);
+    max-width: 100vw;
     margin: 0 -10px;
-    padding: 0 10px 6px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    padding: 0 10px 8px;
+    scroll-padding-inline: 10px;
+  }
+  .console-command-bar::after {
+    flex-basis: 2px;
+  }
+  .console-command-summary {
+    font-size: 0.8rem;
   }
   .console-command-bar button {
     min-height: 34px;
     padding: 0 10px;
     font-size: 0.84rem;
   }
+  .console-context-card {
+    gap: 8px;
+    padding: 10px;
+  }
+  .console-context-card > section:first-child {
+    min-width: 0;
+  }
+  .console-context-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .console-context-chips span {
+    flex: 0 0 auto;
+  }
+  .console-context-card button {
+    justify-self: start;
+    min-height: 34px;
+  }
   .console-chat-timeline {
-    min-height: 0;
-    overflow-y: auto;
-    padding-bottom: 6px;
+    min-height: auto;
+    overflow: visible;
+    padding-bottom: 0;
     overscroll-behavior: contain;
   }
   .console-chat-bubble {
@@ -996,6 +1365,36 @@ button,
   }
   .console-composer button:last-child {
     min-width: 46px;
+  }
+}
+@media (min-width: 960px) {
+  .desktop-console-shell {
+    width: min(1440px, 100%);
+  }
+  .desktop-console-shell .console-app-frame {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(270px, 340px);
+  }
+  .desktop-sidebar {
+    min-height: calc(100vh - 112px);
+  }
+  .desktop-main {
+    min-height: calc(100vh - 112px);
+  }
+  .desktop-inspector {
+    position: sticky;
+    top: 86px;
+    display: grid;
+    gap: 12px;
+    max-height: calc(100vh - 112px);
+    overflow: auto;
+  }
+  .desktop-task-card,
+  .desktop-diff-panel,
+  .desktop-run-summary {
+    display: grid;
+  }
+  .console-mobile-artifact-card {
+    display: none;
   }
 }
 `.trim();

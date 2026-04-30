@@ -13,6 +13,10 @@ export interface ConsoleProductAppModel {
   runCard: ConsoleProductRunCard;
   diffCard: ConsoleProductDiffCard;
   approvalCard: ConsoleProductApprovalCard;
+  contextCard: ConsoleProductContextCard;
+  artifactCard: ConsoleProductArtifactCard;
+  emptyState: ConsoleProductEmptyStateCard;
+  degradedState: ConsoleProductDegradedStateCard;
   composer: ConsoleProductComposer;
 }
 
@@ -66,6 +70,7 @@ export interface ConsoleProductDiffLine {
 
 export interface ConsoleProductApprovalCard {
   title: string;
+  pendingCount: number;
   items: ConsoleProductApprovalItem[];
   actions: string[];
 }
@@ -73,6 +78,37 @@ export interface ConsoleProductApprovalCard {
 export interface ConsoleProductApprovalItem {
   title: string;
   detail: string;
+}
+
+export interface ConsoleProductContextCard {
+  title: string;
+  summary: string;
+  chips: string[];
+  actionLabel: string;
+}
+
+export interface ConsoleProductArtifactCard {
+  title: string;
+  summary: string;
+  files: ConsoleProductArtifactFile[];
+  actionLabel: string;
+}
+
+export interface ConsoleProductArtifactFile {
+  name: string;
+  status: string;
+}
+
+export interface ConsoleProductEmptyStateCard {
+  title: string;
+  body: string;
+  ctaLabel: string;
+}
+
+export interface ConsoleProductDegradedStateCard {
+  title: string;
+  body: string;
+  ownerAction: string;
 }
 
 export interface ConsoleProductComposer {
