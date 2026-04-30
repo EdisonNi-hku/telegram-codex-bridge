@@ -5,6 +5,11 @@ export interface ConsoleProductAppModel {
   currentModel: string;
   currentMode: string;
   status: "online" | "running";
+  source?: "demo" | "api";
+  apiRoot?: string;
+  activeProjectId?: string;
+  activeSessionId?: string;
+  capabilities?: ConsoleProductCapabilities;
   projects: ConsoleProductProject[];
   commands: string[];
   modelOptions: string[];
@@ -20,22 +25,43 @@ export interface ConsoleProductAppModel {
   composer: ConsoleProductComposer;
 }
 
+export interface ConsoleProductCapabilities {
+  archiveProject: ConsoleProductCapability;
+  createSession: ConsoleProductCapability;
+  sendMessage: ConsoleProductCapability;
+  answerApproval: ConsoleProductCapability;
+  uploadFiles?: ConsoleProductCapability;
+  streamEvents?: ConsoleProductCapability;
+  fetchArtifacts?: ConsoleProductCapability;
+}
+
+export interface ConsoleProductCapability {
+  state: "enabled" | "disabled" | "degraded";
+  reason?: string;
+  ownerAction?: string;
+}
+
 export interface ConsoleProductProject {
+  projectId?: string;
   name: string;
   branch: string;
   hint: string;
   expanded: boolean;
   sessions: ConsoleProductSession[];
+  archiveCapability?: ConsoleProductCapability;
+  createSessionCapability?: ConsoleProductCapability;
 }
 
 export interface ConsoleProductSession {
+  sessionId?: string;
   title: string;
   age: string;
+  status?: string;
   active?: boolean;
 }
 
 export interface ConsoleProductTimelineItem {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   body: string;
   time: string;
 }
@@ -51,7 +77,7 @@ export interface ConsoleProductRunCard {
 
 export interface ConsoleProductRunStep {
   label: string;
-  state: "done" | "active" | "pending";
+  state: "done" | "active" | "pending" | "failed" | "skipped";
 }
 
 export interface ConsoleProductDiffCard {
@@ -114,4 +140,10 @@ export interface ConsoleProductDegradedStateCard {
 export interface ConsoleProductComposer {
   placeholder: string;
   controls: string[];
+  label?: string;
+  sessionId?: string;
+  sendEndpoint?: string;
+  csrfToken?: string;
+  sendCapability?: ConsoleProductCapability;
+  unavailableCopy?: string;
 }

@@ -18,6 +18,7 @@ import {
   renderWorkspaceListPage,
   APP_CSS
 } from "./readonly-renderer.js";
+import { CONSOLE_PRODUCT_SCRIPT } from "./console-product-renderer.js";
 
 export interface ReadonlyHttpServerOptions {
   provider: WebReadonlyViewModelProvider;
@@ -56,13 +57,19 @@ const SECURITY_HEADERS = {
   "Content-Type": "text/html; charset=utf-8"
 } as const;
 
-const WRITE_SECURITY_HEADERS = {
+const API_PRODUCT_SECURITY_HEADERS = {
   ...SECURITY_HEADERS,
-  "Content-Security-Policy": `default-src 'none'; style-src 'sha256-${styleHash()}'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`
+  "Content-Security-Policy": `default-src 'none'; style-src 'sha256-${styleHash()}'; script-src 'sha256-${productScriptHash()}'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`
 } as const;
+
+const WRITE_SECURITY_HEADERS = API_PRODUCT_SECURITY_HEADERS;
 
 function styleHash(): string {
   return createHash("sha256").update(`\n${APP_CSS}\n`).digest("base64");
+}
+
+function productScriptHash(): string {
+  return createHash("sha256").update(`\n${CONSOLE_PRODUCT_SCRIPT}\n`).digest("base64");
 }
 
 export function createReadonlyHttpServer(options: ReadonlyHttpServerOptions): Server {
@@ -174,7 +181,14 @@ function resolveRoute(urlValue: string, provider: WebReadonlyViewModelProvider, 
   }
 
   if (pathname === "/" || pathname === "/chat") {
-    return { status: 200, html: renderHomePage() };
+    const consoleReadAdapter = options.consoleReadAdapter ?? createConsoleBridgeReadAdapter({ provider });
+    return {
+      status: 200,
+      html: renderHomePage(undefined, {
+        adapter: consoleReadAdapter,
+        csrfToken: options.send ? currentCsrfToken(options.send) : null
+      })
+    };
   }
   if (pathname === "/readiness") {
     return { status: 200, html: renderReadinessPage(provider.getReadinessGuardrailViewModel()) };
@@ -212,7 +226,7 @@ function resolveRoute(urlValue: string, provider: WebReadonlyViewModelProvider, 
 }
 
 function send(response: ServerResponse, status: number, html: string, headOnly: boolean, writeEnabled = false): void {
-  response.writeHead(status, writeEnabled ? WRITE_SECURITY_HEADERS : SECURITY_HEADERS);
+  response.writeHead(status, writeEnabled ? WRITE_SECURITY_HEADERS : html.includes('data-console-api-root="/api"') ? API_PRODUCT_SECURITY_HEADERS : SECURITY_HEADERS);
   response.end(headOnly ? undefined : html);
 }
 

@@ -5,6 +5,7 @@ import type {
   ConsoleProductContextCard,
   ConsoleProductDegradedStateCard,
   ConsoleProductDiffCard,
+  ConsoleProductCapability,
   ConsoleProductEmptyStateCard,
   ConsoleProductProject,
   ConsoleProductRunCard,
@@ -23,7 +24,7 @@ export function renderConsoleProductHomePage(
     "<head>",
     "<meta charset=\"utf-8\">",
     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
-    `<title>${escapeHtml(model.title)} · Product Prototype</title>`,
+    `<title>${escapeHtml(model.title)} · Codex Console</title>`,
     `<style>\n${css}\n</style>`,
     "</head>",
     "<body class=\"console-product-body\">",
@@ -34,7 +35,7 @@ export function renderConsoleProductHomePage(
 }
 
 function renderShell(model: ConsoleProductAppModel): string {
-  return `<main class="console-mobile-shell desktop-console-shell" aria-label="Codex Console fake-data product prototype">
+  return `<main class="console-mobile-shell desktop-console-shell" aria-label="Codex Console product UI" data-console-source="${escapeHtml(model.source ?? "demo")}"${model.apiRoot ? ` data-console-api-root="${escapeHtml(model.apiRoot)}"` : ""}${model.activeProjectId ? ` data-console-project-id="${escapeHtml(model.activeProjectId)}"` : ""}${model.activeSessionId ? ` data-console-session-id="${escapeHtml(model.activeSessionId)}"` : ""}>
   <header class="console-topbar" aria-label="Current console context">
     <label class="console-icon-button" for="console-drawer-toggle" role="button" aria-label="Open project drawer">☰</label>
     <section class="console-context">
@@ -93,7 +94,9 @@ function renderProjectDrawer(model: ConsoleProductAppModel): string {
 
 function renderProject(project: ConsoleProductProject): string {
   const expanded = project.expanded ? "true" : "false";
-  return `<article class="console-project-group" data-expanded="${expanded}">
+  const archiveCapability = project.archiveCapability ?? { state: "enabled" as const };
+  const createSessionCapability = project.createSessionCapability ?? { state: "enabled" as const };
+  return `<article class="console-project-group" data-expanded="${expanded}"${project.projectId ? ` data-console-project-id="${escapeHtml(project.projectId)}"` : ""}>
     <section class="console-project-row">
       <section class="console-project-title-block">
         <span class="console-disclosure">${project.expanded ? "⌄" : "›"}</span>
@@ -101,14 +104,20 @@ function renderProject(project: ConsoleProductProject): string {
         <span class="console-project-copy"><strong>${escapeHtml(project.name)}</strong><small>⌘ ${escapeHtml(project.branch)} · ${escapeHtml(project.hint)}</small></span>
       </section>
       <section class="console-project-actions" aria-label="${escapeHtml(project.name)} actions">
-        <button class="console-project-action-archive" type="button" aria-label="Archive ${escapeHtml(project.name)}">Archive</button>
-        <button class="console-project-action-new-session" type="button" aria-label="Create new session in ${escapeHtml(project.name)}">+ New</button>
+        ${renderCapabilityButton("console-project-action-archive", `Archive ${project.name}`, "Archive", archiveCapability)}
+        ${renderCapabilityButton("console-project-action-new-session", `Create new session in ${project.name}`, "+ New", createSessionCapability)}
       </section>
     </section>
     <section class="console-session-list" aria-label="${escapeHtml(project.name)} sessions">
-      ${project.sessions.map((session) => `<article class="console-session-child${session.active ? " is-active" : ""}"><span class="console-session-icon">☵</span><span><strong>${escapeHtml(session.title)}</strong><small>${escapeHtml(session.age)}</small></span><button type="button" aria-label="Session actions">•••</button></article>`).join("")}
+      ${project.sessions.map((session) => `<article class="console-session-child${session.active ? " is-active" : ""}"${session.sessionId ? ` data-console-session-id="${escapeHtml(session.sessionId)}"` : ""}><span class="console-session-icon">☵</span><span><strong>${escapeHtml(session.title)}</strong><small>${escapeHtml(session.status ? `${session.age} · ${session.status}` : session.age)}</small></span><button type="button" aria-label="Session actions" disabled aria-disabled="true">•••</button></article>`).join("")}
     </section>
   </article>`;
+}
+
+function renderCapabilityButton(className: string, ariaLabel: string, label: string, capability: ConsoleProductCapability): string {
+  const disabled = capability.state !== "enabled";
+  const title = disabled ? capability.reason || capability.ownerAction || "Unavailable from Web right now." : "";
+  return `<button class="${escapeHtml(className)}" type="button" aria-label="${escapeHtml(ariaLabel)}" data-capability-state="${escapeHtml(capability.state)}"${disabled ? ` disabled aria-disabled="true" title="${escapeHtml(title)}"` : ""}>${escapeHtml(label)}${disabled ? `<span class="console-sr-only"> unavailable</span>` : ""}</button>`;
 }
 
 function renderCommandBar(model: ConsoleProductAppModel): string {
@@ -168,7 +177,7 @@ function renderApprovalCard(card: ConsoleProductApprovalCard): string {
       <span class="console-approval-count">${escapeHtml(card.pendingCount)} pending</span>
     </section>
     <section class="console-approval-items">
-      ${card.items.map((item) => `<article><span>⚙</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small><button type="button">Review</button></article>`).join("")}
+      ${card.items.map((item) => `<article><span>⚙</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small><button type="button" disabled aria-disabled="true">Review unavailable</button></article>`).join("")}
     </section>
     <section class="console-card-actions">
       ${card.actions.filter((action) => action !== "Review").map((action) => `<button type="button">${escapeHtml(action)}</button>`).join("")}
@@ -250,14 +259,34 @@ function renderDesktopInspector(model: ConsoleProductAppModel): string {
 
 function renderComposer(model: ConsoleProductAppModel): string {
   const controls = new Set(model.composer.controls);
-  return `<section class="console-composer" aria-label="Message composer">
-    <section class="console-composer-input" role="textbox" aria-label="${escapeHtml(model.composer.placeholder)}" aria-readonly="true">${escapeHtml(model.composer.placeholder)}</section>
+  const capability = model.composer.sendCapability ?? { state: controls.has("Send") ? "enabled" as const : "disabled" as const };
+  const canSend = capability.state === "enabled" && Boolean(model.composer.sessionId && model.composer.sendEndpoint && model.composer.csrfToken);
+  const capabilityAttrs = `data-capability-send-message="${escapeHtml(capability.state)}"${model.composer.sessionId ? ` data-console-session-id="${escapeHtml(model.composer.sessionId)}"` : ""}`;
+  if (canSend) {
+    return `<form class="console-composer" aria-label="${escapeHtml(model.composer.label ?? "Message composer")}" data-console-send-form ${capabilityAttrs} method="post" action="${escapeHtml(model.composer.sendEndpoint)}">
+      <input type="hidden" name="_csrf" value="${escapeHtml(model.composer.csrfToken)}">
+      <label class="console-sr-only" for="console-message-input">${escapeHtml(model.composer.label ?? "Message Codex")}</label>
+      <textarea id="console-message-input" class="console-composer-input" name="text" maxlength="8000" required placeholder="${escapeHtml(model.composer.placeholder)}"></textarea>
+      <section class="console-composer-tools" aria-label="Composer tools">
+        <button type="button" aria-label="Attach" disabled aria-disabled="true">${controls.has("Attach") ? "⌘" : "+"}</button>
+        <button type="button" aria-label="Command" disabled aria-disabled="true">${controls.has("Command") ? "/" : "⌕"}</button>
+        <button type="button" aria-label="Mic" disabled aria-disabled="true">${controls.has("Mic") ? "🎙" : "Mic"}</button>
+        <button type="submit" aria-label="Send">${controls.has("Send") ? "➤" : "Send"}</button>
+      </section>
+      <p class="console-composer-note"><span>Text only</span> Sends through the Console API live write seam.</p>
+    </form>`;
+  }
+
+  const unavailable = model.composer.unavailableCopy ?? capability.reason ?? capability.ownerAction ?? "Text send is unavailable from Web right now.";
+  return `<section class="console-composer" aria-label="${escapeHtml(model.composer.label ?? "Message composer")}" aria-disabled="true" ${capabilityAttrs}>
+    <section class="console-composer-input" role="textbox" aria-label="${escapeHtml(model.composer.placeholder)}" aria-readonly="true" aria-disabled="true">${escapeHtml(model.composer.placeholder)}</section>
     <section class="console-composer-tools" aria-label="Composer tools">
-      <button type="button" aria-label="Attach">${controls.has("Attach") ? "⌘" : "+"}</button>
-      <button type="button" aria-label="Command">${controls.has("Command") ? "/" : "⌕"}</button>
-      <button type="button" aria-label="Mic">${controls.has("Mic") ? "🎙" : "Mic"}</button>
-      <button type="button" aria-label="Send">${controls.has("Send") ? "➤" : "Send"}</button>
+      <button type="button" aria-label="Attach" disabled aria-disabled="true">${controls.has("Attach") ? "⌘" : "+"}</button>
+      <button type="button" aria-label="Command" disabled aria-disabled="true">${controls.has("Command") ? "/" : "⌕"}</button>
+      <button type="button" aria-label="Mic" disabled aria-disabled="true">${controls.has("Mic") ? "🎙" : "Mic"}</button>
+      <button type="button" aria-label="Send" disabled aria-disabled="true">Send unavailable</button>
     </section>
+    <p class="console-composer-note"><span>Unavailable</span> ${escapeHtml(unavailable)}</p>
   </section>`;
 }
 
@@ -269,7 +298,7 @@ function statusLabel(status: ConsoleProductAppModel["status"]): string {
   return status === "running" ? "Running" : "Online";
 }
 
-function escapeHtml(value: unknown): string {
+export function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -277,6 +306,59 @@ function escapeHtml(value: unknown): string {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
+
+export const CONSOLE_PRODUCT_SCRIPT = `
+(() => {
+  const forms = document.querySelectorAll("[data-console-send-form]");
+  for (const form of forms) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = form.querySelector("textarea[name='text']");
+      const csrf = form.querySelector("input[name='_csrf']");
+      const button = form.querySelector("button[type='submit']");
+      const note = form.querySelector(".console-composer-note");
+      const text = input instanceof HTMLTextAreaElement ? input.value.trim() : "";
+      if (!text) {
+        return;
+      }
+      if (button instanceof HTMLButtonElement) {
+        button.disabled = true;
+      }
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf instanceof HTMLInputElement ? csrf.value : ""
+          },
+          body: JSON.stringify({ text })
+        });
+        if (response.ok) {
+          input.value = "";
+          if (note) {
+            note.textContent = "Message sent. Refresh this session to see updated activity.";
+          }
+          return;
+        }
+        if (note) {
+          note.textContent = response.status === 409
+            ? "Message was not sent because the session is busy or the send capability is unavailable."
+            : "Message was not sent. Refresh before retrying.";
+        }
+      } catch {
+        if (note) {
+          note.textContent = "Message was not sent. Check the Console connection and retry.";
+        }
+      } finally {
+        if (button instanceof HTMLButtonElement) {
+          button.disabled = false;
+        }
+      }
+    });
+  }
+})();
+`.trim();
 
 export const CONSOLE_PRODUCT_CSS = `
 :root {
@@ -309,12 +391,25 @@ body.console-product-body {
 }
 button,
 select,
-input {
+input,
+textarea {
   font: inherit;
 }
 button,
 select {
   min-height: 44px;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+.console-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 button,
 .console-icon-button {
@@ -1006,6 +1101,9 @@ button,
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(18px);
 }
+form.console-composer {
+  margin: 0;
+}
 .console-composer-input {
   width: 100%;
   min-height: 46px;
@@ -1015,9 +1113,23 @@ button,
   background: #f8fafc;
   color: #8b94a7;
 }
+textarea.console-composer-input {
+  resize: vertical;
+  color: var(--console-product-text);
+  outline: 0;
+}
 .console-composer-tools {
   justify-content: space-between;
   gap: 8px;
+}
+.console-composer-note {
+  margin: 0;
+  color: var(--console-product-muted);
+  font-size: 0.82rem;
+}
+.console-composer-note span {
+  color: var(--console-product-blue);
+  font-weight: 800;
 }
 .console-composer button {
   display: grid;

@@ -13,7 +13,11 @@ import type {
   WebReadonlyWorkspaceListViewModel,
   WebReadonlyWorkspaceRow
 } from "../service/web-readonly-view-model.js";
+import { createConsoleProductApiModel } from "./console-product-api-model.js";
 import { renderConsoleProductHomePage, CONSOLE_PRODUCT_CSS } from "./console-product-renderer.js";
+
+import type { ConsoleBridgeReadAdapter } from "./console-bridge-read-adapter.js";
+import type { ConsoleProjectId, ConsoleSessionSummary } from "./console-api-contract.js";
 
 interface SafeHtmlCell {
   __safeHtml: string;
@@ -32,10 +36,58 @@ export interface WebReadonlyRenderOptions {
   } | null;
 }
 
+export interface WebProductHomeRenderOptions {
+  adapter?: ConsoleBridgeReadAdapter;
+  csrfToken?: string | null;
+}
+
 type WebSendFlashStatus = "accepted" | "blocked" | "rejected" | "unavailable" | "invalid" | "denied";
 
-export function renderHomePage(_vm?: WebReadonlyHomeViewModel, _options: WebReadonlyRenderOptions = {}): string {
-  return renderConsoleProductHomePage(undefined, APP_CSS);
+export function renderHomePage(_vm?: WebReadonlyHomeViewModel, options: WebProductHomeRenderOptions = {}): string {
+  if (!options.adapter) {
+    return renderConsoleProductHomePage(undefined, APP_CSS);
+  }
+
+  try {
+    const bootstrap = options.adapter.getBootstrap();
+    const projects = options.adapter.listProjects();
+    const projectSessions = new Map<ConsoleProjectId, ConsoleSessionSummary[]>();
+    for (const project of projects) {
+      const sessions = options.adapter.listProjectSessions(project.projectId);
+      projectSessions.set(project.projectId, Array.isArray(sessions) ? sessions : []);
+    }
+    const activeProjectId = projects.some((project) => project.projectId === bootstrap.activeProjectId)
+      ? bootstrap.activeProjectId
+      : projects[0]?.projectId;
+    const activeSessionId = bootstrap.activeSessionId
+      ?? projects.find((project) => project.projectId === activeProjectId)?.activeSessionId
+      ?? Array.from(projectSessions.values()).flat().find((session) => !session.archived)?.sessionId;
+    const detail = activeSessionId ? options.adapter.getSessionDetail(activeSessionId) : null;
+    const activeSessionDetail = detail && !isConsoleApiErrorLike(detail) ? detail : null;
+    return renderConsoleProductHomePage(createConsoleProductApiModel({
+      bootstrap: {
+        ...bootstrap,
+        projects,
+        ...(activeProjectId ? { activeProjectId } : {}),
+        ...(activeSessionId ? { activeSessionId } : {})
+      },
+      projectSessions,
+      activeSessionDetail,
+      csrfToken: options.csrfToken ?? null
+    }), APP_CSS);
+  } catch {
+    return renderConsoleProductHomePage(undefined, APP_CSS);
+  }
+}
+
+function isConsoleApiErrorLike(value: unknown): value is { code: string; message: string; retryable: boolean } {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof (value as { code?: unknown }).code === "string" &&
+    typeof (value as { message?: unknown }).message === "string" &&
+    typeof (value as { retryable?: unknown }).retryable === "boolean"
+  );
 }
 
 export function renderWorkspaceListPage(vm: WebReadonlyWorkspaceListViewModel): string {
