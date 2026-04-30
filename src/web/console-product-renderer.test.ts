@@ -179,6 +179,57 @@ test("product renderer CSS keeps the mobile composer in flow below scrollable co
   assert.match(html, /@media \(max-width: 720px\)[\s\S]*?\.console-composer \{[\s\S]*?position: static;[\s\S]*?border-radius: 22px;/);
 });
 
+test("product renderer enables send form only with enabled capability, session endpoint, and CSRF", () => {
+  const base = createConsoleProductMock();
+  const enabledHtml = renderConsoleProductHomePage({
+    ...base,
+    source: "api",
+    apiRoot: "/api",
+    activeSessionId: "ses_RenderSend1230",
+    composer: {
+      ...base.composer,
+      sessionId: "ses_RenderSend1230",
+      sendEndpoint: "/api/sessions/ses_RenderSend1230/messages",
+      csrfToken: "csrf-render-token",
+      sendCapability: { state: "enabled" },
+      controls: ["Attach", "Command", "Mic", "Send"]
+    }
+  });
+  assert.match(enabledHtml, /<form class="console-composer"[^>]*data-console-send-form/);
+  assert.match(enabledHtml, /data-capability-send-message="enabled"/);
+  assert.match(enabledHtml, /action="\/api\/sessions\/ses_RenderSend1230\/messages"/);
+  assert.match(enabledHtml, /name="_csrf" value="csrf-render-token"/);
+
+  const missingCsrfHtml = renderConsoleProductHomePage({
+    ...base,
+    composer: {
+      ...base.composer,
+      sessionId: "ses_RenderSend1230",
+      sendEndpoint: "/api/sessions/ses_RenderSend1230/messages",
+      sendCapability: { state: "enabled" },
+      controls: ["Attach", "Command", "Mic", "Send"]
+    }
+  });
+  assert.doesNotMatch(missingCsrfHtml, /data-console-send-form/);
+  assert.match(missingCsrfHtml, /data-capability-send-message="enabled"/);
+  assert.match(missingCsrfHtml, /Send unavailable/);
+
+  const disabledHtml = renderConsoleProductHomePage({
+    ...base,
+    composer: {
+      ...base.composer,
+      sessionId: "ses_RenderSend1230",
+      sendEndpoint: "/api/sessions/ses_RenderSend1230/messages",
+      csrfToken: "csrf-render-token",
+      sendCapability: { state: "disabled", reason: "Server send seam is unavailable." },
+      controls: ["Attach", "Command", "Mic"]
+    }
+  });
+  assert.doesNotMatch(disabledHtml, /data-console-send-form/);
+  assert.match(disabledHtml, /data-capability-send-message="disabled"/);
+  assert.match(disabledHtml, /Server send seam is unavailable\./);
+});
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

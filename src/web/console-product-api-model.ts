@@ -30,6 +30,7 @@ export interface ConsoleProductApiModelInput {
   projectSessions: Map<ConsoleProjectId, ConsoleSessionSummary[]>;
   activeSessionDetail?: ConsoleSessionDetail | null;
   csrfToken?: string | null;
+  capabilityOverrides?: Partial<Pick<ConsoleCapabilities, "sendMessage">>;
 }
 
 const disabledCapability: ConsoleCapability = { state: "disabled", reason: "This action is not available from Web yet." };
@@ -39,12 +40,17 @@ export function createConsoleProductApiModel(input: ConsoleProductApiModelInput)
   const activeProject = findActiveProject(bootstrap.projects, bootstrap.activeProjectId);
   const activeSession = input.activeSessionDetail ?? findActiveSession(input.projectSessions, bootstrap.activeSessionId);
   const activeSessionId = activeSession?.sessionId ?? bootstrap.activeSessionId;
-  const sendCapability = bootstrap.capabilities.sendMessage;
+  const bootstrapCapabilities: ConsoleCapabilities = {
+    ...bootstrap.capabilities,
+    ...(input.capabilityOverrides?.sendMessage ? { sendMessage: input.capabilityOverrides.sendMessage } : {})
+  };
+  const sendCapability = effectiveComposerSendCapability(bootstrapCapabilities.sendMessage, activeSessionId, input.csrfToken);
+  const capabilities: ConsoleCapabilities = { ...bootstrapCapabilities, sendMessage: sendCapability };
   const canSend = sendCapability.state === "enabled" && Boolean(activeSessionId && input.csrfToken);
   const fallback = createConsoleProductMock();
   const degradedState = bootstrap.degradedStates[0];
   const projects = bootstrap.projects.length > 0
-    ? bootstrap.projects.map((project) => toProductProject(project, input.projectSessions.get(project.projectId) ?? [], activeSessionId, bootstrap.capabilities))
+    ? bootstrap.projects.map((project) => toProductProject(project, input.projectSessions.get(project.projectId) ?? [], activeSessionId, capabilities))
     : [emptyProject()];
   const title = "Codex Console";
   const projectName = activeProject?.title ?? projects[0]?.name ?? "No project selected";
@@ -69,7 +75,7 @@ export function createConsoleProductApiModel(input: ConsoleProductApiModelInput)
     apiRoot: "/api",
     ...(activeProject ? { activeProjectId: activeProject.projectId } : {}),
     ...(activeSessionId ? { activeSessionId } : {}),
-    capabilities: bootstrap.capabilities,
+    capabilities,
     commands: bootstrap.commands.length > 0 ? bootstrap.commands.map((command) => command.name || command.label).slice(0, 8) : fallback.commands,
     modelOptions: optionLabels(bootstrap.models, fallback.modelOptions),
     modeOptions: optionLabels(bootstrap.modes, fallback.modeOptions),
@@ -77,11 +83,11 @@ export function createConsoleProductApiModel(input: ConsoleProductApiModelInput)
     timeline: toTimeline(messages, activeSession?.createdAt),
     runCard: activeRun ? toRunCard(activeRun) : idleRunCard(activeSession?.status),
     diffCard: toDiffCard(diffs[0], artifacts),
-    approvalCard: toApprovalCard(approvals, bootstrap.capabilities.answerApproval),
+    approvalCard: toApprovalCard(approvals, capabilities.answerApproval),
     contextCard: {
       title: "Project context",
       summary: contextSummary(projectName, sessionTitle, bootstrap.degradedStates.length),
-      chips: contextChips(activeProject, activeSession, bootstrap.capabilities),
+      chips: contextChips(activeProject, activeSession, capabilities),
       actionLabel: "Change context unavailable"
     },
     artifactCard: toArtifactCard(artifacts),
@@ -89,8 +95,8 @@ export function createConsoleProductApiModel(input: ConsoleProductApiModelInput)
       title: activeSession ? "Session ready" : "Start a new session",
       body: activeSession
         ? "This chat is loaded from the Console API. Use the composer when live text send is enabled."
-        : `New sessions stay unavailable until the API reports ${capabilityAvailableCopy(bootstrap.capabilities.createSession)}.`,
-      ctaLabel: bootstrap.capabilities.createSession.state === "enabled" ? "+ New session" : "+ New unavailable"
+        : `New sessions stay unavailable until the API reports ${capabilityAvailableCopy(capabilities.createSession)}.`,
+      ctaLabel: capabilities.createSession.state === "enabled" ? "+ New session" : "+ New unavailable"
     },
     degradedState: {
       title: degradedState?.title ?? "Live Console data loaded",
@@ -384,6 +390,23 @@ function contextChips(project: ConsoleProject | null, session: ConsoleSessionSum
 
 function disabledComposerPlaceholder(capability: ConsoleCapability): string {
   return capability.state === "degraded" ? "Message unavailable while Console send is degraded" : "Message unavailable from Web";
+}
+
+function effectiveComposerSendCapability(
+  capability: ConsoleCapability,
+  activeSessionId: ConsoleSessionId | undefined,
+  csrfToken: string | null | undefined
+): ConsoleCapability {
+  if (capability.state !== "enabled") {
+    return capability;
+  }
+  if (!activeSessionId) {
+    return { state: "disabled", reason: "Choose an available session before sending from Web." };
+  }
+  if (!csrfToken) {
+    return { state: "disabled", reason: "Console write capability requires CSRF protection." };
+  }
+  return capability;
 }
 
 function capabilityAvailableCopy(capability: ConsoleCapability): string {

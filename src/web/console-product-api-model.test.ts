@@ -154,6 +154,57 @@ test("API product model enables text send form only when sendMessage and CSRF ar
   assert.match(html, /data-capability-send-message="enabled"/);
 });
 
+test("API product model keeps send disabled unless capability and CSRF are supplied", () => {
+  const enabledBootstrap: ConsoleBootstrap = {
+    ...bootstrap,
+    capabilities: {
+      ...bootstrap.capabilities,
+      sendMessage: { state: "enabled" }
+    }
+  };
+
+  const missingCsrfModel = createConsoleProductApiModel({
+    bootstrap: enabledBootstrap,
+    projectSessions: new Map([["prj_aLiveProject1230", [sessionSummary]]]),
+    activeSessionDetail: detail
+  });
+  const missingCsrfHtml = renderConsoleProductHomePage(missingCsrfModel);
+  assert.match(missingCsrfHtml, /data-capability-send-message="disabled"/);
+  assert.match(missingCsrfHtml, /Console write capability requires CSRF protection\./);
+  assert.doesNotMatch(missingCsrfHtml, /data-console-send-form/);
+  assert.doesNotMatch(missingCsrfHtml, /action="\/api\/sessions\/ses_aLiveSession1230\/messages"/);
+
+  const disabledModel = createConsoleProductApiModel({
+    bootstrap,
+    projectSessions: new Map([["prj_aLiveProject1230", [sessionSummary]]]),
+    activeSessionDetail: detail,
+    csrfToken: "csrf-safe-token"
+  });
+  const disabledHtml = renderConsoleProductHomePage(disabledModel);
+  assert.match(disabledHtml, /data-capability-send-message="disabled"/);
+  assert.match(disabledHtml, /Text send is disabled\./);
+  assert.doesNotMatch(disabledHtml, /data-console-send-form/);
+});
+
+test("API product model accepts a narrow safe send capability override from server options", () => {
+  const model = createConsoleProductApiModel({
+    bootstrap,
+    projectSessions: new Map([["prj_aLiveProject1230", [sessionSummary]]]),
+    activeSessionDetail: detail,
+    csrfToken: "csrf-safe-token",
+    capabilityOverrides: {
+      sendMessage: { state: "enabled" }
+    }
+  });
+  const html = renderConsoleProductHomePage(model);
+
+  assert.match(html, /data-capability-send-message="enabled"/);
+  assert.match(html, /data-console-send-form/);
+  assert.match(html, /action="\/api\/sessions\/ses_aLiveSession1230\/messages"/);
+  assert.equal(html.includes("cv_1234567890abcdef"), false);
+  assert.equal(html.includes("token="), false);
+});
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

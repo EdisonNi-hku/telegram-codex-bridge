@@ -17,7 +17,7 @@ import { createConsoleProductApiModel } from "./console-product-api-model.js";
 import { renderConsoleProductHomePage, CONSOLE_PRODUCT_CSS } from "./console-product-renderer.js";
 
 import type { ConsoleBridgeReadAdapter } from "./console-bridge-read-adapter.js";
-import type { ConsoleProjectId, ConsoleSessionSummary } from "./console-api-contract.js";
+import type { ConsoleCapabilities, ConsoleProjectId, ConsoleSessionSummary } from "./console-api-contract.js";
 
 interface SafeHtmlCell {
   __safeHtml: string;
@@ -39,6 +39,7 @@ export interface WebReadonlyRenderOptions {
 export interface WebProductHomeRenderOptions {
   adapter?: ConsoleBridgeReadAdapter;
   csrfToken?: string | null;
+  capabilities?: Partial<Pick<ConsoleCapabilities, "sendMessage">>;
 }
 
 type WebSendFlashStatus = "accepted" | "blocked" | "rejected" | "unavailable" | "invalid" | "denied";
@@ -64,7 +65,7 @@ export function renderHomePage(_vm?: WebReadonlyHomeViewModel, options: WebProdu
       ?? Array.from(projectSessions.values()).flat().find((session) => !session.archived)?.sessionId;
     const detail = activeSessionId ? options.adapter.getSessionDetail(activeSessionId) : null;
     const activeSessionDetail = detail && !isConsoleApiErrorLike(detail) ? detail : null;
-    return renderConsoleProductHomePage(createConsoleProductApiModel({
+    const modelInput = {
       bootstrap: {
         ...bootstrap,
         projects,
@@ -73,8 +74,10 @@ export function renderHomePage(_vm?: WebReadonlyHomeViewModel, options: WebProdu
       },
       projectSessions,
       activeSessionDetail,
-      csrfToken: options.csrfToken ?? null
-    }), APP_CSS);
+      csrfToken: options.csrfToken ?? null,
+      ...(options.capabilities ? { capabilityOverrides: options.capabilities } : {})
+    };
+    return renderConsoleProductHomePage(createConsoleProductApiModel(modelInput), APP_CSS);
   } catch {
     return renderConsoleProductHomePage(undefined, APP_CSS);
   }

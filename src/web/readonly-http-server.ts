@@ -5,6 +5,7 @@ import type { WebReadonlyViewModelProvider } from "../service/web-readonly-view-
 import { createConsoleBridgeReadAdapter, type ConsoleBridgeReadAdapter } from "./console-bridge-read-adapter.js";
 import { handleConsoleApiHttpRequest, isConsoleApiPath, sendConsoleApiDenied, type ConsoleApiWriteAdapter } from "./console-api-http.js";
 import { createConsoleLiveWriteAdapter } from "./console-live-write-adapter.js";
+import type { ConsoleCapabilities } from "./console-api-contract.js";
 import type { ReadonlyAccessGate } from "./readonly-access.js";
 import {
   renderConversationResultPage,
@@ -94,13 +95,7 @@ async function handleRequest(
 
     if (apiPath) {
       const consoleReadAdapter = options.consoleReadAdapter ?? createConsoleBridgeReadAdapter({ provider: options.provider });
-      const consoleWriteAdapter = options.consoleWriteAdapter
-        ?? (options.send && hasConsoleSessionHandleResolver(consoleReadAdapter)
-          ? createConsoleLiveWriteAdapter({
-            readAdapter: consoleReadAdapter,
-            submitTextMessage: options.send.submitTextMessage
-          })
-          : undefined);
+      const consoleWriteAdapter = writeAdapterFor(options, consoleReadAdapter);
       const apiOptions = {
         provider: options.provider,
         adapter: consoleReadAdapter,
@@ -182,11 +177,15 @@ function resolveRoute(urlValue: string, provider: WebReadonlyViewModelProvider, 
 
   if (pathname === "/" || pathname === "/chat") {
     const consoleReadAdapter = options.consoleReadAdapter ?? createConsoleBridgeReadAdapter({ provider });
+    const consoleWriteAdapter = writeAdapterFor(options, consoleReadAdapter);
+    const csrfToken = options.send ? currentCsrfToken(options.send) : null;
+    const capabilityOverrides = consoleWriteAdapter ? writeCapabilityOverrides(consoleWriteAdapter, csrfToken) : undefined;
     return {
       status: 200,
       html: renderHomePage(undefined, {
         adapter: consoleReadAdapter,
-        csrfToken: options.send ? currentCsrfToken(options.send) : null
+        csrfToken,
+        ...(capabilityOverrides ? { capabilities: capabilityOverrides } : {})
       })
     };
   }
@@ -240,6 +239,36 @@ function renderOptions(options: ReadonlyHttpServerOptions, flashStatus: WebPostR
 
 function sendEnabled(options: ReadonlyHttpServerOptions): boolean {
   return Boolean(options.send?.submitTextMessage && currentCsrfToken(options.send));
+}
+
+function writeAdapterFor(
+  options: ReadonlyHttpServerOptions,
+  consoleReadAdapter: ConsoleBridgeReadAdapter
+): ConsoleApiWriteAdapter | undefined {
+  return options.consoleWriteAdapter
+    ?? (options.send && hasConsoleSessionHandleResolver(consoleReadAdapter)
+      ? createConsoleLiveWriteAdapter({
+        readAdapter: consoleReadAdapter,
+        submitTextMessage: options.send.submitTextMessage
+      })
+      : undefined);
+}
+
+function writeCapabilityOverrides(
+  writeAdapter: ConsoleApiWriteAdapter,
+  csrfToken: string | null
+): Partial<Pick<ConsoleCapabilities, "sendMessage">> {
+  const advertised = writeAdapter.capabilities?.sendMessage;
+  if (!writeAdapter.sendMessage) {
+    return { sendMessage: { state: "disabled", reason: "Console write capability is disabled." } };
+  }
+  if (advertised?.state === "disabled") {
+    return { sendMessage: advertised };
+  }
+  if (!csrfToken) {
+    return { sendMessage: { state: "disabled", reason: "Console write capability requires CSRF protection." } };
+  }
+  return { sendMessage: advertised ?? { state: "enabled" } };
 }
 
 function currentCsrfToken(send: WebMessageSendOptions): string | null {

@@ -909,6 +909,76 @@ test("Console API send wiring is disabled without Web submit dependency and live
   });
 });
 
+test("authenticated API product home enables composer only when live Console send route is available", async () => {
+  const disabledCalls: string[] = [];
+  await withServer({
+    provider: makeProvider(disabledCalls),
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const result = await get(`${baseUrl}/`, token);
+    assert.equal(result.status, 200);
+    assert.match(result.text, /data-console-source="api"/);
+    assert.match(result.text, /data-capability-send-message="disabled"/);
+    assert.match(result.text, /Message unavailable from Web/);
+    assert.match(result.text, /Console Bridge read adapter is read-only in this phase\./);
+    assert.doesNotMatch(result.text, /data-console-send-form/);
+    assert.doesNotMatch(result.text, /\/api\/sessions\/[^"]+\/messages/);
+  });
+
+  const submitted: unknown[] = [];
+  await withServer({
+    provider: makeProvider([]),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: (request) => {
+        submitted.push(request);
+        return { status: "accepted" };
+      }
+    }
+  }, async (baseUrl) => {
+    const home = await get(`${baseUrl}/`, token);
+    assert.equal(home.status, 200);
+    assert.match(home.text, /data-console-source="api"/);
+    assert.match(home.text, /<form class="console-composer"[^>]*data-console-send-form/);
+    assert.match(home.text, /data-capability-send-message="enabled"/);
+    assert.match(home.text, /name="_csrf" value="csrf-safe-token"/);
+    const action = /action="(\/api\/sessions\/(ses_[A-Za-z0-9_-]{6,128})\/messages)"/.exec(home.text);
+    assert.ok(action, `missing opaque API send action: ${home.text}`);
+    assert.doesNotMatch(home.text, /Message unavailable from Web/);
+    for (const disabledControl of [
+      'class="console-project-action-archive"[^>]*data-capability-state="disabled"',
+      'class="console-project-action-new-session"[^>]*data-capability-state="disabled"',
+      'Review unavailable',
+      'Open files unavailable'
+    ]) {
+      assert.match(home.text, new RegExp(disabledControl), `missing disabled control ${disabledControl}: ${home.text}`);
+    }
+    for (const forbidden of ["cv_1234567890abcdef", "wk_safe_1", token, "token=", "callback_data", "messageId", "/tmp/", "/home/", "telegram", "http://127.0.0.1"]) {
+      assert.equal(home.text.includes(forbidden), false, `home leaked ${forbidden}: ${home.text}`);
+    }
+
+    const posted = await post(`${baseUrl}${action[1]}`, token, JSON.stringify({ text: " hello from home " }), {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": "csrf-safe-token",
+      Accept: "application/json"
+    });
+    assert.equal(posted.status, 202);
+    const body = JSON.parse(posted.text);
+    assert.equal(body.accepted, true);
+    assert.equal(body.sessionId, action[2]);
+    assert.equal(body.message.text, "hello from home");
+    assert.deepEqual(submitted, [{
+      conversationHandle: "cv_1234567890abcdef",
+      text: "hello from home",
+      nonce: null
+    }]);
+    for (const forbidden of ["cv_1234567890abcdef", "wk_safe_1", token, "token=", "callback_data", "/tmp/", "/home/", "telegram"]) {
+      assert.equal(posted.text.includes(forbidden), false, `send response leaked ${forbidden}: ${posted.text}`);
+    }
+  });
+});
+
 test("POST message denies unauthorized, CSRF-denied, invalid handle, blank, and oversize without submit", async () => {
   const calls: string[] = [];
   const submitted: unknown[] = [];
