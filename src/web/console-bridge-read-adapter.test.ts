@@ -32,12 +32,14 @@ function makeProvider(options: {
   throwWorkspaces?: boolean;
   workspaceLabel?: string;
   conversationTitle?: string;
+  conversationHandle?: string;
   answerText?: string;
   includePending?: boolean;
   readiness?: Partial<WebReadonlyReadinessGuardrailViewModel>;
   runtime?: Partial<WebReadonlyRuntimeContextViewModel>;
   detailState?: WebReadonlyConversationResultViewModel["state"];
 } = {}): WebReadonlyViewModelProvider {
+  const conversationHandle = options.conversationHandle ?? "cv_1111222233334444";
   const runtime: WebReadonlyRuntimeContextViewModel = {
     generatedAt: fixedNow,
     prototypeOnly: true,
@@ -46,7 +48,7 @@ function makeProvider(options: {
     state: options.runtime?.state ?? "available",
     activeTurns: options.runtime?.activeTurns ?? [
       {
-        sessionId: "cv_1111222233334444",
+        sessionId: conversationHandle,
         status: "running",
         summary: "Running tests without terminal logs.",
         blockedReason: null
@@ -106,8 +108,8 @@ function makeProvider(options: {
         workspaceId,
         conversations: [
           {
-            conversationId: "cv_1111222233334444",
-            conversationHandle: "cv_1111222233334444",
+            conversationId: conversationHandle,
+            conversationHandle,
             workspaceId,
             title: options.conversationTitle ?? "Implement Bridge adapter",
             status: "running",
@@ -334,15 +336,36 @@ test("raw IDs, paths, and platform markers from source are redacted or rejected"
   assert.ok(detail.messages.every((message) => !message.text.includes("secret")));
 });
 
-test("adapter exposes no write methods", () => {
+test("session resolver returns current opaque handle only without leaking it in Console payloads", () => {
+  const adapter = createConsoleBridgeReadAdapter({
+    provider: makeProvider({ conversationHandle: "cv_aaaaaaaaaaaaaaaa" }),
+    now: () => fixedNow,
+    idSalt: "resolver"
+  });
+  const project = adapter.listProjects()[0];
+  assert.ok(project?.activeSessionId);
+
+  assert.equal(adapter.resolveConversationHandleForSession?.(project.activeSessionId), "cv_aaaaaaaaaaaaaaaa");
+  assert.equal(adapter.resolveConversationHandleForSession?.("ses_missing1"), null);
+  assert.equal(JSON.stringify(project).includes("cv_aaaaaaaaaaaaaaaa"), false);
+});
+
+test("adapter exposes no write methods and only a narrow internal session resolver", () => {
   const adapter = createConsoleBridgeReadAdapter({ provider: makeProvider(), now: () => fixedNow });
+  const bootstrap = adapter.getBootstrap();
+  const sessionId = bootstrap.activeSessionId;
+  assert.ok(sessionId);
 
   assert.deepEqual(Object.keys(adapter).sort(), [
     "getBootstrap",
     "getSessionDetail",
     "listProjectSessions",
-    "listProjects"
+    "listProjects",
+    "resolveConversationHandleForSession"
   ]);
+  assert.equal(adapter.resolveConversationHandleForSession?.(sessionId), "cv_1111222233334444");
+  assert.equal(adapter.resolveConversationHandleForSession?.("session-1"), null);
+  assert.equal(JSON.stringify(bootstrap).includes("cv_1111222233334444"), false);
   for (const key of Object.keys(adapter)) {
     assert.doesNotMatch(key, /send|create|archive|answer|upload|post|write/i);
   }

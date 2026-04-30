@@ -2,8 +2,9 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createHash } from "node:crypto";
 
 import type { WebReadonlyViewModelProvider } from "../service/web-readonly-view-model.js";
-import type { ConsoleBridgeReadAdapter } from "./console-bridge-read-adapter.js";
+import { createConsoleBridgeReadAdapter, type ConsoleBridgeReadAdapter } from "./console-bridge-read-adapter.js";
 import { handleConsoleApiHttpRequest, isConsoleApiPath, sendConsoleApiDenied, type ConsoleApiWriteAdapter } from "./console-api-http.js";
+import { createConsoleLiveWriteAdapter } from "./console-live-write-adapter.js";
 import type { ReadonlyAccessGate } from "./readonly-access.js";
 import {
   renderConversationResultPage,
@@ -84,14 +85,24 @@ async function handleRequest(
       return send(response, 404, renderGenericNotFoundPage(), request.method === "HEAD");
     }
 
-    const apiOptions = {
-      provider: options.provider,
-      ...(options.consoleReadAdapter ? { adapter: options.consoleReadAdapter } : {}),
-      ...(options.consoleWriteAdapter ? { writeAdapter: options.consoleWriteAdapter } : {}),
-      ...(options.send ? { csrfToken: () => currentCsrfToken(options.send!) } : {})
-    };
-    if (apiPath && handleConsoleApiHttpRequest(apiOptions, request, response)) {
-      return;
+    if (apiPath) {
+      const consoleReadAdapter = options.consoleReadAdapter ?? createConsoleBridgeReadAdapter({ provider: options.provider });
+      const consoleWriteAdapter = options.consoleWriteAdapter
+        ?? (options.send && hasConsoleSessionHandleResolver(consoleReadAdapter)
+          ? createConsoleLiveWriteAdapter({
+            readAdapter: consoleReadAdapter,
+            submitTextMessage: options.send.submitTextMessage
+          })
+          : undefined);
+      const apiOptions = {
+        provider: options.provider,
+        adapter: consoleReadAdapter,
+        ...(consoleWriteAdapter ? { writeAdapter: consoleWriteAdapter } : {}),
+        ...(options.send ? { csrfToken: () => currentCsrfToken(options.send!) } : {})
+      };
+      if (handleConsoleApiHttpRequest(apiOptions, request, response)) {
+        return;
+      }
     }
 
     if (request.method === "POST") {
@@ -141,6 +152,14 @@ async function handlePost(
   } catch {
     return sendPostOutcome(response, conversationMatch[1], "unavailable", wantsJson);
   }
+}
+
+function hasConsoleSessionHandleResolver(
+  adapter: ConsoleBridgeReadAdapter
+): adapter is ConsoleBridgeReadAdapter & {
+  resolveConversationHandleForSession: NonNullable<ConsoleBridgeReadAdapter["resolveConversationHandleForSession"]>;
+} {
+  return typeof adapter.resolveConversationHandleForSession === "function";
 }
 
 function resolveRoute(urlValue: string, provider: WebReadonlyViewModelProvider, options: ReadonlyHttpServerOptions): RouteResult {

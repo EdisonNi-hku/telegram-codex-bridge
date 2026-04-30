@@ -102,7 +102,18 @@ function makeProvider(
         readonly: true,
         pageId: "web_workspaces",
         state: "available",
-        workspaces: [],
+        workspaces: options.homeWorkspaces ?? [
+          {
+            workspaceId: "wk_safe_1",
+            label: "Console Core",
+            availability: "available",
+            conversationCount: 1,
+            pinned: true,
+            lastActivityAt: "2026-04-25T12:00:00.000Z",
+            lastSuccessAt: null,
+            source: "recent"
+          }
+        ],
         warnings: []
       };
     },
@@ -304,7 +315,6 @@ test("authenticated state route invokes only expected provider method", async ()
   });
 });
 
-
 test("chat alias renders the same fake-data product console home", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
@@ -427,7 +437,6 @@ test("readiness page renders owner-language capability and access posture withou
   });
 });
 
-
 test("authenticated product home emits safe fake-data shell without raw provider internals", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
@@ -462,7 +471,6 @@ test("authenticated product home emits safe fake-data shell without raw provider
   });
 });
 
-
 test("home renders chat-first fake-data product shell with drawer and composer", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
@@ -490,7 +498,6 @@ test("home renders chat-first fake-data product shell with drawer and composer",
     assert.equal(result.text.includes("Settings / access posture"), false, `home should keep access posture off the landing chat: ${result.text}`);
   });
 });
-
 
 test("home ignores live empty provider state and keeps fake-data product prototype", async () => {
   const calls: string[] = [];
@@ -521,7 +528,6 @@ test("home ignores live empty provider state and keeps fake-data product prototy
   });
 });
 
-
 test("authenticated HTML includes CSP-compatible product shell stylesheet", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
@@ -540,7 +546,6 @@ test("authenticated HTML includes CSP-compatible product shell stylesheet", asyn
     assert.equal(result.text.includes('style="'), false);
   });
 });
-
 
 test("home keeps pending provider internals out of fake-data product prototype", async () => {
   const calls: string[] = [];
@@ -725,7 +730,6 @@ test("conversation detail pending panel shares read-only pending cards and actio
   });
 });
 
-
 test("phase B pages expose disabled/product composer posture without enabled write submissions", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
@@ -792,6 +796,112 @@ test("accepted and running conversation states expose safe refresh affordance", 
     assert.match(result.text, /Refresh thread/);
     for (const forbidden of [token, "session-1", "chat-secret", "/tmp/", "/home/", "thread-1", "turn-1", "stack"]) {
       assert.equal(result.text.includes(forbidden), false, `refresh affordance leaked ${forbidden}`);
+    }
+  });
+});
+
+test("Console API send wiring is disabled without Web submit dependency and live when submit exists", async () => {
+  const calls: string[] = [];
+  const provider = makeProvider(calls, {
+    homeWorkspaces: [
+      {
+        workspaceId: "wk_safe_1",
+        label: "Console Core",
+        availability: "available",
+        conversationCount: 1,
+        pinned: true,
+        lastActivityAt: "2026-04-25T12:00:00.000Z",
+        lastSuccessAt: null,
+        source: "recent"
+      }
+    ],
+    workspaceConversations: [
+      {
+        conversationId: "cv_1234567890abcdef",
+        conversationHandle: "cv_1234567890abcdef",
+        workspaceId: "wk_safe_1",
+        title: "Readonly detail",
+        status: "completed",
+        failureReason: null,
+        archived: false,
+        createdAt: "2026-04-25T10:00:00.000Z",
+        lastActivityAt: "2026-04-25T12:00:00.000Z",
+        lastTurnStatus: "completed",
+        finalAnswerAvailable: true
+      }
+    ]
+  });
+
+  await withServer({
+    provider,
+    access: createReadonlyAccessGate({ enabled: true, token })
+  }, async (baseUrl) => {
+    const bootstrap = JSON.parse((await get(`${baseUrl}/api/console/bootstrap`, token)).text);
+    assert.equal(bootstrap.capabilities.sendMessage.state, "disabled");
+
+    const sessionId = bootstrap.activeSessionId;
+    assert.ok(sessionId);
+    const disabled = await post(`${baseUrl}/api/sessions/${sessionId}/messages`, token, JSON.stringify({ text: "hello" }), {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": "csrf-safe-token",
+      Accept: "application/json"
+    });
+    assert.equal(disabled.status, 409);
+    assert.equal(JSON.parse(disabled.text).capability, "sendMessage");
+  });
+
+  const submitted: unknown[] = [];
+  await withServer({
+    provider: makeProvider([], {
+      homeWorkspaces: [
+        {
+          workspaceId: "wk_safe_1",
+          label: "Console Core",
+          availability: "available",
+          conversationCount: 1,
+          pinned: true,
+          lastActivityAt: "2026-04-25T12:00:00.000Z",
+          lastSuccessAt: null,
+          source: "recent"
+        }
+      ]
+    }),
+    access: createReadonlyAccessGate({ enabled: true, token }),
+    send: {
+      csrfToken: "csrf-safe-token",
+      submitTextMessage: (request) => {
+        submitted.push(request);
+        return { status: "accepted" };
+      }
+    }
+  }, async (baseUrl) => {
+    const bootstrap = JSON.parse((await get(`${baseUrl}/api/console/bootstrap`, token)).text);
+    assert.equal(bootstrap.capabilities.sendMessage.state, "enabled");
+    assert.equal(bootstrap.capabilities.archiveProject.state, "disabled");
+    assert.equal(bootstrap.capabilities.createSession.state, "disabled");
+    assert.equal(bootstrap.capabilities.answerApproval.state, "disabled");
+
+    const sessionId = bootstrap.activeSessionId;
+    assert.ok(sessionId);
+    const result = await post(`${baseUrl}/api/sessions/${sessionId}/messages`, token, JSON.stringify({ text: " hello from Console " }), {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": "csrf-safe-token",
+      Accept: "application/json"
+    });
+    const body = JSON.parse(result.text);
+
+    assert.equal(result.status, 202);
+    assert.equal(body.accepted, true);
+    assert.equal(body.sessionId, sessionId);
+    assert.equal(body.message.text, "hello from Console");
+    assert.equal(body.message.status, "pending");
+    assert.deepEqual(submitted, [{
+      conversationHandle: "cv_1234567890abcdef",
+      text: "hello from Console",
+      nonce: null
+    }]);
+    for (const forbidden of ["cv_1234567890abcdef", "session-1", "chat-secret", "thread-1", "token="]) {
+      assert.equal(result.text.includes(forbidden), false, `Console send leaked ${forbidden}: ${result.text}`);
     }
   });
 });
@@ -932,7 +1042,6 @@ test("POST message maps blocked, missing, archived, or unavailable submit outcom
     });
   }
 });
-
 
 test("home recent live conversations are not rendered into fake-data product prototype", async () => {
   const calls: string[] = [];
@@ -1154,7 +1263,6 @@ test("state responses include no-store, CSP, nosniff, and HTML charset headers",
     assert.match(result.headers.get("content-type") ?? "", /^text\/html; charset=utf-8/);
   });
 });
-
 
 test("unknown route and provider error are generic without stack traces", async () => {
   const calls: string[] = [];

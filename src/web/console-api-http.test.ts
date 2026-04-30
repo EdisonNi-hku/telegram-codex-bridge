@@ -548,6 +548,51 @@ test("unauthenticated POST API is denied and does not call write handlers", asyn
   });
 });
 
+test("bootstrap write capabilities are enabled only with real handler and csrf", async () => {
+  async function bootstrap(writeAdapter: ConsoleApiWriteAdapter, includeCsrf: boolean) {
+    return await withServer({
+      provider: makeProvider(),
+      access: createReadonlyAccessGate({ enabled: true, token }),
+      consoleWriteAdapter: writeAdapter,
+      ...(includeCsrf ? {
+        send: {
+          csrfToken: "csrf-safe-token",
+          submitTextMessage: () => ({ status: "accepted" as const })
+        }
+      } : {})
+    }, async (baseUrl) => {
+      const result = await request(`${baseUrl}/api/console/bootstrap`, { bearer: token });
+      assert.equal(result.status, 200);
+      return JSON.parse(result.text);
+    });
+  }
+
+  const advertisedOnly = await bootstrap({
+    capabilities: { sendMessage: { state: "enabled" } }
+  }, true);
+  assert.equal(advertisedOnly.capabilities.sendMessage.state, "disabled");
+
+  const noCsrf = await bootstrap({
+    sendMessage: () => validSendResult
+  }, false);
+  assert.equal(noCsrf.capabilities.sendMessage.state, "disabled");
+
+  const live = await bootstrap({
+    sendMessage: () => validSendResult
+  }, true);
+  assert.equal(live.capabilities.sendMessage.state, "enabled");
+  assert.equal(live.capabilities.archiveProject.state, "disabled");
+  assert.equal(live.capabilities.createSession.state, "disabled");
+  assert.equal(live.capabilities.answerApproval.state, "disabled");
+  assertNoForbiddenConsoleData(live);
+
+  const explicitlyDisabled = await bootstrap({
+    capabilities: { sendMessage: { state: "disabled", reason: "Existing seam unavailable." } },
+    sendMessage: () => validSendResult
+  }, true);
+  assert.equal(explicitlyDisabled.capabilities.sendMessage.state, "disabled");
+});
+
 test("POST archive and create session are capability-disabled without handlers", async () => {
   await withServer({
     provider: makeProvider(),

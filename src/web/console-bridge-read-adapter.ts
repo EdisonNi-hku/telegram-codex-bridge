@@ -46,6 +46,7 @@ export interface ConsoleBridgeReadAdapter {
   listProjects(): ConsoleProject[];
   listProjectSessions(projectId: ConsoleProjectId | string): ConsoleSessionSummaryResult;
   getSessionDetail(sessionId: ConsoleSessionId | string): ConsoleSessionDetail | ConsoleApiError;
+  resolveConversationHandleForSession?(sessionId: ConsoleSessionId | string): string | null;
 }
 
 export type ConsoleSessionSummaryResult = ConsoleSessionSummary[] | ConsoleApiError;
@@ -316,6 +317,16 @@ export function createConsoleBridgeReadAdapter(options: ConsoleBridgeReadAdapter
         artifacts: parts.artifacts,
         eventsUrl: `/api/sessions/${safeSessionId}/events`
       });
+
+    },
+
+    resolveConversationHandleForSession(sessionId) {
+      const indexes = buildIndexes();
+      const safeSessionId = parseConsoleId("session", sessionId);
+      if (!safeSessionId || indexes.sourceUnavailable) {
+        return null;
+      }
+      return indexes.sessionById.get(safeSessionId)?.conversation.conversationHandle ?? null;
     }
   };
 

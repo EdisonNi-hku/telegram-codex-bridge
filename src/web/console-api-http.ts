@@ -59,6 +59,7 @@ type ApprovalAnswerBody =
   | { ok: false; result: JsonRouteResult };
 
 type ConsoleWriteCapability = keyof NonNullable<ConsoleApiWriteAdapter["capabilities"]>;
+type ConsoleWriteCapabilityValue = ConsoleCapabilities["sendMessage"];
 
 const JSON_SECURITY_HEADERS = {
   "Cache-Control": "no-store",
@@ -144,7 +145,7 @@ export function handleConsoleApiHttpRequest(
 function resolveConsoleApiRoute(pathname: string, options: ConsoleApiHttpOptions): JsonRouteResult {
   try {
     if (pathname === "/api/console/bootstrap") {
-      return adapterPayload(() => adapterFor(options).getBootstrap());
+      return adapterPayload(() => bootstrapFor(options));
     }
 
     if (pathname === "/api/projects") {
@@ -290,6 +291,43 @@ async function resolveConsoleApiPostRoute(
   } catch {
     return safeError(500, internalError());
   }
+}
+
+function bootstrapFor(options: ConsoleApiHttpOptions): unknown {
+  const bootstrap = adapterFor(options).getBootstrap();
+  return {
+    ...bootstrap,
+    capabilities: mergeWriteCapabilities(bootstrap.capabilities, options)
+  };
+}
+
+function mergeWriteCapabilities(capabilities: ConsoleCapabilities, options: ConsoleApiHttpOptions): ConsoleCapabilities {
+  return {
+    ...capabilities,
+    archiveProject: writeCapabilityFor(capabilities.archiveProject, options, "archiveProject", options.writeAdapter?.archiveProject),
+    createSession: writeCapabilityFor(capabilities.createSession, options, "createSession", options.writeAdapter?.createSession),
+    sendMessage: writeCapabilityFor(capabilities.sendMessage, options, "sendMessage", options.writeAdapter?.sendMessage),
+    answerApproval: writeCapabilityFor(capabilities.answerApproval, options, "answerApproval", options.writeAdapter?.answerApproval)
+  };
+}
+
+function writeCapabilityFor(
+  fallback: ConsoleWriteCapabilityValue,
+  options: ConsoleApiHttpOptions,
+  capability: ConsoleWriteCapability,
+  handler: unknown
+): ConsoleWriteCapabilityValue {
+  const advertised = options.writeAdapter?.capabilities?.[capability];
+  if (!handler) {
+    return fallback;
+  }
+  if (advertised?.state === "disabled") {
+    return advertised;
+  }
+  if (!currentCsrfToken(options)) {
+    return { state: "disabled", reason: "Console write capability requires CSRF protection." };
+  }
+  return advertised ?? { state: "enabled" };
 }
 
 function adapterFor(options: ConsoleApiHttpOptions): ConsoleBridgeReadAdapter {
