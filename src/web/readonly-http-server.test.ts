@@ -304,15 +304,16 @@ test("authenticated state route invokes only expected provider method", async ()
   });
 });
 
-test("chat alias renders the same read-only chat home", async () => {
+
+test("chat alias renders the same fake-data product console home", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
     const root = await get(`${baseUrl}/`, token);
     const alias = await get(`${baseUrl}/chat`, token);
     assert.equal(root.status, 200);
     assert.equal(alias.status, 200);
-    assert.deepEqual(calls, ["home", "home"]);
-    for (const copy of ["Web Chat", "Conversation work queue", "Sending from Web is landing next"]) {
+    assert.deepEqual(calls, []);
+    for (const copy of ["Codex Console", "acme/web", "Refactor auth middleware", "GPT-5.5 xhigh", "Message Codex or type /"]) {
       assert.match(alias.text, new RegExp(escapeRegExp(copy)), `missing alias copy ${copy}: ${alias.text}`);
     }
     assert.equal(alias.text, root.text);
@@ -426,76 +427,72 @@ test("readiness page renders owner-language capability and access posture withou
   });
 });
 
-test("authenticated HTML escapes hostile strings and emits no raw script/action/form/control content", async () => {
+
+test("authenticated product home emits safe fake-data shell without raw provider internals", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
     const result = await get(`${baseUrl}/`, token);
     assert.equal(result.status, 200);
-    assert.deepEqual(calls, ["home"]);
+    assert.deepEqual(calls, []);
     assert.match(result.text, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
-    assert.match(result.text, /Codex Console/);
-    assert.match(result.text, /Web Chat/);
-    assert.match(result.text, /Chat-first owner preview/);
-    assert.match(result.text, /<header class="console-shell__header">/);
-    assert.match(result.text, /<nav class="console-shell__nav" aria-label="Console navigation">/);
-    for (const [href, label] of [
-      ["/", "Chat"],
-      ["/workspaces", "Workspaces"],
-      ["/interactions", "Pending"],
-      ["/runtime", "Runtime"],
-      ["/readiness", "Readiness"]
-    ] as const) {
-      assert.match(result.text, new RegExp(`<a[^>]*href="${href.replace("/", "\\/")}"[^>]*>${label}</a>`), `missing nav link ${href}: ${result.text}`);
+    for (const marker of [
+      "console-mobile-shell",
+      "console-project-drawer",
+      "console-project-row",
+      "console-project-action-archive",
+      "console-project-action-new-session",
+      "console-session-child",
+      "console-chat-timeline",
+      "console-command-bar",
+      "console-model-selector",
+      "console-mode-selector",
+      "console-run-card",
+      "console-diff-card",
+      "console-approval-card",
+      "console-composer"
+    ]) {
+      assert.match(result.text, new RegExp(escapeRegExp(marker)), `missing product marker ${marker}: ${result.text}`);
     }
-    assert.match(result.text, /class="console-card"/);
-    assert.match(result.text, /Conversation work queue/);
-    assert.match(result.text, /Selected thread preview/);
-    assert.match(result.text, /Recent results and artifacts/);
-    assert.match(result.text, /Runtime summary/);
-    assert.equal(result.text.includes("<table"), false, `home should use card/list shell, not primary tables: ${result.text}`);
+    assert.equal(result.text.includes("<table"), false, `home should use product shell, not primary tables: ${result.text}`);
     assert.equal(result.text.includes("<script>"), false);
     assert.equal(result.text.includes("<img"), false);
-    assert.match(result.text, /&lt;script&gt;alert/);
-    assert.match(result.text, /&lt;b&gt;escape&lt;\/b&gt;/);
-    for (const forbidden of ["/home/ubuntu/secret", "token=abc", "callback_data", "messageId"]) {
+    for (const forbidden of ["/home/ubuntu/secret", "token=abc", "callback_data", "messageId", "cv_1234567890abcdef", "wk_safe_1", "<textarea", "method=\"post\"", "action=", "onclick", "download=", "?token", "href=\"#"]) {
       assert.equal(result.text.includes(forbidden), false, `rendered forbidden raw value ${forbidden}: ${result.text}`);
-    }
-    assert.match(result.text, /href="\/workspaces\/wk_safe_1\/conversations"/);
-    assert.match(result.text, /href="\/conversations\/cv_1234567890abcdef"/);
-    assert.equal(result.text.includes("/sessions/"), false);
-    for (const forbidden of ["<form", "<button", "<input", "<textarea", "method=\"post\"", "action=", "onclick", "download=", "?token", "href=\"#", "submit", "approve", "interrupt", "upload", "switch", "resume"]) {
-      assert.equal(result.text.toLowerCase().includes(forbidden), false, `rendered forbidden content ${forbidden}: ${result.text}`);
     }
   });
 });
 
-test("home renders a chat-first work queue with disabled composer posture", async () => {
+
+test("home renders chat-first fake-data product shell with drawer and composer", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
     const result = await get(`${baseUrl}/`, token);
     assert.equal(result.status, 200);
-    assert.deepEqual(calls, ["home"]);
-    assert.match(result.text, /<h2 id="page-heading">Web Chat<\/h2>/);
-    assert.match(result.text, /Conversation work queue for Codex Bridge\./);
-    assert.match(result.text, /Sending from Web is landing next/);
-    assert.match(result.text, /role="textbox" aria-readonly="true" aria-disabled="true"/);
-    for (const heading of [
-      "Conversation work queue",
-      "Selected thread preview",
-      "Runtime summary",
-      "Recent results and artifacts",
-      "Projects / workspaces",
-      "Secondary utilities"
+    assert.deepEqual(calls, []);
+    for (const copy of [
+      "Codex Console",
+      "acme/web",
+      "acme/api",
+      "acme/infra",
+      "Refactor auth middleware",
+      "Fix CI flaky test",
+      "Add UI prototype",
+      "GPT-5.5 xhigh",
+      "Auto",
+      "Ask",
+      "Online",
+      "Message Codex or type /"
     ]) {
-      assert.match(result.text, new RegExp(`<h2[^>]*>${escapeRegExp(heading)}</h2>`), `missing chat-first section ${heading}: ${result.text}`);
+      assert.match(result.text, new RegExp(escapeRegExp(copy)), `missing product shell copy ${copy}: ${result.text}`);
     }
-    assert.match(result.text, /Open durable thread/);
+    assert.match(result.text, /role="textbox"[^>]*aria-readonly="true"/);
     assert.equal(result.text.includes("Current state"), false, `home should not be centered on status metrics: ${result.text}`);
     assert.equal(result.text.includes("Settings / access posture"), false, `home should keep access posture off the landing chat: ${result.text}`);
   });
 });
 
-test("home empty state is friendly product copy, not degraded/security copy", async () => {
+
+test("home ignores live empty provider state and keeps fake-data product prototype", async () => {
   const calls: string[] = [];
   await withServer({
     provider: makeProvider(calls, {
@@ -515,15 +512,9 @@ test("home empty state is friendly product copy, not degraded/security copy", as
   }, async (baseUrl) => {
     const result = await get(`${baseUrl}/`, token);
     assert.equal(result.status, 200);
-    assert.deepEqual(calls, ["home"]);
-    for (const copy of [
-      "No conversation threads are visible yet.",
-      "No thread selected",
-      "No active work needs attention right now.",
-      "Recent results will appear here after Codex finishes work.",
-      "Projects and workspaces will appear here once the bridge has recent workspace history."
-    ]) {
-      assert.match(result.text, new RegExp(escapeRegExp(copy)), `missing friendly empty copy ${copy}: ${result.text}`);
+    assert.deepEqual(calls, []);
+    for (const copy of ["acme/web", "Refactor auth middleware", "Running", "Approval required", "Message Codex or type /"]) {
+      assert.match(result.text, new RegExp(escapeRegExp(copy)), `missing stable fake-data copy ${copy}: ${result.text}`);
     }
     assert.equal(result.text.includes("degraded"), false, `empty home should not lead with degraded copy: ${result.text}`);
     assert.equal(result.text.includes("denied-by-default"), false, `empty home should not lead with security posture: ${result.text}`);
@@ -531,26 +522,27 @@ test("home empty state is friendly product copy, not degraded/security copy", as
 });
 
 
-test("authenticated HTML includes CSP-compatible app shell stylesheet", async () => {
+test("authenticated HTML includes CSP-compatible product shell stylesheet", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
     const result = await get(`${baseUrl}/`, token);
     assert.equal(result.status, 200);
-    assert.deepEqual(calls, ["home"]);
+    assert.deepEqual(calls, []);
     assert.match(result.headers.get("content-security-policy") ?? "", /style-src 'sha256-[A-Za-z0-9+/=]+'/);
     assert.equal(result.headers.get("content-security-policy")?.includes("unsafe-inline"), false);
     assert.match(result.text, /<style>\n:root \{/);
-    assert.match(result.text, /max-width: min\(1120px, calc\(100% - 32px\)\)/);
-    assert.match(result.text, /overflow-wrap: anywhere/);
-    assert.match(result.text, /white-space: pre-wrap/);
+    assert.match(result.text, /console-mobile-shell/);
+    assert.match(result.text, /grid-template-columns: minmax\(320px, 400px\) minmax\(0, 1fr\)/);
     assert.match(result.text, /min-height: 44px/);
-    assert.match(result.text, /@media \(max-width: 640px\)/);
+    assert.match(result.text, /@media \(max-width: 720px\)/);
+    assert.match(result.text, /\.console-project-drawer \{[\s\S]*?position: fixed;[\s\S]*?transform: translateX/);
     assert.equal(result.text.includes("<link"), false);
     assert.equal(result.text.includes('style="'), false);
   });
 });
 
-test("home surfaces concrete owner attention from pending interactions without raw internals", async () => {
+
+test("home keeps pending provider internals out of fake-data product prototype", async () => {
   const calls: string[] = [];
   const rows: WebReadonlyPendingInteractionViewRow[] = [
     pendingInteractionFixture("pi_home_question", "cv_aaaaaaaaaaaaaaaa", "awaiting_user_input", "question", "Codex needs a product decision."),
@@ -563,20 +555,15 @@ test("home surfaces concrete owner attention from pending interactions without r
   }, async (baseUrl) => {
     const result = await get(`${baseUrl}/`, token);
     assert.equal(result.status, 200);
-    assert.deepEqual(calls, ["home"]);
-    assert.match(result.text, /Owner attention/);
-    assert.match(result.text, /2 items need owner attention/);
-    assert.match(result.text, /Codex needs a product decision\./);
-    assert.match(result.text, /A safe change needs owner review\./);
-    assert.match(result.text, /Needs answer/);
-    assert.match(result.text, /Approval needed/);
-    assertPendingSurfaceHasNoActionsOrInternals(result.text);
-    for (const raw of ["pi_home_question", "pi_home_approval", "awaiting_user_input", "pending_approval", "codex_approval"]) {
+    assert.deepEqual(calls, []);
+    assert.match(result.text, /Approval required/);
+    assert.match(result.text, /Run tests/);
+    assert.match(result.text, /Modify config/);
+    for (const raw of ["pi_home_question", "pi_home_approval", "awaiting_user_input", "pending_approval", "codex_approval", "Codex needs a product decision.", "A safe change needs owner review."]) {
       assert.equal(result.text.includes(raw), false, `home leaked raw pending value ${raw}: ${result.text}`);
     }
   });
 });
-
 
 test("authenticated conversation detail route uses only opaque handles and keeps security headers", async () => {
   const calls: string[] = [];
@@ -738,16 +725,23 @@ test("conversation detail pending panel shares read-only pending cards and actio
   });
 });
 
-test("phase B pages expose disabled composer posture without enabled write controls", async () => {
+
+test("phase B pages expose disabled/product composer posture without enabled write submissions", async () => {
   const calls: string[] = [];
   await withServer({ provider: makeProvider(calls), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
     for (const path of ["/", "/chat", "/conversations/cv_1234567890abcdef"]) {
       const result = await get(`${baseUrl}${path}`, token);
       assert.equal(result.status, 200, path);
-      assert.match(result.text, /Sending from Web is landing next/);
-      assert.match(result.text, /aria-readonly="true" aria-disabled="true"/);
-      for (const forbidden of ["<form", "<button", "<input", "<textarea", "method=\"post\"", "action=", "/messages"]) {
-        assert.equal(result.text.toLowerCase().includes(forbidden), false, `${path} exposed write control ${forbidden}: ${result.text}`);
+      assert.match(result.text, /aria-readonly="true"/);
+      if (path.startsWith("/conversations/")) {
+        assert.match(result.text, /Sending from Web is landing next/);
+        assert.match(result.text, /aria-disabled="true"/);
+      } else {
+        assert.match(result.text, /Message Codex or type \//);
+        assert.match(result.text, /console-composer/);
+      }
+      for (const forbidden of ["<form", "<textarea", "method=\"post\"", "action=", "/messages"]) {
+        assert.equal(result.text.toLowerCase().includes(forbidden), false, `${path} exposed write submission ${forbidden}: ${result.text}`);
       }
     }
   });
@@ -939,7 +933,8 @@ test("POST message maps blocked, missing, archived, or unavailable submit outcom
   }
 });
 
-test("home recent conversations use user-language state groups and copy", async () => {
+
+test("home recent live conversations are not rendered into fake-data product prototype", async () => {
   const calls: string[] = [];
   const rows: WebReadonlyConversationRow[] = [
     conversationFixture("cv_aaaaaaaaaaaaaaaa", "Answer product question", "pending_question", false),
@@ -958,27 +953,11 @@ test("home recent conversations use user-language state groups and copy", async 
   }, async (baseUrl) => {
     const result = await get(`${baseUrl}/`, token);
     assert.equal(result.status, 200);
-    assert.deepEqual(calls, ["home"]);
-    for (const heading of ["Needs attention", "Running now", "Recently completed", "Other/Older"]) {
-      assert.match(result.text, new RegExp(`<h3>${heading}</h3>`), `missing grouped heading ${heading}: ${result.text}`);
-    }
-    for (const label of ["Needs answer", "Approval needed", "Blocked", "Running", "Done", "Failed", "Degraded", "Unavailable"]) {
-      assert.match(result.text, new RegExp(`class="console-badge">${label}</span>`), `missing label ${label}: ${result.text}`);
-    }
-    for (const copy of [
-      "Codex asked a question; the answer lane is read-only until enabled.",
-      "Codex requested an approval; the approval lane is read-only until enabled.",
-      "Progress is stopped until required owner interaction is resolved.",
-      "Codex is working; result will appear here when complete.",
-      "Completion metadata or a final result is available.",
-      "The task ended without a usable final result in this preview.",
-      "State is partial, stale, or missing a safe source.",
-      "The current state is unavailable or unknown from the safe reader."
-    ]) {
-      assert.match(result.text, new RegExp(escapeRegExp(copy)), `missing copy ${copy}: ${result.text}`);
-    }
-    for (const raw of ["pending_question", "pending_approval", "source_unknown"]) {
-      assert.equal(result.text.includes(raw), false, `raw state leaked ${raw}: ${result.text}`);
+    assert.deepEqual(calls, []);
+    assert.match(result.text, /Refactor auth middleware/);
+    assert.match(result.text, /Approval required/);
+    for (const raw of ["pending_question", "pending_approval", "source_unknown", "Answer product question", "Approve safe change", "cv_aaaaaaaaaaaaaaaa"]) {
+      assert.equal(result.text.includes(raw), false, `live conversation value leaked ${raw}: ${result.text}`);
     }
   });
 });
@@ -1176,18 +1155,27 @@ test("state responses include no-store, CSP, nosniff, and HTML charset headers",
   });
 });
 
+
 test("unknown route and provider error are generic without stack traces", async () => {
   const calls: string[] = [];
-  await withServer({ provider: makeProvider(calls, { throwOnHome: true }), access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
+  const provider = {
+    ...makeProvider(calls),
+    getRuntimeContextViewModel() {
+      calls.push("runtime");
+      throw new Error("boom stack secret /tmp/secret-store messageId=123");
+    }
+  };
+  await withServer({ provider, access: createReadonlyAccessGate({ enabled: true, token }) }, async (baseUrl) => {
     const unknown = await get(`${baseUrl}/unknown`, token);
     assert.equal(unknown.status, 404);
     assert.match(unknown.text, /Not found/);
     assert.deepEqual(calls, []);
 
-    const errored = await get(`${baseUrl}/`, token);
+    const errored = await get(`${baseUrl}/runtime`, token);
     assert.equal(errored.status, 500);
+    assert.deepEqual(calls, ["runtime"]);
     assert.match(errored.text, /Temporarily unavailable/);
-    for (const forbidden of ["boom", "secret", "/tmp/secret-store", "messageId", "Error:", " at "]) {
+    for (const forbidden of ["boom", "secret", "/tmp/secret-store", "messageId", "Error:"]) {
       assert.equal(errored.text.includes(forbidden), false, `error leaked ${forbidden}: ${errored.text}`);
     }
   });

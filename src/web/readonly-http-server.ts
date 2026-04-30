@@ -137,7 +137,7 @@ function resolveRoute(urlValue: string, provider: WebReadonlyViewModelProvider, 
   }
 
   if (pathname === "/" || pathname === "/chat") {
-    return { status: 200, html: renderHomePage(provider.getHomeViewModel(), renderOptions(options)) };
+    return { status: 200, html: renderHomePage() };
   }
   if (pathname === "/readiness") {
     return { status: 200, html: renderReadinessPage(provider.getReadinessGuardrailViewModel()) };
