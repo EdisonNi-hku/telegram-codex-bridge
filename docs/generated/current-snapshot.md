@@ -18,7 +18,7 @@ source_of_truth:
 
 # Current Snapshot
 
-Updated: 2026-04-09
+Updated: 2026-06-01
 
 This file is the home for high-drift facts that change more often than the narrative docs should.
 Use it for version baselines, repo-size snapshots, and similar volatile counts.
@@ -29,7 +29,7 @@ Do **not** use it as a behavior spec.
 - package version: `0.1.0`
 - required Node engine from `package.json`: `>=24.0.0`
 - current supported packs from `pack-manifest.json`: `telegram`, `feishu`
-- live `codex --version`: `codex-cli 0.118.0`
+- live `codex --version`: `codex-cli 0.130.0`
 - live `codex app-server --help` confirms:
   - `--listen stdio://` default transport
   - `--listen ws://IP:PORT` available
@@ -38,10 +38,10 @@ Do **not** use it as a behavior spec.
 
 ## Current Repo Size Snapshot
 
-Measured against the current `src/` tree on 2026-04-09.
+Measured against the current `src/` tree on 2026-06-01.
 
-- production TypeScript: `103` files, `43,572` lines
-- test TypeScript: `55` files, `33,510` lines
+- production TypeScript: `117` files, `50,769` lines
+- test TypeScript: `61` files, `38,712` lines
 
 Largest current non-test modules:
 - `src/service.ts` — `4097`
