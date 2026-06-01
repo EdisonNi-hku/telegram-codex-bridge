@@ -11,7 +11,7 @@ What user problem are you trying to solve?
 
 ## Proposed Behavior
 
-Describe the Telegram UX, command flow, or admin flow you want.
+Describe the platform, UX, command flow, card/button behavior, or admin flow you want.
 
 ## Why The Current Behavior Falls Short
 

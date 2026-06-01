@@ -8,6 +8,8 @@ Explain the change in plain language.
 - [ ] `npm run test`
 - [ ] `npm run build`
 
+If the change is docs-only, say so and explain which checks were skipped.
+
 ## Docs
 
 - [ ] no doc update needed

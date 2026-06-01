@@ -11,7 +11,7 @@ What broke?
 
 ## Trigger
 
-Which Telegram action, command, or install/admin step triggered it?
+Which platform and action triggered it? Examples: Telegram command, Feishu card callback, file/image upload, or install/admin step.
 
 ## Expected Behavior
 
@@ -35,6 +35,6 @@ Paste the useful bits, not a wall of junk:
 - `ctb doctor`
 - `/inspect`
 - relevant logs
-- screenshots if the Telegram UI is involved
+- screenshots if a chat surface is involved
 
 Redact secrets before posting.
