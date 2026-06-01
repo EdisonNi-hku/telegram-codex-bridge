@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Codex Console: control the Codex installation already running on your server from supported chat platforms.",
+  "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/InDreamer/telegram-codex-bridge#readme",
   "repository": {

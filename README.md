@@ -23,6 +23,7 @@ source_of_truth:
 
 <p align="center">
   <a href="https://github.com/InDreamer/telegram-codex-bridge/actions/workflows/ci.yml"><img src="https://github.com/InDreamer/telegram-codex-bridge/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI"></a>
+  <a href="https://github.com/InDreamer/telegram-codex-bridge/blob/master/LICENSE"><img src="https://img.shields.io/github/license/InDreamer/telegram-codex-bridge" alt="License"></a>
   <a href="https://github.com/InDreamer/telegram-codex-bridge/stargazers"><img src="https://img.shields.io/github/stars/InDreamer/telegram-codex-bridge?style=flat" alt="GitHub stars"></a>
   <a href="https://github.com/InDreamer/telegram-codex-bridge/releases"><img src="https://img.shields.io/github/v/release/InDreamer/telegram-codex-bridge?include_prereleases&label=version" alt="Version"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A524-brightgreen" alt="Node >= 24">
@@ -199,6 +200,10 @@ npm run test            # Run tests
 npm run build           # Build
 npm run dev             # Dev mode with hot reload
 ```
+
+## License
+
+Codex Console is released under the [MIT License](LICENSE).
 
 ## Documentation
 
