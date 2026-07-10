@@ -913,6 +913,42 @@ test("bang shell ingress requires the first message character and forwards callb
   }
 });
 
+test("bang shell ingress remains Telegram-only", async () => {
+  const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
+  const shellInputs: string[] = [];
+  const normalPrompts: string[] = [];
+
+  try {
+    authorizeFeishuChat(store, "feishu-chat", "feishu-user");
+    const session = createSession(store, "feishu-chat");
+    store.setActiveSession("feishu-chat", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1, text)
+    };
+    (service as any).shellCommandCoordinator = {
+      handleBangCommand: async (_chatId: string, command: string) => {
+        shellInputs.push(command);
+      }
+    };
+    (service as any).handleNormalText = async (_chatId: string, text: string) => {
+      normalPrompts.push(text);
+    };
+
+    await (service as any).handleMessage({
+      message_id: 1905,
+      from: { id: "feishu-user", is_bot: false, first_name: "Tester" },
+      chat: { id: "feishu-chat", type: "private" },
+      date: 0,
+      text: "!ls"
+    });
+
+    assert.deepEqual(shellInputs, []);
+    assert.deepEqual(normalPrompts, ["!ls"]);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("service starts and stops perf sampling when monitoring is enabled", async () => {
   const samplerCalls: string[] = [];
   const samplerOptions: Array<{ getAppServerPid: () => number | null }> = [];

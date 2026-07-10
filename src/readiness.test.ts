@@ -83,6 +83,7 @@ const REQUIRED_CLIENT_REQUESTS = [
   "thread/resume",
   "thread/archive",
   "thread/unarchive",
+  "thread/shellCommand",
   "turn/start",
   "turn/interrupt"
 ];
@@ -614,6 +615,63 @@ test("probeReadiness fails hard when the current Codex capability surface is bel
     assert.equal(result.snapshot.details.capabilityCheckPassed, false);
     assert.equal(result.snapshot.details.capabilityCheckSource, "generated_schema");
     assert.match(result.snapshot.details.issues.join("\n"), /thread\/archived/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("probeReadiness requires thread/shellCommand in the generated client schema", async () => {
+  const { paths, store, cleanup } = await createReadinessContext();
+
+  try {
+    const result = await probeReadiness({
+      config: testConfig,
+      store,
+      paths,
+      logger: testLogger,
+      persist: false,
+      deps: {
+        nodeVersion: process.version,
+        detectServiceManager: async () => ({
+          manager: "none",
+          health: "warning",
+          issues: []
+        }),
+        commandExists: async () => true,
+        runCommand: async (_command: string, args: string[]) => {
+          if (args[0] === "--version") {
+            return { exitCode: 0, stdout: "codex-cli 0.114.0", stderr: "" };
+          }
+          if (args[0] === "login") {
+            return { exitCode: 0, stdout: "Logged in", stderr: "" };
+          }
+          if (args[0] === "app-server" && args[1] === "generate-json-schema") {
+            const outIndex = args.indexOf("--out");
+            assert.notEqual(outIndex, -1);
+            const schemaDir = args[outIndex + 1];
+            assert.ok(schemaDir);
+            await writeCapabilitySchemas(schemaDir, {
+              clientRequests: REQUIRED_CLIENT_REQUESTS.filter(
+                (method) => method !== "thread/shellCommand"
+              )
+            });
+            return { exitCode: 0, stdout: "", stderr: "" };
+          }
+          throw new Error(`unexpected command: ${args.join(" ")}`);
+        },
+        runPackHealthCheck: async () => createTelegramPackHealthReport(),
+        createAppServer: () => ({
+          pid: 123,
+          initializeAndProbe: async () => {},
+          stop: async () => {}
+        })
+      }
+    } as any);
+
+    assert.equal(result.snapshot.state, "bridge_unhealthy");
+    assert.equal(result.snapshot.details.capabilityCheckPassed, false);
+    assert.equal(result.snapshot.details.capabilityCheckSource, "generated_schema");
+    assert.match(result.snapshot.details.issues.join("\n"), /thread\/shellCommand/u);
   } finally {
     await cleanup();
   }

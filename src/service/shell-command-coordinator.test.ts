@@ -126,6 +126,18 @@ test("confirmation cancellation and expiry never execute commands", async () => 
   assert.deepEqual(expired.shellCalls, []);
 });
 
+test("a newer confirmation replaces an older one for the same session", async () => {
+  const harness = createHarness();
+  await harness.coordinator.handleBangCommand("chat-1", "printf first");
+  const firstToken = confirmationToken(harness.messages.at(-1) ?? {});
+  await harness.coordinator.handleBangCommand("chat-1", "printf second");
+  const secondToken = confirmationToken(harness.messages.at(-1) ?? {});
+
+  assert.equal(await harness.coordinator.handleDecision("chat-1", firstToken, true), "这个确认已失效。");
+  assert.equal(await harness.coordinator.handleDecision("chat-1", secondToken, true), "已开始执行。");
+  assert.deepEqual(harness.shellCalls, [{ threadId: "thread-1", command: "printf second" }]);
+});
+
 test("confirmation is bound to the original session and thread", async () => {
   const changedSession = createHarness();
   await changedSession.coordinator.handleBangCommand("chat-1", "printf session");
@@ -149,6 +161,20 @@ test("only one user shell command runs per thread at a time", async () => {
 
   assert.deepEqual(harness.shellCalls, [{ threadId: "thread-1", command: "ls" }]);
   assert.match(harness.messages.at(-1)?.text ?? "", /已有 shell 命令/u);
+});
+
+test("app-server reset releases running shell commands", async () => {
+  const harness = createHarness();
+  await harness.coordinator.handleBangCommand("chat-1", "ls");
+
+  await harness.coordinator.handleAppServerReset();
+  assert.match(harness.messages.at(-1)?.text ?? "", /中断/u);
+
+  await harness.coordinator.handleBangCommand("chat-1", "pwd");
+  assert.deepEqual(harness.shellCalls, [
+    { threadId: "thread-1", command: "ls" },
+    { threadId: "thread-1", command: "pwd" }
+  ]);
 });
 
 test("userShell notifications deliver bounded output and exit code", async () => {
@@ -186,4 +212,26 @@ test("userShell notifications deliver bounded output and exit code", async () =>
 
   await harness.coordinator.handleBangCommand("chat-1", "pwd");
   assert.equal(harness.shellCalls.length, 2);
+});
+
+test("long commands cannot truncate the shell exit code", async () => {
+  const harness = createHarness();
+  const command = `ls ${"x".repeat(4_000)}`;
+  await harness.coordinator.handleBangCommand("chat-1", command);
+
+  await harness.coordinator.handleNotification("item/completed", {
+    threadId: "thread-1",
+    item: {
+      id: "item-shell",
+      type: "commandExecution",
+      source: "userShell",
+      aggregatedOutput: "done",
+      exitCode: 0,
+      status: "completed"
+    }
+  });
+
+  const result = harness.messages.at(-1)?.text ?? "";
+  assert.match(result, /Exit code: 0$/u);
+  assert.ok(result.length <= 4_000);
 });

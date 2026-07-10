@@ -26,6 +26,7 @@ const REQUIRED_CLIENT_REQUESTS = [
   "thread/resume",
   "thread/archive",
   "thread/unarchive",
+  "thread/shellCommand",
   "turn/start",
   "turn/interrupt"
 ] as const;

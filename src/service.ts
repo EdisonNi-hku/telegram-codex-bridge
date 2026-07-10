@@ -1285,7 +1285,8 @@ export class BridgeService {
       return;
     }
 
-    const shellCommand = parseBangShellCommand(message.text ?? "");
+    const shellCommand =
+      this.config.activePack === "telegram" ? parseBangShellCommand(message.text ?? "") : null;
     if (shellCommand !== null) {
       this.richInputAdapter.clearPendingAutoAttach(chatId);
       await this.shellCommandCoordinator.handleBangCommand(chatId, shellCommand);
@@ -3130,6 +3131,7 @@ export class BridgeService {
     }
 
     await this.threadArchiveReconciler.clearOnAppServerExit();
+    await this.shellCommandCoordinator.handleAppServerReset();
     await this.logger.warn("app-server exit observed", { error: `${error}` });
 
     await this.turnCoordinator.handleActiveTurnAppServerExit();
@@ -3194,6 +3196,8 @@ export class BridgeService {
     await this.logger.warn("health guard recycling app-server", {
       pid: existing.pid ?? null
     });
+
+    await this.shellCommandCoordinator.handleAppServerReset();
 
     await existing.stop().catch(async (error) => {
       await this.logger.warn("health guard failed to stop app-server before recycle", {

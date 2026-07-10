@@ -72,11 +72,15 @@ export function classifyShellCommand(command: string): ShellRiskDecision {
   }
 
   const [program, ...args] = tokens;
-  if (DIRECT_INSPECTION_COMMANDS.has(program ?? "")) {
+  if (DIRECT_INSPECTION_COMMANDS.has(program ?? "") && !hasUnsafeInspectionArgs(program ?? "", args)) {
     return { decision: "direct", reason: "只读命令" };
   }
 
-  if (program === "find" && args.every((arg) => !FIND_MUTATING_ACTIONS.has(arg))) {
+  if (
+    program === "find"
+    && !hasPotentialOutsidePath(args)
+    && args.every((arg) => !FIND_MUTATING_ACTIONS.has(arg))
+  ) {
     return { decision: "direct", reason: "只读查找" };
   }
 
@@ -178,6 +182,43 @@ function isSafeRelativePath(path: string): boolean {
 
   const components = path.replaceAll("\\", "/").split("/");
   return components.every((component) => component !== ".." && component !== "");
+}
+
+function hasUnsafeInspectionArgs(program: string, args: string[]): boolean {
+  if (hasPotentialOutsidePath(args)) {
+    return true;
+  }
+
+  if (program === "rg") {
+    return args.some((arg) => arg === "--pre" || arg.startsWith("--pre="));
+  }
+
+  if (program === "file") {
+    return args.some((arg) => arg === "--compile" || /^-[^-]*C/u.test(arg));
+  }
+
+  if (program === "tail") {
+    return args.some((arg) => (
+      arg === "--retry"
+      || arg === "--follow"
+      || arg.startsWith("--follow=")
+      || /^-[^-]*[fF]/u.test(arg)
+    ));
+  }
+
+  return false;
+}
+
+function hasPotentialOutsidePath(args: string[]): boolean {
+  return args.some((arg) => {
+    const equalsIndex = arg.indexOf("=");
+    const value = equalsIndex >= 0 ? arg.slice(equalsIndex + 1) : arg;
+    if (value.startsWith("/") || value.startsWith("~") || /^[A-Za-z]:[\\/]/u.test(value)) {
+      return true;
+    }
+
+    return value.replaceAll("\\", "/").split("/").includes("..");
+  });
 }
 
 function isDirectGitInspection(args: string[]): boolean {

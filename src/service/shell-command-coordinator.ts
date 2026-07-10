@@ -12,6 +12,7 @@ import { classifyShellCommand } from "./shell-command-policy.js";
 const CONFIRMATION_TTL_MS = 120_000;
 const RESULT_MESSAGE_LIMIT = 4_000;
 const OUTPUT_PREVIEW_LIMIT = 3_300;
+const COMMAND_PREVIEW_LIMIT = 500;
 const COLLECTED_OUTPUT_LIMIT = 64_000;
 
 interface ShellSessionStore {
@@ -65,6 +66,8 @@ export class ShellCommandCoordinator {
   }
 
   async handleBangCommand(chatId: string, command: string): Promise<void> {
+    this.pruneExpiredConfirmations();
+
     if (!command) {
       await this.deps.safeSendMessage(chatId, "用法：!<command>，例如 !ls");
       return;
@@ -99,6 +102,7 @@ export class ShellCommandCoordinator {
   async handleDecision(chatId: string, token: string, approved: boolean): Promise<string> {
     const pending = this.pendingByToken.get(token);
     this.pendingByToken.delete(token);
+    this.pruneExpiredConfirmations();
     if (!pending || pending.chatId !== chatId) {
       return "这个确认已失效。";
     }
@@ -185,6 +189,17 @@ export class ShellCommandCoordinator {
     );
   }
 
+  async handleAppServerReset(): Promise<void> {
+    const runningCommands = [...this.runningByThreadId.values()];
+    this.runningByThreadId.clear();
+    await Promise.all(runningCommands.map(async (running) => {
+      await this.deps.safeSendMessage(
+        running.chatId,
+        `app-server 已重启，shell 命令已中断：!${truncateWithMarker(running.command, COMMAND_PREVIEW_LIMIT)}`
+      );
+    }));
+  }
+
   private async requestConfirmation(
     chatId: string,
     session: SessionRow,
@@ -192,6 +207,16 @@ export class ShellCommandCoordinator {
     command: string,
     reason: string
   ): Promise<void> {
+    for (const [pendingToken, pending] of this.pendingByToken) {
+      if (
+        pending.chatId === chatId
+        && pending.sessionId === session.sessionId
+        && pending.threadId === threadId
+      ) {
+        this.pendingByToken.delete(pendingToken);
+      }
+    }
+
     const token = this.createToken();
     this.pendingByToken.set(token, {
       chatId,
@@ -243,6 +268,15 @@ export class ShellCommandCoordinator {
 
     await this.deps.safeSendMessage(chatId, `已开始执行：!${command}`);
   }
+
+  private pruneExpiredConfirmations(): void {
+    const now = this.now();
+    for (const [token, pending] of this.pendingByToken) {
+      if (now > pending.expiresAt) {
+        this.pendingByToken.delete(token);
+      }
+    }
+  }
 }
 
 function buildConfirmationReplyMarkup(token: string): TelegramInlineKeyboardMarkup {
@@ -263,10 +297,21 @@ function appendBounded(current: string, addition: string, limit: number): string
 
 function buildShellResultMessage(command: string, output: string, exitCode: number | null): string {
   const normalizedOutput = output.trimEnd() || "(no output)";
-  const truncated = normalizedOutput.length > OUTPUT_PREVIEW_LIMIT;
-  const preview = truncated
-    ? `${normalizedOutput.slice(0, OUTPUT_PREVIEW_LIMIT)}\n…输出已截断…`
-    : normalizedOutput;
-  const message = [`$ ${command}`, "", preview, "", `Exit code: ${exitCode ?? "unknown"}`].join("\n");
-  return message.slice(0, RESULT_MESSAGE_LIMIT);
+  const commandPreview = truncateWithMarker(command, COMMAND_PREVIEW_LIMIT);
+  const footer = `Exit code: ${exitCode ?? "unknown"}`;
+  const fixedLength = `$ ${commandPreview}\n\n\n\n${footer}`.length;
+  const outputLimit = Math.min(OUTPUT_PREVIEW_LIMIT, RESULT_MESSAGE_LIMIT - fixedLength);
+  const preview = truncateWithMarker(normalizedOutput, Math.max(0, outputLimit));
+  return [`$ ${commandPreview}`, "", preview, "", footer].join("\n");
+}
+
+function truncateWithMarker(value: string, limit: number): string {
+  if (value.length <= limit) {
+    return value;
+  }
+  const marker = "…输出已截断…";
+  if (limit <= marker.length) {
+    return marker.slice(0, limit);
+  }
+  return `${value.slice(0, limit - marker.length)}${marker}`;
 }
