@@ -199,17 +199,18 @@ export class SideConversationCoordinator {
     if (!store || !side || side.sessionKind !== "side" || (expectedSide && side.sessionId !== expectedSide.sessionId)) {
       await this.stale(chatId); return null;
     }
-    const parent = store.getSideParent(side.sessionId);
-    if (!parent || parent.sessionId !== side.parentSessionId) {
-      await this.closeOrphanedSide(chatId, side); return null;
-    }
     const turn = this.deps.getActiveTurn(side.sessionId);
-    if (!turn) { await this.closeSide(chatId, side, parent, false); return null; }
+    const parent = store.getSideParent(side.sessionId);
+    if (!turn) {
+      if (!parent || parent.sessionId !== side.parentSessionId) await this.closeOrphanedSide(chatId, side, false);
+      else await this.closeSide(chatId, side, parent, false);
+      return null;
+    }
     if (turn.threadId !== side.threadId) { await this.stale(chatId); return null; }
     this.invalidateConfirmationsForSide(side.sessionId);
     const token = this.deps.createToken();
     this.returnConfirmations.set(token, { chatId, sideSessionId: side.sessionId,
-      parentSessionId: parent.sessionId, expiresAtMs: this.deps.nowMs() + RETURN_CONFIRMATION_TTL_MS, consumed: false });
+      parentSessionId: parent?.sessionId ?? side.parentSessionId ?? "", expiresAtMs: this.deps.nowMs() + RETURN_CONFIRMATION_TTL_MS, consumed: false });
     const confirmation = buildSideReturnConfirmationMessage(token, this.deps.getUiLanguage());
     await this.deps.safeSendMessage(chatId, confirmation.text, confirmation.replyMarkup);
     return token;
@@ -227,11 +228,11 @@ export class SideConversationCoordinator {
     const side = store?.getActiveSession(chatId) ?? null;
     const parent = side?.sessionKind === "side" ? store?.getSideParent(side.sessionId) ?? null : null;
     if (!side || side.sessionId !== confirmation.sideSessionId) { await this.stale(chatId); return null; }
-    if (!parent) { await this.closeOrphanedSide(chatId, side); return null; }
-    if (parent.sessionId !== confirmation.parentSessionId) { await this.stale(chatId); return null; }
     if (action === "return_cancel") {
       await this.deps.syncCurrentSessionCard(chatId, "side_return_cancelled"); return null;
     }
+    if (!parent) { await this.closeOrphanedSide(chatId, side, true); return null; }
+    if (parent.sessionId !== confirmation.parentSessionId) { await this.stale(chatId); return null; }
     await this.closeSide(chatId, side, parent, true);
     return null;
   }
@@ -265,10 +266,17 @@ export class SideConversationCoordinator {
     await this.runAfterReturn("release held terminal results", () => this.deps.releaseHeldTerminalResults(chatId, parent.sessionId));
   }
 
-  private async closeOrphanedSide(chatId: string, side: SessionRow): Promise<void> {
+  private async closeOrphanedSide(chatId: string, side: SessionRow, confirmed: boolean): Promise<void> {
     if (!side.threadId) { await this.stale(chatId); return; }
     let recovered: { side: SessionRow; fallback: SessionRow | null } | null = null;
     try {
+      if (confirmed) {
+        const turn = this.deps.getActiveTurn(side.sessionId);
+        if (turn) {
+          if (turn.threadId !== side.threadId) { await this.stale(chatId); return; }
+          await (await this.deps.ensureAppServerAvailable()).interruptTurn(turn.threadId, turn.turnId);
+        }
+      }
       await this.deps.expireSideInteractions(chatId, side.sessionId, "side_closed");
       this.deps.clearSideTransientInput(chatId, side.sessionId);
       await (await this.deps.ensureAppServerAvailable()).unsubscribeThread(side.threadId);

@@ -228,6 +228,41 @@ test("missing parent without fallback closes side and returns the chat to new-se
     "unsubscribe:side-thread", "restore-new", "sync:side_returned"]);
 });
 
+test("missing parent with a running side turn requires confirmation before orphan recovery", async () => {
+  const h = harness(); await enterSide(h);
+  h.rows.set("fallback", session({ sessionId: "fallback", threadId: "fallback-thread", lastUsedAt: "2026-01-03" }));
+  h.rows.delete("parent");
+  h.deps.getActiveTurn = () => ({ threadId: "side-thread", turnId: "side-turn" });
+  const confirmToken = await h.coordinator.handleCommand("chat", "back");
+  assert.equal(confirmToken, undefined); assert.deepEqual(h.events, []);
+  assert.match(h.messages.at(-1) ?? "", /interrupt.*running side/i);
+  assert.equal(h.active?.sessionId, "side");
+});
+
+test("parent disappearing after return confirmation still interrupts before orphan fallback restore", async () => {
+  const h = harness(); const cardToken = await enterSide(h);
+  h.rows.set("fallback", session({ sessionId: "fallback", threadId: "fallback-thread", lastUsedAt: "2026-01-03" }));
+  h.deps.getActiveTurn = () => ({ threadId: "side-thread", turnId: "side-turn" });
+  const confirmToken = await h.coordinator.handleCardAction("chat", "back", cardToken);
+  h.rows.delete("parent");
+  await h.coordinator.handleCardAction("chat", "return_confirm", confirmToken!);
+  assert.deepEqual(h.events, ["interrupt:side-thread:side-turn", "expire-interactions:side:side_closed",
+    "clear-transient-input:side", "unsubscribe:side-thread", "restore-fallback:fallback", "sync:side_returned",
+    "surface-interactions:fallback", "release-results:fallback"]);
+  assert.equal(h.active?.sessionId, "fallback");
+});
+
+test("orphan confirmed return interrupt failure keeps side active for retry", async () => {
+  const h = harness(); const cardToken = await enterSide(h);
+  h.deps.getActiveTurn = () => ({ threadId: "side-thread", turnId: "side-turn" });
+  const confirmToken = await h.coordinator.handleCardAction("chat", "back", cardToken);
+  h.rows.delete("parent"); h.client.interruptTurn = async () => { throw new Error("interrupt failed"); };
+  await h.coordinator.handleCardAction("chat", "return_confirm", confirmToken!);
+  assert.equal(h.active?.sessionId, "side"); assert.equal(h.rows.has("side"), true);
+  assert.equal(h.events.some((event) => event.startsWith("expire-interactions:")), false);
+  assert.match(h.messages.at(-1) ?? "", /could not return|return did not complete/i);
+});
+
 test("active side cannot nest and refreshes its card", async () => {
   const parent = session();
   const side = session({ sessionId: "side", sessionKind: "side", parentSessionId: parent.sessionId, threadId: "side-thread" });
