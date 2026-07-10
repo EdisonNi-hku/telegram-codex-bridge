@@ -126,6 +126,28 @@ test("treats a symlink escaping the project as external", async () => {
   }
 });
 
+test("does not treat a sibling with the project path prefix as contained", async () => {
+  const fixture = await createFixture();
+  try {
+    const siblingDirectory = `${fixture.project}-other`;
+    const siblingFile = join(siblingDirectory, "report.html");
+    await mkdir(siblingDirectory, { recursive: true });
+    await writeFile(siblingFile, "sibling report");
+
+    const resolved = await resolveRetrieveFile({
+      rawPath: siblingFile,
+      projectPath: fixture.project,
+      homeDir: fixture.home
+    });
+
+    assert.equal(resolved.insideProject, false);
+    assert.equal(resolved.targetRealPath, await realpath(siblingFile));
+    assert.equal(resolved.displayPath, await realpath(siblingFile));
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test("rejects an empty path", async () => {
   const fixture = await createFixture();
   try {
