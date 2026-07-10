@@ -30,6 +30,7 @@ interface SideStore {
   getActiveSideForParent(parentSessionId: string): SessionRow | null;
   createSideSession(options: { parentSessionId: string; threadId: string }): SessionRow;
   restoreParentAndDeleteSide(sideSessionId: string): { side: SessionRow; parent: SessionRow } | null;
+  restoreFallbackAndDeleteOrphanedSide(sideSessionId: string): { side: SessionRow; fallback: SessionRow | null } | null;
 }
 
 type SideClient = Pick<CodexAppServerClient,
@@ -44,7 +45,7 @@ export interface SideConversationCoordinatorDeps {
   startTextTurn(chatId: string, session: SessionRow, text: string): Promise<void>;
   syncCurrentSessionCard(chatId: string, reason: string): Promise<void>;
   surfacePendingInteractions(chatId: string, sessionId: string): Promise<void>;
-  expireSideInteractions(chatId: string, sessionId: string): Promise<void>;
+  expireSideInteractions(chatId: string, sessionId: string, reason: "side_closed"): Promise<void>;
   clearSideTransientInput(chatId: string, sessionId: string): void;
   releaseHeldTerminalResults(chatId: string, sessionId: string): Promise<number>;
   getParentStatus(parent: SessionRow): SideParentStatus;
@@ -101,6 +102,8 @@ export class SideConversationCoordinator {
       }
       const relationship = this.resolveCardBinding(chatId, token);
       if (!relationship) { await this.stale(chatId); return null; }
+      if (action === "back") return await this.beginReturn(chatId, relationship.side);
+      if (!relationship.parent) { await this.stale(chatId); return null; }
       if (action === "status") {
         const view = this.getCardView(relationship.side);
         if (!view) { await this.stale(chatId); return null; }
@@ -117,7 +120,7 @@ export class SideConversationCoordinator {
         }
         return null;
       }
-      return await this.beginReturn(chatId, relationship.side);
+      return null;
     });
   }
 
@@ -179,14 +182,14 @@ export class SideConversationCoordinator {
     };
   }
 
-  private resolveCardBinding(chatId: string, token: string): { side: SessionRow; parent: SessionRow } | null {
+  private resolveCardBinding(chatId: string, token: string): { side: SessionRow; parent: SessionRow | null } | null {
     const binding = [...this.cardBindings.values()].find((value) => value.token === token);
     const store = this.deps.getStore();
     if (!binding || binding.chatId !== chatId || !store) return null;
     const side = store.getActiveSession(chatId);
     if (!side || side.sessionId !== binding.sideSessionId || side.sessionKind !== "side") return null;
     const parent = store.getSideParent(side.sessionId);
-    if (!parent || parent.sessionId !== side.parentSessionId || parent.sessionKind !== "regular") return null;
+    if (parent && (parent.sessionId !== side.parentSessionId || parent.sessionKind !== "regular")) return null;
     return { side, parent };
   }
 
@@ -197,7 +200,9 @@ export class SideConversationCoordinator {
       await this.stale(chatId); return null;
     }
     const parent = store.getSideParent(side.sessionId);
-    if (!parent || parent.sessionId !== side.parentSessionId) { await this.stale(chatId); return null; }
+    if (!parent || parent.sessionId !== side.parentSessionId) {
+      await this.closeOrphanedSide(chatId, side); return null;
+    }
     const turn = this.deps.getActiveTurn(side.sessionId);
     if (!turn) { await this.closeSide(chatId, side, parent, false); return null; }
     if (turn.threadId !== side.threadId) { await this.stale(chatId); return null; }
@@ -221,8 +226,9 @@ export class SideConversationCoordinator {
     const store = this.deps.getStore();
     const side = store?.getActiveSession(chatId) ?? null;
     const parent = side?.sessionKind === "side" ? store?.getSideParent(side.sessionId) ?? null : null;
-    if (!side || !parent || side.sessionId !== confirmation.sideSessionId
-      || parent.sessionId !== confirmation.parentSessionId) { await this.stale(chatId); return null; }
+    if (!side || side.sessionId !== confirmation.sideSessionId) { await this.stale(chatId); return null; }
+    if (!parent) { await this.closeOrphanedSide(chatId, side); return null; }
+    if (parent.sessionId !== confirmation.parentSessionId) { await this.stale(chatId); return null; }
     if (action === "return_cancel") {
       await this.deps.syncCurrentSessionCard(chatId, "side_return_cancelled"); return null;
     }
@@ -241,9 +247,9 @@ export class SideConversationCoordinator {
           if (turn.threadId !== side.threadId) { await this.stale(chatId); return; }
           await client.interruptTurn(turn.threadId, turn.turnId);
         }
-        await this.deps.expireSideInteractions(chatId, side.sessionId);
-        this.deps.clearSideTransientInput(chatId, side.sessionId);
       }
+      await this.deps.expireSideInteractions(chatId, side.sessionId, "side_closed");
+      this.deps.clearSideTransientInput(chatId, side.sessionId);
       await client.unsubscribeThread(side.threadId);
       restored = this.deps.getStore()?.restoreParentAndDeleteSide(side.sessionId) ?? null;
       if (!restored || restored.parent.sessionId !== parent.sessionId) throw new Error("side relationship changed during return");
@@ -257,6 +263,29 @@ export class SideConversationCoordinator {
     await this.runAfterReturn("sync parent card", () => this.deps.syncCurrentSessionCard(chatId, "side_returned"));
     await this.runAfterReturn("surface parent interactions", () => this.deps.surfacePendingInteractions(chatId, parent.sessionId));
     await this.runAfterReturn("release held terminal results", () => this.deps.releaseHeldTerminalResults(chatId, parent.sessionId));
+  }
+
+  private async closeOrphanedSide(chatId: string, side: SessionRow): Promise<void> {
+    if (!side.threadId) { await this.stale(chatId); return; }
+    let recovered: { side: SessionRow; fallback: SessionRow | null } | null = null;
+    try {
+      await this.deps.expireSideInteractions(chatId, side.sessionId, "side_closed");
+      this.deps.clearSideTransientInput(chatId, side.sessionId);
+      await (await this.deps.ensureAppServerAvailable()).unsubscribeThread(side.threadId);
+      recovered = this.deps.getStore()?.restoreFallbackAndDeleteOrphanedSide(side.sessionId) ?? null;
+      if (!recovered) throw new Error("orphaned side relationship changed during recovery");
+    } catch (error) {
+      this.warn("orphaned side return failed", error);
+      await this.deps.syncCurrentSessionCard(chatId, "side_return_failed").catch((syncError) => this.warn("side card refresh failed", syncError));
+      await this.sendReturnFailed(chatId);
+      return;
+    }
+    this.invalidateSideTokens(side.sessionId);
+    await this.runAfterReturn("sync fallback card", () => this.deps.syncCurrentSessionCard(chatId, "side_returned"));
+    if (recovered.fallback) {
+      await this.runAfterReturn("surface fallback interactions", () => this.deps.surfacePendingInteractions(chatId, recovered!.fallback!.sessionId));
+      await this.runAfterReturn("release fallback held results", () => this.deps.releaseHeldTerminalResults(chatId, recovered!.fallback!.sessionId));
+    }
   }
 
   private async runAfterReturn(label: string, operation: () => Promise<unknown>): Promise<void> {

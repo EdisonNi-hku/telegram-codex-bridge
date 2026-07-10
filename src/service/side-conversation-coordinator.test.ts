@@ -53,6 +53,14 @@ function harness(options: { active?: SessionRow | null; version?: string | null;
       const parent = side?.parentSessionId ? rows.get(side.parentSessionId) : null;
       if (!side || side.sessionKind !== "side" || !parent || active?.sessionId !== side.sessionId) return null;
       events.push("restore-parent"); active = parent; rows.delete(side.sessionId); return { side, parent };
+    },
+    restoreFallbackAndDeleteOrphanedSide: (sideSessionId: string) => {
+      const side = rows.get(sideSessionId);
+      if (!side || side.sessionKind !== "side" || active?.sessionId !== side.sessionId) return null;
+      const fallback = [...rows.values()].filter((row) => row.sessionKind === "regular" && !row.archived && row.chatId === side.chatId)
+        .sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt))[0] ?? null;
+      events.push(fallback ? `restore-fallback:${fallback.sessionId}` : "restore-new");
+      active = fallback; rows.delete(side.sessionId); return { side, fallback };
     }
   };
   const client = {
@@ -71,7 +79,7 @@ function harness(options: { active?: SessionRow | null; version?: string | null;
     startTextTurn: async (_chatId: string, _side: SessionRow, text: string) => { events.push(`start:${text}`); },
     syncCurrentSessionCard: async (_chatId: string, reason: string) => { events.push(`sync:${reason}`); },
     surfacePendingInteractions: async (_chatId: string, id: string) => { events.push(`surface-interactions:${id}`); },
-    expireSideInteractions: async (_chatId: string, id: string) => { events.push(`expire-interactions:${id}`); },
+    expireSideInteractions: async (_chatId: string, id: string, reason: "side_closed") => { events.push(`expire-interactions:${id}:${reason}`); },
     clearSideTransientInput: (_chatId: string, id: string) => { events.push(`clear-transient-input:${id}`); },
     releaseHeldTerminalResults: async (_chatId: string, id: string) => { events.push(`release-results:${id}`); return 0; },
     getParentStatus: () => options.parentNeedsAction ? "waiting_approval" as const : "idle" as const,
@@ -105,7 +113,7 @@ test("idle side back restores parent and releases parent surfaces in order", asy
   const token = await enterSide(h);
   await h.coordinator.handleCardAction("chat", "back", token);
   assert.deepEqual(h.events, [
-    "unsubscribe:side-thread", "restore-parent", "sync:side_returned",
+    "expire-interactions:side:side_closed", "clear-transient-input:side", "unsubscribe:side-thread", "restore-parent", "sync:side_returned",
     "surface-interactions:parent", "release-results:parent"
   ]);
   assert.equal(h.active?.sessionId, "parent");
@@ -116,7 +124,7 @@ test("slash side back uses the same idle return path", async () => {
   const h = harness(); await enterSide(h);
   await h.coordinator.handleCommand("chat", " back ");
   assert.equal(h.active?.sessionId, "parent");
-  assert.deepEqual(h.events, ["unsubscribe:side-thread", "restore-parent", "sync:side_returned",
+  assert.deepEqual(h.events, ["expire-interactions:side:side_closed", "clear-transient-input:side", "unsubscribe:side-thread", "restore-parent", "sync:side_returned",
     "surface-interactions:parent", "release-results:parent"]);
 });
 
@@ -136,7 +144,7 @@ test("confirmed running return preserves cleanup and restore order", async () =>
   const confirmToken = await h.coordinator.handleCardAction("chat", "back", cardToken);
   await h.coordinator.handleCardAction("chat", "return_confirm", confirmToken!);
   assert.deepEqual(h.events, [
-    "interrupt:side-thread:side-turn", "expire-interactions:side", "clear-transient-input:side",
+    "interrupt:side-thread:side-turn", "expire-interactions:side:side_closed", "clear-transient-input:side",
     "unsubscribe:side-thread", "restore-parent", "sync:side_returned",
     "surface-interactions:parent", "release-results:parent"
   ]);
@@ -198,6 +206,26 @@ test("parent status is read-only and interrupt action targets only the side turn
   assert.match(h.messages.at(-1) ?? "", /parent task status/i); assert.deepEqual(h.events, []);
   await h.coordinator.handleCardAction("chat", "interrupt", token);
   assert.deepEqual(h.events, ["interrupt:side-thread:side-turn"]); assert.equal(h.active?.sessionId, "side");
+});
+
+test("missing parent return closes side and activates the most recent regular fallback", async () => {
+  const h = harness(); const cardToken = await enterSide(h);
+  h.rows.set("fallback-old", session({ sessionId: "fallback-old", threadId: "old", lastUsedAt: "2026-01-02" }));
+  h.rows.set("fallback-new", session({ sessionId: "fallback-new", threadId: "new", lastUsedAt: "2026-01-03" }));
+  h.rows.delete("parent");
+  await h.coordinator.handleCardAction("chat", "back", cardToken);
+  assert.equal(h.active?.sessionId, "fallback-new"); assert.equal(h.rows.has("side"), false);
+  assert.deepEqual(h.events, ["expire-interactions:side:side_closed", "clear-transient-input:side",
+    "unsubscribe:side-thread", "restore-fallback:fallback-new", "sync:side_returned",
+    "surface-interactions:fallback-new", "release-results:fallback-new"]);
+});
+
+test("missing parent without fallback closes side and returns the chat to new-session state", async () => {
+  const h = harness(); const cardToken = await enterSide(h); h.rows.delete("parent");
+  await h.coordinator.handleCardAction("chat", "back", cardToken);
+  assert.equal(h.active, null); assert.equal(h.rows.has("side"), false);
+  assert.deepEqual(h.events, ["expire-interactions:side:side_closed", "clear-transient-input:side",
+    "unsubscribe:side-thread", "restore-new", "sync:side_returned"]);
 });
 
 test("active side cannot nest and refreshes its card", async () => {
@@ -407,7 +435,8 @@ test("different chat queues progress independently", async () => {
       const side = rows.get(sideSessionId); const parent = side?.parentSessionId ? rows.get(side.parentSessionId) : null;
       if (!side || !parent || active.get(side.chatId)?.sessionId !== side.sessionId) return null;
       active.set(side.chatId, parent); rows.delete(side.sessionId); return { side, parent };
-    }
+    },
+    restoreFallbackAndDeleteOrphanedSide: () => null
   };
   const coordinator = new SideConversationCoordinator({
     getStore: () => store,
