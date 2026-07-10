@@ -164,6 +164,14 @@ export function encodeShellCancelCallback(token: string): string {
   return ensureTelegramCallbackDataLimit(`v9:sh:n:${token}`);
 }
 
+export function encodeRetrieveConfirmCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v10:rt:y:${token}`);
+}
+
+export function encodeRetrieveCancelCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v10:rt:n:${token}`);
+}
+
 export function encodeCommandPanelEditHelpCallback(): string {
   return "v8:cp:h";
 }

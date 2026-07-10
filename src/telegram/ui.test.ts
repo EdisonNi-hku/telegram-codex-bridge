@@ -39,6 +39,8 @@ import {
   buildSessionsText,
   buildCollapsibleFinalAnswerView,
   buildCurrentSessionCardText,
+  encodeRetrieveCancelCallback,
+  encodeRetrieveConfirmCallback,
   encodeShellCancelCallback,
   encodeShellConfirmCallback,
   parseCallbackData,
@@ -1659,6 +1661,18 @@ test("shell confirmation callbacks round-trip through compact callback data", ()
   assert.ok(Buffer.byteLength(cancel, "utf8") <= 64);
   assert.deepEqual(parseCallbackData(confirm), { kind: "shell_confirm", token: "tok123" });
   assert.deepEqual(parseCallbackData(cancel), { kind: "shell_cancel", token: "tok123" });
+});
+
+test("retrieve callback encoders stay compact and enforce Telegram's byte limit", () => {
+  const confirm = encodeRetrieveConfirmCallback("tok123");
+  const cancel = encodeRetrieveCancelCallback("tok123");
+
+  assert.equal(confirm, "v10:rt:y:tok123");
+  assert.equal(cancel, "v10:rt:n:tok123");
+  assert.ok(Buffer.byteLength(confirm, "utf8") <= 64);
+  assert.ok(Buffer.byteLength(cancel, "utf8") <= 64);
+  assert.throws(() => encodeRetrieveConfirmCallback("x".repeat(56)), /exceeds 64 bytes/u);
+  assert.throws(() => encodeRetrieveCancelCallback("界".repeat(19)), /exceeds 64 bytes/u);
 });
 
 test("interaction cards render approval and questionnaire flows without leaking raw protocol fields", () => {
