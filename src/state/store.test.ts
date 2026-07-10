@@ -658,6 +658,7 @@ test("one stale open side blocks side creation for every parent in the same chat
     authorizeTestChat(store, "chat-side-per-chat");
     const first = store.createSession({ chatId: "chat-side-per-chat", projectName: "First", projectPath: "/tmp/first" });
     const second = store.createSession({ chatId: "chat-side-per-chat", projectName: "Second", projectPath: "/tmp/second" });
+    store.setActiveSession(first.chatId, first.sessionId);
     const staleSide = store.createSideSession({ parentSessionId: first.sessionId, threadId: "thread-first-side" });
     store.setActiveSession(first.chatId, second.sessionId);
 
@@ -689,6 +690,18 @@ test("createSideSession rejects empty and blank thread ids", async () => {
     const parent = store.createSession({ chatId: "chat-side-thread", projectName: "Parent", projectPath: "/tmp/thread-parent" });
     assert.throws(() => store.createSideSession({ parentSessionId: parent.sessionId, threadId: "" }), /thread/i);
     assert.throws(() => store.createSideSession({ parentSessionId: parent.sessionId, threadId: "   \n" }), /thread/i);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("createSideSession rolls back when the parent chat has no binding", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    const parent = store.createSession({ chatId: "chat-side-no-binding", projectName: "Parent", projectPath: "/tmp/no-binding-parent" });
+    assert.throws(() => store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-no-binding" }), /binding/i);
+    assert.deepEqual(store.listSideSessions(), []);
+    assert.equal(store.getSessionById(parent.sessionId)?.sessionKind, "regular");
   } finally {
     await cleanup();
   }
@@ -731,6 +744,70 @@ test("held terminal results are claimed once in creation order and mapped to pen
     assert.ok(claimed.every((row) => row.deliveryState === "pending"));
     assert.equal(store.countHeldTerminalResults("session-held"), 0);
     assert.deepEqual(store.claimHeldTerminalResults("session-held"), []);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("two store connections claim each held terminal result exactly once", async () => {
+  const { paths, store, cleanup } = await openStore();
+  let second: BridgeStateStore | null = null;
+  try {
+    for (const answerId of ["shared-held-1", "shared-held-2"]) {
+      store.saveTerminalResultView({
+        answerId,
+        chatId: "chat-shared-held",
+        sessionId: "session-shared-held",
+        threadId: "thread-shared-held",
+        turnId: answerId,
+        deliveryState: "held_for_side",
+        previewHtml: answerId,
+        pages: [answerId]
+      });
+    }
+    second = await BridgeStateStore.open(paths, testLogger);
+    const firstClaim = store.claimHeldTerminalResults("session-shared-held");
+    const secondClaim = second.claimHeldTerminalResults("session-shared-held");
+    assert.deepEqual(firstClaim.map((row) => row.answerId), ["shared-held-1", "shared-held-2"]);
+    assert.deepEqual(secondClaim, []);
+  } finally {
+    second?.close();
+    await cleanup();
+  }
+});
+
+test("restart recovery deletes every corrupt side and emits one notice per side", async () => {
+  const { paths, store, cleanup } = await openStore();
+  try {
+    authorizeTestChat(store, "chat-multi-side-recovery");
+    const parent = store.createSession({ chatId: "chat-multi-side-recovery", projectName: "Parent", projectPath: "/tmp/multi-parent" });
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-multi-1" });
+    store.setActiveSession(parent.chatId, parent.sessionId);
+    const db = new DatabaseSync(paths.dbPath);
+    try {
+      db.prepare(`
+        INSERT INTO session (
+          session_id, session_kind, parent_session_id, chat_id, telegram_chat_id, thread_id,
+          selected_model, selected_reasoning_effort, plan_mode, pending_default_collaboration_mode_reset,
+          display_name, display_name_source, project_name, project_path, status, failure_reason,
+          archived, archived_at, created_at, last_used_at, last_turn_id, last_turn_status
+        )
+        SELECT
+          'corrupt-side-2', 'side', 'missing-parent', chat_id, telegram_chat_id, 'thread-multi-2',
+          selected_model, selected_reasoning_effort, plan_mode, pending_default_collaboration_mode_reset,
+          'Corrupt Side', 'auto', project_name, project_path, 'idle', NULL,
+          0, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL, NULL
+        FROM session WHERE session_id = ?
+      `).run(parent.sessionId);
+    } finally {
+      db.close();
+    }
+
+    const recovered = store.recoverSideSessionsAfterRestart();
+    assert.deepEqual(recovered.map((row) => row.sideSessionId), ["corrupt-side-2", side.sessionId]);
+    assert.deepEqual(store.listSideSessions(), []);
+    assert.equal(store.countRuntimeNotices(), 2);
+    assert.equal(store.getActiveSession(parent.chatId)?.sessionId, parent.sessionId);
   } finally {
     await cleanup();
   }

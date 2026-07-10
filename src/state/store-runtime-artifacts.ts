@@ -756,21 +756,53 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
     },
 
     countHeldTerminalResults(sessionId) {
-      const row = db.prepare("SELECT COUNT(*) AS count FROM final_answer_view WHERE session_id = ? AND delivery_state = 'held_for_side'").get(sessionId) as { count: number | bigint };
+      const row = db
+        .prepare(
+          `
+            SELECT COUNT(*) AS count
+            FROM final_answer_view
+            WHERE session_id = ? AND delivery_state = 'held_for_side'
+          `
+        )
+        .get(sessionId) as { count: number | bigint };
       return Number(row.count);
     },
 
     claimHeldTerminalResults(sessionId) {
-      db.exec("BEGIN");
+      db.exec("BEGIN IMMEDIATE");
       try {
-        const rows = db.prepare("SELECT * FROM final_answer_view WHERE session_id = ? AND delivery_state = 'held_for_side' ORDER BY created_at ASC, rowid ASC").all(sessionId) as unknown as TerminalResultViewRecord[];
+        const rows = db
+          .prepare(
+            `
+              SELECT *
+              FROM final_answer_view
+              WHERE session_id = ? AND delivery_state = 'held_for_side'
+              ORDER BY created_at ASC, rowid ASC
+            `
+          )
+          .all(sessionId) as unknown as TerminalResultViewRecord[];
         if (rows.length > 0) {
           const placeholders = buildInClausePlaceholders(rows.length);
-          db.prepare(`UPDATE final_answer_view SET delivery_state = 'pending' WHERE delivery_state = 'held_for_side' AND answer_id IN (${placeholders})`).run(...rows.map((row) => row.answer_id));
+          const transitioned = db
+            .prepare(
+              `
+                UPDATE final_answer_view
+                SET delivery_state = 'pending'
+                WHERE delivery_state = 'held_for_side'
+                  AND answer_id IN (${placeholders})
+              `
+            )
+            .run(...rows.map((row) => row.answer_id));
+          if (Number(transitioned.changes ?? 0) !== rows.length) {
+            throw new Error("held terminal result claim transition count mismatch");
+          }
         }
         db.exec("COMMIT");
         return rows.map((row) => mapTerminalResultView({ ...row, delivery_state: "pending" }));
-      } catch (error) { db.exec("ROLLBACK"); throw error; }
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
     },
 
     rebindTerminalResultViewsChatIds(chatId, previousChatIds) {
