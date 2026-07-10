@@ -51,12 +51,6 @@ export async function resolveRetrieveFile(
   const candidatePath = resolveCandidatePath(requestedPath, projectRealPath, options.homeDir);
   const targetRealPath = await resolveTargetPath(candidatePath);
 
-  try {
-    await access(targetRealPath, constants.R_OK);
-  } catch {
-    throw new RetrieveFileValidationError("unreadable", "无法读取该文件，请检查文件权限。");
-  }
-
   let targetStat;
   try {
     targetStat = await stat(targetRealPath);
@@ -69,6 +63,12 @@ export async function resolveRetrieveFile(
 
   if (!targetStat.isFile()) {
     throw new RetrieveFileValidationError("not_regular_file", "指定路径不是普通文件，无法发送。");
+  }
+
+  try {
+    await access(targetRealPath, constants.R_OK);
+  } catch {
+    throw new RetrieveFileValidationError("unreadable", "无法读取该文件，请检查文件权限。");
   }
 
   if (targetStat.size > MAX_RETRIEVE_FILE_BYTES) {

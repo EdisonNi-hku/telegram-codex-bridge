@@ -106,11 +106,20 @@ test("resolves relative, matching outer-quoted, home, and absolute paths", async
   }
 });
 
-test("treats a symlink escaping the project as external", async () => {
+test("treats a symlink escaping the project as external", async (t) => {
   const fixture = await createFixture();
   try {
     const linkPath = join(fixture.project, "reports", "external-link.html");
-    await symlink(fixture.externalFile, linkPath);
+    try {
+      await symlink(fixture.externalFile, linkPath);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EPERM" || code === "EACCES" || code === "ENOSYS") {
+        t.skip(`symlinks are unavailable in this environment: ${code}`);
+        return;
+      }
+      throw error;
+    }
 
     const resolved = await resolveRetrieveFile({
       rawPath: "reports/external-link.html",
@@ -196,6 +205,34 @@ test("rejects a directory", async () => {
       "not_regular_file"
     );
   } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("classifies an unreadable directory as not a regular file when permissions are meaningful", async (t) => {
+  const fixture = await createFixture();
+  const unreadableDirectory = join(fixture.project, "unreadable-directory");
+  try {
+    await mkdir(unreadableDirectory);
+    await chmod(unreadableDirectory, 0o000);
+    try {
+      await access(unreadableDirectory, constants.R_OK);
+      t.skip("current user bypasses directory read permission checks");
+      return;
+    } catch {
+      // Permission checks are effective in this environment.
+    }
+
+    await expectValidationError(
+      () => resolveRetrieveFile({
+        rawPath: unreadableDirectory,
+        projectPath: fixture.project,
+        homeDir: fixture.home
+      }),
+      "not_regular_file"
+    );
+  } finally {
+    await chmod(unreadableDirectory, 0o700).catch(() => undefined);
     await fixture.cleanup();
   }
 });
