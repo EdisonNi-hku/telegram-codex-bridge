@@ -589,10 +589,7 @@ export class InteractionBroker {
       return;
     }
 
-    const pending = this.listActionablePendingInteractionsForSession(chatId, sessionId)
-      .filter((row) => row.messageId === null)
-      .sort((left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.interactionId.localeCompare(right.interactionId));
+    const pending = store.listActionableUnsurfacedPendingInteractionsForSession(chatId, sessionId);
 
     for (const row of pending) {
       const interaction = parseStoredInteraction(row.promptJson);

@@ -386,7 +386,7 @@ test("parent interaction is persisted and summarized but held while side is acti
   }
 });
 
-test("surfacePendingInteractionCardsForSession sends unsurfaced actionable rows oldest first and is idempotent", async () => {
+test("surfacePendingInteractionCardsForSession sends same-timestamp rows in insertion order and is idempotent", async () => {
   const { broker, store, sentHtml, cleanup } = await createBrokerContext();
   try {
     const parent = store.createSession({
@@ -396,22 +396,24 @@ test("surfacePendingInteractionCardsForSession sends unsurfaced actionable rows 
       displayName: "Parent"
     });
     const first = store.createPendingInteraction({
-      interactionId: "first", chatId: "chat-1", sessionId: parent.sessionId,
+      interactionId: "z-first", chatId: "chat-1", sessionId: parent.sessionId,
       threadId: "thread-1", turnId: "turn-1", requestId: "req-1",
       requestMethod: "item/commandExecution/requestApproval", interactionKind: "approval",
-      promptJson: JSON.stringify(createApprovalInteraction("first"))
+      promptJson: JSON.stringify(createApprovalInteraction("first-created"))
     });
-    await new Promise((resolve) => setTimeout(resolve, 2));
     const second = store.createPendingInteraction({
-      interactionId: "second", chatId: "chat-1", sessionId: parent.sessionId,
+      interactionId: "a-second", chatId: "chat-1", sessionId: parent.sessionId,
       threadId: "thread-1", turnId: "turn-1", requestId: "req-2",
       requestMethod: "item/commandExecution/requestApproval", interactionKind: "approval",
-      promptJson: JSON.stringify(createApprovalInteraction("second"))
+      promptJson: JSON.stringify(createApprovalInteraction("second-created"))
     });
+    (store as any).db.prepare(
+      "UPDATE pending_interaction SET created_at = ? WHERE interaction_id IN (?, ?)"
+    ).run("2026-07-10T12:00:00.000Z", first.interactionId, second.interactionId);
 
     await broker.surfacePendingInteractionCardsForSession("chat-1", parent.sessionId);
-    assert.match(sentHtml[0]?.html ?? "", /first/u);
-    assert.match(sentHtml[1]?.html ?? "", /second/u);
+    assert.match(sentHtml[0]?.html ?? "", /first-created/u);
+    assert.match(sentHtml[1]?.html ?? "", /second-created/u);
     assert.notEqual(store.getPendingInteraction(first.interactionId)?.messageId, null);
     assert.notEqual(store.getPendingInteraction(second.interactionId)?.messageId, null);
 

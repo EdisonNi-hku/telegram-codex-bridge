@@ -96,6 +96,10 @@ export interface StorePendingInteractions {
     chatId: string,
     states?: PendingInteractionState[]
   ): PendingInteractionRow[];
+  listActionableUnsurfacedPendingInteractionsForSession(
+    chatId: string,
+    sessionId: string
+  ): PendingInteractionRow[];
   listPendingInteractionsByTurn(threadId: string, turnId: string): PendingInteractionRow[];
   listUnresolvedPendingInteractions(): PendingInteractionRow[];
   listPendingInteractionsForRunningSessions(): PendingInteractionRow[];
@@ -286,6 +290,24 @@ export function createStorePendingInteractions(db: DatabaseSync): StorePendingIn
           .all(chatId);
 
       return (rows as unknown as PendingInteractionRecord[]).map(mapPendingInteraction);
+    },
+
+    listActionableUnsurfacedPendingInteractionsForSession(chatId, sessionId) {
+      const rows = db
+        .prepare(
+          `
+            SELECT *
+            FROM pending_interaction
+            WHERE chat_id = ?
+              AND session_id = ?
+              AND state IN ('pending', 'awaiting_text')
+              AND message_id IS NULL
+            ORDER BY created_at ASC, rowid ASC
+          `
+        )
+        .all(chatId, sessionId) as unknown as PendingInteractionRecord[];
+
+      return rows.map(mapPendingInteraction);
     },
 
     listPendingInteractionsByTurn(threadId, turnId) {

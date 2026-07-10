@@ -890,6 +890,13 @@ export class BridgeStateStore {
     return this.pendingInteractions.listPendingInteractionsByChat(chatId, states);
   }
 
+  listActionableUnsurfacedPendingInteractionsForSession(
+    chatId: string,
+    sessionId: string
+  ): PendingInteractionRow[] {
+    return this.pendingInteractions.listActionableUnsurfacedPendingInteractionsForSession(chatId, sessionId);
+  }
+
   listPendingInteractionsByTurn(threadId: string, turnId: string): PendingInteractionRow[] {
     return this.pendingInteractions.listPendingInteractionsByTurn(threadId, turnId);
   }
