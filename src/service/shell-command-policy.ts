@@ -160,6 +160,9 @@ function tokenizeSimpleCommand(command: string): string[] | null {
 }
 
 function isSafeMkdirInvocation(args: string[]): boolean {
+  if (args.some((arg) => arg.startsWith("-") && !isAllowedMkdirOption(arg))) {
+    return false;
+  }
   const paths = args.filter((arg) => !isAllowedMkdirOption(arg));
   return paths.length > 0 && paths.every(isSafeRelativePath);
 }
