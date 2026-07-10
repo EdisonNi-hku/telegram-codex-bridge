@@ -44,6 +44,7 @@ import {
   encodeShellCancelCallback,
   encodeShellConfirmCallback,
   parseCallbackData,
+  parseCommand,
   renderFinalAnswerHtmlChunks
 } from "./ui.js";
 
@@ -76,6 +77,27 @@ async function withMockedNow<T>(nowIso: string, callback: () => Promise<T> | T):
     globalThis.Date = RealDate;
   }
 }
+
+test("parseCommand preserves repeated spaces inside a quoted retrieve path", () => {
+  assert.deepEqual(parseCommand('/retrieve "reports/Q1  final.pdf"'), {
+    name: "retrieve",
+    args: '"reports/Q1  final.pdf"'
+  });
+});
+
+test("parseCommand preserves tabs inside a retrieve filename", () => {
+  assert.deepEqual(parseCommand("/retrieve reports/Q1\tfinal.pdf"), {
+    name: "retrieve",
+    args: "reports/Q1\tfinal.pdf"
+  });
+});
+
+test("parseCommand still normalizes command mentions and trims only outer argument whitespace", () => {
+  assert.deepEqual(parseCommand("  /ReTrIeVe@BridgeBot\t  reports/Q1  final.pdf  \n"), {
+    name: "retrieve",
+    args: "reports/Q1  final.pdf"
+  });
+});
 
 function createSession(overrides: Partial<SessionRow>): SessionRow {
   const chatId = overrides.chatId ?? "chat-1";

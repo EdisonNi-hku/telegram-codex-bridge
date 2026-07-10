@@ -134,7 +134,8 @@ export function parseCommand(text: string): { name: string; args: string } | nul
     return null;
   }
 
-  const [commandToken, ...rest] = trimmed.split(/\s+/u);
+  const separatorIndex = trimmed.search(/\s/u);
+  const commandToken = separatorIndex === -1 ? trimmed : trimmed.slice(0, separatorIndex);
   if (!commandToken) {
     return null;
   }
@@ -146,7 +147,7 @@ export function parseCommand(text: string): { name: string; args: string } | nul
 
   return {
     name: commandName,
-    args: rest.join(" ").trim()
+    args: separatorIndex === -1 ? "" : trimmed.slice(separatorIndex).trim()
   };
 }
 

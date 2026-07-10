@@ -993,6 +993,64 @@ test("retrieve sends a contained project report once with its staged content, na
   }
 });
 
+test("retrieve routes a quoted path without collapsing repeated spaces", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const deliveredNames: string[] = [];
+
+  try {
+    const projectPath = join((service as any).paths.homeDir, "retrieve-spaced-project");
+    await mkdir(join(projectPath, "reports"), { recursive: true });
+    await writeFile(join(projectPath, "reports", "Q1  final.pdf"), "spaced", "utf8");
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Retrieve Project", projectPath });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1, text),
+      sendDocument: async (_chatId: string, _filePath: string, options?: { fileName?: string }) => {
+        deliveredNames.push(options?.fileName ?? "");
+        return createFakeTelegramMessage(2, "document");
+      }
+    };
+
+    await (service as any).handleMessage(
+      createIncomingUserMessage(1, 1, 2010, '/retrieve "reports/Q1  final.pdf"')
+    );
+
+    assert.deepEqual(deliveredNames, ["Q1  final.pdf"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("retrieve routes a filename containing a tab without rewriting it", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const deliveredNames: string[] = [];
+
+  try {
+    const projectPath = join((service as any).paths.homeDir, "retrieve-tab-project");
+    await mkdir(join(projectPath, "reports"), { recursive: true });
+    await writeFile(join(projectPath, "reports", "Q1\tfinal.pdf"), "tabbed", "utf8");
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Retrieve Project", projectPath });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1, text),
+      sendDocument: async (_chatId: string, _filePath: string, options?: { fileName?: string }) => {
+        deliveredNames.push(options?.fileName ?? "");
+        return createFakeTelegramMessage(2, "document");
+      }
+    };
+
+    await (service as any).handleMessage(
+      createIncomingUserMessage(1, 1, 2011, "/retrieve reports/Q1\tfinal.pdf")
+    );
+
+    assert.deepEqual(deliveredNames, ["Q1\tfinal.pdf"]);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("retrieve requires opaque callback approval before sending an external report", async () => {
   const { service, store, cleanup } = await createServiceContext();
   const documents: Array<{ bytes: string; fileName: string | undefined; caption: string | undefined }> = [];
