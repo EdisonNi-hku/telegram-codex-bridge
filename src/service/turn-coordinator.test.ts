@@ -14,6 +14,7 @@ import type {
 import type { EgressMessageSendResult } from "../packs/contract.js";
 import { TELEGRAM_PACK } from "../packs/telegram/index.js";
 import { BridgeStateStore } from "../state/store.js";
+import type { ReasoningEffort } from "../types.js";
 import { TurnCoordinator } from "./turn-coordinator.js";
 
 const testLogger: Logger = {
@@ -64,8 +65,8 @@ async function createCoordinatorContext(options: {
     description: string;
     hidden: boolean;
     isDefault: boolean;
-    defaultReasoningEffort: "low" | "medium" | "high";
-    supportedReasoningEfforts: Array<{ reasoningEffort: "low" | "medium" | "high"; description: string }>;
+    defaultReasoningEffort: ReasoningEffort;
+    supportedReasoningEfforts: Array<{ reasoningEffort: ReasoningEffort; description: string }>;
   }>;
   safeSendHtmlMessageResult?: (
     chatId: string,
@@ -95,7 +96,7 @@ async function createCoordinatorContext(options: {
   } | null;
   fetchRuntimeConfig?: () => Promise<{
     model: string | null;
-    reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
+    reasoningEffort: ReasoningEffort | null;
   }>;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ctb-turn-coordinator-test-"));
