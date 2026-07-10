@@ -1084,6 +1084,46 @@ test("retrieve remains unsupported on Feishu and never delivers a document", asy
   }
 });
 
+test("retrieve help is advertised on Telegram but hidden from Feishu", async () => {
+  const telegram = await createServiceContext();
+  const feishu = await createServiceContext({}, feishuTestConfig);
+  const telegramMessages: string[] = [];
+  const feishuMessages: string[] = [];
+
+  try {
+    authorizeNumericChatWithSession(telegram.store, "1");
+    (telegram.service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        telegramMessages.push(text);
+        return createFakeTelegramMessage(30, text);
+      }
+    };
+
+    authorizeFeishuChat(feishu.store, "feishu-chat", "feishu-user");
+    (feishu.service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        feishuMessages.push(text);
+        return createFakeTelegramMessage(31, text);
+      }
+    };
+
+    await (telegram.service as any).handleMessage(createIncomingUserMessage(1, 1, 2005, "/help"));
+    await (feishu.service as any).handleMessage({
+      message_id: 2006,
+      from: { id: "feishu-user", is_bot: false, first_name: "Tester" },
+      chat: { id: "feishu-chat", type: "private" },
+      date: 0,
+      text: "/help"
+    });
+
+    assert.match(telegramMessages.at(-1) ?? "", /\/retrieve <文件路径>/u);
+    assert.doesNotMatch(feishuMessages.at(-1) ?? "", /\/retrieve\b/u);
+  } finally {
+    await telegram.cleanup();
+    await feishu.cleanup();
+  }
+});
+
 test("service starts and stops perf sampling when monitoring is enabled", async () => {
   const samplerCalls: string[] = [];
   const samplerOptions: Array<{ getAppServerPid: () => number | null }> = [];

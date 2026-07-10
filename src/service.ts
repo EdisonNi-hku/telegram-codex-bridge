@@ -2223,7 +2223,11 @@ export class BridgeService {
 
   private async sendHelp(chatId: string): Promise<void> {
     const language = this.getUiLanguage();
-    await this.safeSendMessage(chatId, buildHelpText(language), buildHelpReplyMarkup(language));
+    await this.safeSendMessage(
+      chatId,
+      buildHelpText(language, this.config.activePack),
+      buildHelpReplyMarkup(language)
+    );
   }
 
   private async handleCommands(chatId: string, args: string): Promise<void> {
