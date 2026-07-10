@@ -54,6 +54,12 @@ export function formatReasoningEffortLabel(effort: ReasoningEffort): string {
       return "高";
     case "xhigh":
       return "极高";
+    case "max":
+      return "Max";
+    case "ultra":
+      return "Ultra";
+    default:
+      return effort;
   }
 }
 

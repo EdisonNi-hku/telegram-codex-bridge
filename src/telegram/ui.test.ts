@@ -36,13 +36,16 @@ import {
   buildRuntimeHubReplyMarkup,
   buildRuntimeStatusReplyMarkup,
   buildRuntimeStatusCard,
+  buildReasoningEffortPickerMessage,
   buildSessionsText,
   buildCollapsibleFinalAnswerView,
   buildCurrentSessionCardText,
   encodeRetrieveCancelCallback,
   encodeRetrieveConfirmCallback,
+  encodeModelEffortCallback,
   encodeShellCancelCallback,
   encodeShellConfirmCallback,
+  formatReasoningEffortLabel,
   parseCallbackData,
   parseCommand,
   renderFinalAnswerHtmlChunks
@@ -471,6 +474,72 @@ test("buildCurrentSessionCardText renders the English current-session card", () 
       "Idle · configured Default model + default / effective Default model + default"
     ].join("\n")
   );
+});
+
+test("formatReasoningEffortLabel renders GPT-5.6 efforts and preserves unknown runtime values", () => {
+  assert.equal(formatReasoningEffortLabel("max"), "Max");
+  assert.equal(formatReasoningEffortLabel("ultra"), "Ultra");
+  assert.equal(formatReasoningEffortLabel("future" as never), "future");
+});
+
+test("buildReasoningEffortPickerMessage renders GPT-5.6 effort labels without undefined", () => {
+  const picker = buildReasoningEffortPickerMessage({
+    session: createSession({}),
+    model: {
+      id: "gpt-5.6-sol",
+      displayName: "GPT-5.6-Sol",
+      isDefault: true,
+      defaultReasoningEffort: "low",
+      supportedReasoningEfforts: [
+        { reasoningEffort: "max", description: "Maximum reasoning depth" },
+        { reasoningEffort: "ultra", description: "Automatic delegation" }
+      ]
+    },
+    modelIndex: 0
+  });
+  const labels = picker.replyMarkup.inline_keyboard.flat().map((button) => button.text);
+
+  assert.ok(labels.includes("Max"));
+  assert.ok(labels.includes("Ultra"));
+  assert.doesNotMatch(labels.join("\n"), /undefined/u);
+});
+
+test("buildCurrentSessionCardText renders GPT-5.6 efforts in English", () => {
+  for (const effort of ["max", "ultra"] as const) {
+    const text = buildCurrentSessionCardText(
+      createSession({ selectedModel: "gpt-5.6-sol", selectedReasoningEffort: effort }),
+      "en"
+    );
+
+    assert.match(text, new RegExp(`configured gpt-5\\.6-sol \\+ ${effort === "max" ? "Max" : "Ultra"}`, "u"));
+    assert.doesNotMatch(text, /undefined/u);
+  }
+});
+
+test("model effort callbacks round-trip GPT-5.6 efforts while preserving existing behavior", () => {
+  for (const effort of ["max", "ultra"] as const) {
+    const callback = encodeModelEffortCallback("session-1", 0, effort);
+    assert.deepEqual(parseCallbackData(callback), {
+      kind: "model_effort",
+      sessionId: "session-1",
+      modelIndex: 0,
+      effort
+    });
+  }
+
+  assert.deepEqual(parseCallbackData(encodeModelEffortCallback("session-1", 0, "high")), {
+    kind: "model_effort",
+    sessionId: "session-1",
+    modelIndex: 0,
+    effort: "high"
+  });
+  assert.deepEqual(parseCallbackData(encodeModelEffortCallback("session-1", 0, null)), {
+    kind: "model_effort",
+    sessionId: "session-1",
+    modelIndex: 0,
+    effort: null
+  });
+  assert.equal(parseCallbackData("v2:model:effort:session-1:0:future"), null);
 });
 
 test("buildManualPathConfirmMessage renders bold field labels and keeps the keyboard", () => {

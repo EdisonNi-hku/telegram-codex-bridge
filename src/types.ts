@@ -41,7 +41,7 @@ export function isOperationalReadinessState(state: BridgeReadinessState): boolea
 
 export type RecentProjectSource = "mru" | "pin" | "scan" | "last_success";
 
-export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 export type SessionPlanMode = "default" | "plan";
 
