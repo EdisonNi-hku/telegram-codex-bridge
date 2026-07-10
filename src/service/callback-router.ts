@@ -5,6 +5,10 @@ export interface BridgeCallbackRouterHandlers {
   answer(text?: string): Promise<void>;
   handleShellDecision(token: string, approved: boolean): Promise<void>;
   handleRetrieveDecision(token: string, approved: boolean): Promise<void>;
+  handleSideAction(parsed: Extract<ParsedCallbackData,
+    { kind: "side_status" } | { kind: "side_back" } | { kind: "side_interrupt" } |
+    { kind: "side_return_confirm" } | { kind: "side_return_cancel" }
+  >): Promise<void>;
   openCommandPanel(): Promise<void>;
   sendHelpFromPanel(): Promise<void>;
   runCommandFromPanel(command: string): Promise<void>;
@@ -77,9 +81,16 @@ export interface BridgeCallbackRouterHandlers {
 
 export async function routeBridgeCallback(
   parsed: ParsedCallbackData,
-  handlers: BridgeCallbackRouterHandlers
+  handlers: BridgeCallbackRouterHandlers | Omit<BridgeCallbackRouterHandlers, "handleSideAction">
 ): Promise<void> {
   switch (parsed.kind) {
+    case "side_status":
+    case "side_back":
+    case "side_interrupt":
+    case "side_return_confirm":
+    case "side_return_cancel":
+      await ("handleSideAction" in handlers ? handlers.handleSideAction(parsed) : Promise.resolve());
+      return;
     case "shell_confirm":
       await handlers.handleShellDecision(parsed.token, true);
       return;

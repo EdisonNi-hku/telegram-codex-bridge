@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   TELEGRAM_COMMANDS,
+  buildTelegramCommands,
   buildHelpText,
   getDefaultCommandPanelCommands,
   normalizeCommandPanelCommands,
@@ -36,6 +37,19 @@ test("syncTelegramCommands syncs default and language-specific command scopes", 
   ];
 
   assert.deepEqual(calls.sort(compareCalls), expected.sort(compareCalls));
+});
+
+test("telegram-only commands are omitted outside the Telegram pack", async () => {
+  assert.equal(buildTelegramCommands("zh", "telegram").some(({ command }) => command === "side"), true);
+  assert.equal(buildTelegramCommands("zh", "telegram").some(({ command }) => command === "retrieve"), true);
+  assert.equal(buildTelegramCommands("zh", "feishu").some(({ command }) => command === "side"), false);
+  assert.equal(buildTelegramCommands("zh", "feishu").some(({ command }) => command === "retrieve"), false);
+
+  const synced: string[][] = [];
+  await syncTelegramCommands({
+    setMyCommands: async (commands: TelegramBotCommand[]) => { synced.push(commands.map(({ command }) => command)); }
+  } as any, "zh", "feishu");
+  assert.equal(synced.every((commands) => !commands.includes("side") && !commands.includes("retrieve")), true);
 });
 
 test("buildHelpText stays aligned with the command registry", () => {

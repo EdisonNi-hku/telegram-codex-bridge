@@ -5,6 +5,11 @@ export type ParsedCallbackData =
   | { kind: "shell_cancel"; token: string }
   | { kind: "retrieve_confirm"; token: string }
   | { kind: "retrieve_cancel"; token: string }
+  | { kind: "side_status"; token: string }
+  | { kind: "side_back"; token: string }
+  | { kind: "side_interrupt"; token: string }
+  | { kind: "side_return_confirm"; token: string }
+  | { kind: "side_return_cancel"; token: string }
   | { kind: "commands_open" }
   | { kind: "commands_help" }
   | { kind: "commands_run"; command: string }
@@ -173,6 +178,26 @@ export function encodeRetrieveConfirmCallback(token: string): string {
 
 export function encodeRetrieveCancelCallback(token: string): string {
   return ensureTelegramCallbackDataLimit(`v10:rt:n:${token}`);
+}
+
+export function encodeSideStatusCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v11:sd:s:${token}`);
+}
+
+export function encodeSideBackCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v11:sd:b:${token}`);
+}
+
+export function encodeSideInterruptCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v11:sd:i:${token}`);
+}
+
+export function encodeSideReturnConfirmCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v11:sd:y:${token}`);
+}
+
+export function encodeSideReturnCancelCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v11:sd:n:${token}`);
 }
 
 export function encodeCommandPanelEditHelpCallback(): string {
@@ -503,6 +528,18 @@ export function encodeHubSelectCallback(token: string, version: number, slot: nu
 
 export function parseCallbackData(data: string): ParsedCallbackData | null {
   const parts = data.split(":");
+  if (parts[0] === "v11" && parts[1] === "sd" && parts[3] && parts.length === 4) {
+    const kinds = {
+      s: "side_status",
+      b: "side_back",
+      i: "side_interrupt",
+      y: "side_return_confirm",
+      n: "side_return_cancel"
+    } as const;
+    const kind = kinds[parts[2] as keyof typeof kinds];
+    return kind ? { kind, token: parts[3] } : null;
+  }
+
   if (parts[0] === "v10" && parts[1] === "rt" && parts[3]) {
     if (parts[2] === "y") {
       return { kind: "retrieve_confirm", token: parts[3] };

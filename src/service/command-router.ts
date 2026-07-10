@@ -4,7 +4,9 @@ export type BridgeCommandRouterHandlers = {
   [key in TelegramCommandHandlerKey]: () => Promise<void>;
 };
 
-export type BridgeCommandRouterActions = BridgeCommandRouterHandlers & {
+type LegacyBridgeCommandRouterHandlers = Omit<BridgeCommandRouterHandlers, "handleSide">;
+
+export type BridgeCommandRouterActions = (BridgeCommandRouterHandlers | LegacyBridgeCommandRouterHandlers) & {
   sendUnsupported(): Promise<void>;
 };
 
@@ -18,5 +20,9 @@ export async function routeBridgeCommand(
     return;
   }
 
-  await handlers[handler]();
+  if (handler === "handleSide" && !("handleSide" in handlers)) {
+    await handlers.sendUnsupported();
+    return;
+  }
+  await (handlers as BridgeCommandRouterHandlers)[handler]();
 }

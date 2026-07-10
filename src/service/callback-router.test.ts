@@ -198,9 +198,19 @@ function createHandlers(calls: Call[]) {
     },
     handleRetrieveDecision: async (token: string, approved: boolean) => {
       calls.push({ name: "handleRetrieveDecision", args: [token, approved] });
+    },
+    handleSideAction: async (parsed: Extract<ParsedCallbackData, { kind: "side_status" | "side_back" | "side_interrupt" | "side_return_confirm" | "side_return_cancel" }>) => {
+      calls.push({ name: "handleSideAction", args: [parsed] });
     }
   };
 }
+
+test("side callbacks delegate without a pre-ack", async () => {
+  const parsed: ParsedCallbackData = { kind: "side_back", token: "side-token" };
+  const calls: Call[] = [];
+  await routeBridgeCallback(parsed, createHandlers(calls));
+  assert.deepEqual(calls, [{ name: "handleSideAction", args: [parsed] }]);
+});
 
 test("shell confirmation callbacks delegate a single decision", async () => {
   const cases: Array<{ parsed: ParsedCallbackData; expected: Call }> = [

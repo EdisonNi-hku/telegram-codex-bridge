@@ -11,6 +11,7 @@ export type TelegramCommandHandlerKey =
   | "handleResume"
   | "handleBrowse"
   | "handleRetrieve"
+  | "handleSide"
   | "handleCancel"
   | "handleSessions"
   | "handleArchive"
@@ -90,6 +91,7 @@ const TELEGRAM_COMMAND_ENTRIES: LocalizedTelegramCommandEntry[] = [
   { command: "resume", handler: "handleResume", description: { zh: "恢复 Codex 历史会话", en: "Resume a Codex history thread" }, helpLines: [{ zh: "/resume 查看可恢复的 Codex 会话；/resume <序号> 恢复", en: "/resume Show resumable Codex threads; /resume <index> resumes one" }], panel: { group: "session_project", selectable: true, shortLabel: { zh: "恢复", en: "Resume" } } },
   { command: "browse", handler: "handleBrowse", description: { zh: "浏览当前项目文件", en: "Browse the current project files" }, helpLines: [{ zh: "/browse 浏览当前项目文件", en: "/browse Browse the current project files" }], panel: { group: "session_project", selectable: true, shortLabel: { zh: "浏览", en: "Browse" } } },
   { command: "retrieve", handler: "handleRetrieve", description: { zh: "发送本地文件到聊天", en: "Send a local file to this chat" }, helpLines: [{ zh: "/retrieve <文件路径> 发送当前项目文件；项目外文件需要确认", en: "/retrieve <file path> Send a project file; external files require confirmation" }], telegramOnly: true },
+  { command: "side", handler: "handleSide", description: { zh: "开启临时 Side 对话", en: "Start a temporary side conversation" }, helpLines: [{ zh: "/side [问题] 开启临时 Side 对话；/side back 返回主会话", en: "/side [question] Start a temporary side conversation; /side back returns" }], telegramOnly: true },
   { command: "sessions", handler: "handleSessions", description: { zh: "查看最近会话", en: "Show recent sessions" }, helpLines: [{ zh: "/sessions 查看最近会话", en: "/sessions Show recent sessions" }, { zh: "/sessions archived 查看已归档会话", en: "/sessions archived Show archived sessions" }], panel: { group: "session_project", selectable: true, shortLabel: { zh: "会话", en: "Sessions" } } },
   { command: "archive", handler: "handleArchive", description: { zh: "归档当前会话", en: "Archive the current session" }, helpLines: [{ zh: "/archive 归档当前会话", en: "/archive Archive the current session" }, { zh: "/archive all 归档所有非运行中会话", en: "/archive all Archive every non-running session" }], panel: { group: "session_project", selectable: true, shortLabel: { zh: "归档", en: "Archive" } } },
   { command: "unarchive", handler: "handleUnarchive", description: { zh: "恢复已归档会话", en: "Restore an archived session" }, helpLines: [{ zh: "/unarchive <序号> 恢复已归档会话", en: "/unarchive <index> Restore an archived session" }] },
@@ -127,8 +129,10 @@ const DEFAULT_COMMAND_PANEL_COMMANDS = ["new", "sessions", "status", "where", "m
 
 export const TELEGRAM_COMMANDS: TelegramCommandDefinition[] = buildTelegramCommands("zh");
 
-export function buildTelegramCommands(language: UiLanguage): TelegramCommandDefinition[] {
-  return TELEGRAM_COMMAND_ENTRIES.map(({ command, description }) => ({
+export function buildTelegramCommands(language: UiLanguage, activePack: BridgePackName = "telegram"): TelegramCommandDefinition[] {
+  return TELEGRAM_COMMAND_ENTRIES
+    .filter((entry) => !entry.telegramOnly || activePack === "telegram")
+    .map(({ command, description }) => ({
     command,
     description: description[language]
   }));
@@ -200,14 +204,15 @@ export function getTelegramCommandPanelEntry(command: string, language: UiLangua
 
 export async function syncTelegramCommands(
   api: Pick<TelegramApi, "setMyCommands">,
-  language: UiLanguage = "zh"
+  language: UiLanguage = "zh",
+  activePack: BridgePackName = "telegram"
 ): Promise<void> {
   const scopes = [
     { type: "default" },
     { type: "all_private_chats" }
   ] as const;
   const languageCodes = [undefined, "zh", "en"];
-  const commands = buildTelegramCommands(language);
+  const commands = buildTelegramCommands(language, activePack);
 
   await Promise.all(
     scopes.flatMap((scope) =>

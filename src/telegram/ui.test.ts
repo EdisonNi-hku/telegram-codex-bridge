@@ -36,6 +36,9 @@ import {
   buildRuntimeHubReplyMarkup,
   buildRuntimeStatusReplyMarkup,
   buildRuntimeStatusCard,
+  buildSideParentStatusMessage,
+  buildSideReturnConfirmationMessage,
+  buildSideSessionCardMessage,
   buildReasoningEffortPickerMessage,
   buildSessionsText,
   buildCollapsibleFinalAnswerView,
@@ -45,11 +48,61 @@ import {
   encodeModelEffortCallback,
   encodeShellCancelCallback,
   encodeShellConfirmCallback,
+  encodeSideBackCallback,
+  encodeSideInterruptCallback,
+  encodeSideReturnCancelCallback,
+  encodeSideReturnConfirmCallback,
+  encodeSideStatusCallback,
   formatReasoningEffortLabel,
   parseCallbackData,
   parseCommand,
   renderFinalAnswerHtmlChunks
 } from "./ui.js";
+
+test("side session cards render localized controls for each parent state", () => {
+  const base = { token: "side-token", language: "zh" as const, projectName: "proj<&", parentSessionName: "main>&", sideStatus: "idle" as const, parentStatus: "idle" as const, parentNeedsAction: false, heldResultCount: 0 };
+  const idle = buildSideSessionCardMessage(base);
+  assert.match(idle.text, /↪ Side/u);
+  assert.match(idle.text, /proj&lt;&amp;/u);
+  assert.match(idle.text, /main&gt;&amp;/u);
+  assert.deepEqual(idle.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["主任务状态", "返回主会话"]]);
+
+  const running = buildSideSessionCardMessage({ ...base, sideStatus: "running" });
+  assert.deepEqual(running.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["中断 Side", "返回主会话"]]);
+  const action = buildSideSessionCardMessage({ ...base, parentStatus: "waiting_approval", parentNeedsAction: true });
+  assert.deepEqual(action.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["主任务状态", "返回并处理审批"]]);
+  const held = buildSideSessionCardMessage({ ...base, parentStatus: "completed", heldResultCount: 2 });
+  assert.match(held.text, /2/u);
+  assert.deepEqual(held.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["主任务状态", "返回查看结果"]]);
+  assert.equal([idle, running, action, held].some(({ text }) => text.includes("undefined")), false);
+});
+
+test("side messages render English and return confirmation without switching", () => {
+  const view = { token: "tok", language: "en" as const, projectName: "Project", parentSessionName: "Main", sideStatus: "running" as const, parentStatus: "waiting_input" as const, parentNeedsAction: true, heldResultCount: 0 };
+  const card = buildSideSessionCardMessage(view);
+  assert.deepEqual(card.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["Interrupt Side", "Return and handle input"]]);
+  assert.match(buildSideParentStatusMessage(view), /waiting for input/i);
+  const confirmation = buildSideReturnConfirmationMessage("tok", "zh");
+  assert.match(confirmation.text, /中断/u);
+  assert.deepEqual(confirmation.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["中断并返回", "继续 Side"]]);
+});
+
+test("side callback codecs round trip and reject malformed payloads", () => {
+  const cases = [
+    [encodeSideStatusCallback, "v11:sd:s:tok", "side_status"],
+    [encodeSideBackCallback, "v11:sd:b:tok", "side_back"],
+    [encodeSideInterruptCallback, "v11:sd:i:tok", "side_interrupt"],
+    [encodeSideReturnConfirmCallback, "v11:sd:y:tok", "side_return_confirm"],
+    [encodeSideReturnCancelCallback, "v11:sd:n:tok", "side_return_cancel"]
+  ] as const;
+  for (const [encode, payload, kind] of cases) {
+    assert.equal(encode("tok"), payload);
+    assert.ok(Buffer.byteLength(payload, "utf8") <= 64);
+    assert.deepEqual(parseCallbackData(payload), { kind, token: "tok" });
+  }
+  assert.equal(parseCallbackData("v11:sd:z:tok"), null);
+  assert.equal(parseCallbackData("v11:sd:s:"), null);
+});
 
 async function withMockedNow<T>(nowIso: string, callback: () => Promise<T> | T): Promise<T> {
   const RealDate = Date;
