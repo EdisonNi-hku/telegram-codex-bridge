@@ -190,7 +190,12 @@ function hasUnsafeInspectionArgs(program: string, args: string[]): boolean {
   }
 
   if (program === "rg") {
-    return args.some((arg) => arg === "--pre" || arg.startsWith("--pre="));
+    return args.some((arg) => (
+      arg === "--pre"
+      || arg.startsWith("--pre=")
+      || arg === "--hostname-bin"
+      || arg.startsWith("--hostname-bin=")
+    ));
   }
 
   if (program === "file") {
@@ -235,5 +240,8 @@ function isDirectGitInspection(args: string[]): boolean {
     return false;
   }
 
-  return subcommandArgs.every((arg) => arg.startsWith("-") && !GIT_BRANCH_MUTATING_FLAGS.has(arg));
+  return subcommandArgs.every((arg) => (
+    arg.startsWith("-")
+    && ![...GIT_BRANCH_MUTATING_FLAGS].some((flag) => arg === flag || arg.startsWith(`${flag}=`))
+  ));
 }

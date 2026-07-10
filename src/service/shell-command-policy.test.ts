@@ -54,6 +54,7 @@ test("classifyShellCommand requires confirmation for dangerous or ambiguous comm
     "find / -maxdepth 1",
     "rg --pre 'sh -c id' needle .",
     "rg --pre=rm needle victim",
+    "rg --hostname-bin=./evil --hyperlink-format='file://{host}{path}' needle victim",
     "file --compile magic",
     "file -C magic",
     "tail -f app.log",
@@ -67,6 +68,7 @@ test("classifyShellCommand requires confirmation for dangerous or ambiguous comm
     "git reset --hard",
     "git clean -fd",
     "git branch -D old",
+    "git branch --set-upstream-to=other",
     "unterminated 'quote"
   ]) {
     assert.equal(classifyShellCommand(command).decision, "confirm", command);

@@ -677,6 +677,61 @@ test("probeReadiness requires thread/shellCommand in the generated client schema
   }
 });
 
+test("probeReadiness does not require Telegram shell capabilities for Feishu", async () => {
+  const { paths, store, cleanup } = await createReadinessContext();
+
+  try {
+    const result = await probeReadiness({
+      config: feishuTestConfig,
+      store,
+      paths,
+      logger: testLogger,
+      persist: false,
+      deps: {
+        nodeVersion: process.version,
+        detectServiceManager: async () => ({
+          manager: "none",
+          health: "warning",
+          issues: []
+        }),
+        commandExists: async () => true,
+        runCommand: async (_command: string, args: string[]) => {
+          if (args[0] === "--version") {
+            return { exitCode: 0, stdout: "codex-cli 0.114.0", stderr: "" };
+          }
+          if (args[0] === "login") {
+            return { exitCode: 0, stdout: "Logged in", stderr: "" };
+          }
+          if (args[0] === "app-server" && args[1] === "generate-json-schema") {
+            const outIndex = args.indexOf("--out");
+            assert.notEqual(outIndex, -1);
+            const schemaDir = args[outIndex + 1];
+            assert.ok(schemaDir);
+            await writeCapabilitySchemas(schemaDir, {
+              clientRequests: REQUIRED_CLIENT_REQUESTS.filter(
+                (method) => method !== "thread/shellCommand"
+              )
+            });
+            return { exitCode: 0, stdout: "", stderr: "" };
+          }
+          throw new Error(`unexpected command: ${args.join(" ")}`);
+        },
+        runPackHealthCheck: async () => createFeishuPackHealthReport(),
+        createAppServer: () => ({
+          pid: 123,
+          initializeAndProbe: async () => {},
+          stop: async () => {}
+        })
+      }
+    } as any);
+
+    assert.notEqual(result.snapshot.state, "bridge_unhealthy");
+    assert.equal(result.snapshot.details.capabilityCheckPassed, true);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("probeReadiness fails hard when required subagent naming notifications are missing from generated schema", async () => {
   for (const missingMethod of ["thread/started", "thread/name/updated"]) {
     const { paths, store, cleanup } = await createReadinessContext();
