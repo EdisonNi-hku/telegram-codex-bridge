@@ -806,6 +806,39 @@ test("held terminal results are claimed once in creation order and mapped to pen
   }
 });
 
+test("held Side result parents become releasable only after their regular session is restored active", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    authorizeTestChat(store, "chat-held-recovery");
+    const parent = store.createSession({
+      chatId: "chat-held-recovery",
+      projectName: "Parent",
+      projectPath: "/tmp/held-recovery"
+    });
+    store.saveTerminalResultView({
+      answerId: "held-recovery-answer",
+      chatId: parent.chatId,
+      sessionId: parent.sessionId,
+      threadId: "thread-parent",
+      turnId: "turn-parent",
+      deliveryState: "held_for_side",
+      previewHtml: "held",
+      pages: ["held"]
+    });
+    store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-side" });
+
+    assert.deepEqual(store.listHeldTerminalResultParentsReadyForRelease(), []);
+
+    store.recoverSideSessionsAfterRestart();
+    assert.deepEqual(store.listHeldTerminalResultParentsReadyForRelease(), [{
+      chatId: parent.chatId,
+      sessionId: parent.sessionId
+    }]);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("two store connections claim each held terminal result exactly once", async () => {
   const { paths, store, cleanup } = await openStore();
   let second: BridgeStateStore | null = null;

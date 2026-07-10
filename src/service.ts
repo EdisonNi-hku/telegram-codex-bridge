@@ -959,13 +959,7 @@ export class BridgeService {
       throw error;
     }
     const recovered = this.store.recoveredFromCorruption;
-    const sideRecoveries = this.store.recoverSideSessionsAfterRestart();
-    const recoveredSideParents = new Map(sideRecoveries.flatMap((recovery) => {
-      const active = this.store?.getActiveSession(recovery.chatId);
-      return active?.sessionKind === "regular"
-        ? [[active.sessionId, { chatId: recovery.chatId, sessionId: active.sessionId }] as const]
-        : [];
-    })).values();
+    this.store.recoverSideSessionsAfterRestart();
     const recoverySessions = this.store.listRunningSessions();
     const recoveryInteractions = this.store.listPendingInteractionsForRunningSessions();
     const recoveryNotices = this.store.markRunningSessionsFailedWithNotices("bridge_restart");
@@ -1033,8 +1027,16 @@ export class BridgeService {
     await this.restoreCurrentSessionCardsAtStartup();
     await this.logger.info("bridge service started", { readiness: snapshot.state });
     await this.flushRuntimeNotices();
-    for (const parent of recoveredSideParents) {
-      await this.turnCoordinator.releaseHeldTerminalResults(parent.chatId, parent.sessionId);
+    for (const parent of this.store.listHeldTerminalResultParentsReadyForRelease()) {
+      try {
+        await this.turnCoordinator.releaseHeldTerminalResults(parent.chatId, parent.sessionId);
+      } catch (error) {
+        await this.logger.warn("held Side result release failed", {
+          chatId: parent.chatId,
+          sessionId: parent.sessionId,
+          error: `${error}`
+        });
+      }
     }
     if (recoverySessions.length > 0) {
       const recoveryChatId = recoverySessions[0]?.chatId;

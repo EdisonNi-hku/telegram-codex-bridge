@@ -246,6 +246,7 @@ export interface StoreRuntimeArtifacts {
   setTerminalResultPrimaryActionConsumed(answerId: string, consumed: boolean): void;
   deleteTerminalResultView(answerId: string): void;
   countHeldTerminalResults(sessionId: string): number;
+  listHeldTerminalResultParentsReadyForRelease(): Array<{ chatId: string; sessionId: string }>;
   claimHeldTerminalResults(sessionId: string): TerminalResultViewRow[];
   saveFinalAnswerView(options: {
     answerId?: string;
@@ -766,6 +767,28 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         )
         .get(sessionId) as { count: number | bigint };
       return Number(row.count);
+    },
+
+    listHeldTerminalResultParentsReadyForRelease() {
+      const rows = db
+        .prepare(
+          `
+            SELECT DISTINCT s.chat_id AS chatId, s.session_id AS sessionId
+            FROM final_answer_view f
+            JOIN session s
+              ON s.session_id = f.session_id
+             AND s.chat_id = f.chat_id
+            JOIN chat_binding b
+              ON b.chat_id = s.chat_id
+             AND b.active_session_id = s.session_id
+            WHERE f.delivery_state = 'held_for_side'
+              AND s.session_kind = 'regular'
+              AND s.archived = 0
+            ORDER BY s.chat_id ASC, s.session_id ASC
+          `
+        )
+        .all() as unknown as Array<{ chatId: string; sessionId: string }>;
+      return rows.map((row) => ({ chatId: row.chatId, sessionId: row.sessionId }));
     },
 
     claimHeldTerminalResults(sessionId) {

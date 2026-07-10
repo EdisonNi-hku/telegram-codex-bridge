@@ -786,6 +786,9 @@ export class BridgeStateStore {
   }
 
   countHeldTerminalResults(sessionId: string): number { return this.runtimeArtifacts.countHeldTerminalResults(sessionId); }
+  listHeldTerminalResultParentsReadyForRelease(): Array<{ chatId: string; sessionId: string }> {
+    return this.runtimeArtifacts.listHeldTerminalResultParentsReadyForRelease();
+  }
   claimHeldTerminalResults(sessionId: string): TerminalResultViewRow[] { return this.runtimeArtifacts.claimHeldTerminalResults(sessionId); }
 
   setTerminalResultMessageId(answerId: string, messageId: number): void {

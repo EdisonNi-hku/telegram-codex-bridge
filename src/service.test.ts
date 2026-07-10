@@ -927,6 +927,138 @@ test("service startup closes active Side before generic recovery and releases pa
   }
 });
 
+test("service startup retries durable held Side output after readiness fails post-recovery", async () => {
+  const delivered: string[] = [];
+  let failReadiness = true;
+  let nextMessageId = 1900;
+  const deps: ConstructorParameters<typeof BridgeService>[2] = {
+    probeReadiness: async () => {
+      if (failReadiness) throw new Error("readiness unavailable");
+      return { snapshot: createReadinessSnapshot(), appServer: null };
+    },
+    createTelegramApi: () => ({
+      sendMessage: async (_chatId: string, text: string) => {
+        delivered.push(text);
+        return createFakeTelegramMessage(++nextMessageId, text);
+      },
+      pinChatMessage: async () => true,
+      setMyCommands: async () => {}
+    }) as any,
+    createPoller: () => ({ run: async () => {}, stop: () => {} }) as any
+  };
+  const { service, store, cleanup } = await createServiceContext(deps);
+  const paths = (service as any).paths as BridgePaths;
+  let retryService: BridgeService | null = null;
+
+  try {
+    authorizeChat(store, "chat-side-readiness-retry");
+    const parent = createSession(store, "chat-side-readiness-retry");
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-readiness" });
+    store.saveTerminalResultView({
+      answerId: "held-after-readiness-failure",
+      chatId: parent.chatId,
+      sessionId: parent.sessionId,
+      threadId: "thread-parent",
+      turnId: "turn-parent",
+      deliveryState: "held_for_side",
+      previewHtml: "Durable held result",
+      pages: ["Durable held result"]
+    });
+
+    await assert.rejects(service.run(), /readiness unavailable/);
+    assert.equal(((service as any).store as BridgeStateStore).getSessionById(side.sessionId), null);
+    assert.equal(((service as any).store as BridgeStateStore).countHeldTerminalResults(parent.sessionId), 1);
+    await service.stop({ source: "readiness_failed" });
+
+    failReadiness = false;
+    retryService = new BridgeService(paths, testConfig, deps);
+    await retryService.run();
+    assert.equal(delivered.filter((text) => text.includes("Durable held result")).length, 1);
+    assert.equal(((retryService as any).store as BridgeStateStore).countHeldTerminalResults(parent.sessionId), 0);
+  } finally {
+    await retryService?.stop({ source: "test_complete" });
+    await cleanup();
+  }
+});
+
+test("service startup isolates held Side release failures and retries only the failed parent", async () => {
+  const delivered: string[] = [];
+  const releaseAttempts: string[] = [];
+  const { logger, warn } = createCapturingLogger();
+  let pollerRuns = 0;
+  let nextMessageId = 1950;
+  const deps: ConstructorParameters<typeof BridgeService>[2] = {
+    probeReadiness: async () => ({ snapshot: createReadinessSnapshot(), appServer: null }),
+    createTelegramApi: () => ({
+      sendMessage: async (_chatId: string, text: string) => {
+        delivered.push(text);
+        return createFakeTelegramMessage(++nextMessageId, text);
+      },
+      pinChatMessage: async () => true,
+      unpinChatMessage: async () => true,
+      deleteMessage: async () => true,
+      setMyCommands: async () => {}
+    }) as any,
+    createPoller: () => ({ run: async () => { pollerRuns += 1; }, stop: () => {} }) as any
+  };
+  const { service, store, cleanup } = await createServiceContext(deps);
+  const paths = (service as any).paths as BridgePaths;
+  let retryService: BridgeService | null = null;
+
+  try {
+    authorizeChat(store, "chat-side-release-first");
+    const first = createSession(store, "chat-side-release-first");
+    (store as any).auth.replaceChatBinding({
+      platform: "telegram",
+      chatId: "chat-side-release-second",
+      userId: "user-1",
+      activeSessionId: null,
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z"
+    });
+    const second = createSession(store, "chat-side-release-second");
+    for (const [parent, label] of [[first, "First held result"], [second, "Second held result"]] as const) {
+      store.setActiveSession(parent.chatId, parent.sessionId);
+      store.createSideSession({ parentSessionId: parent.sessionId, threadId: `side-${parent.sessionId}` });
+      store.saveTerminalResultView({
+        answerId: `held-${parent.sessionId}`,
+        chatId: parent.chatId,
+        sessionId: parent.sessionId,
+        threadId: `thread-${parent.sessionId}`,
+        turnId: `turn-${parent.sessionId}`,
+        deliveryState: "held_for_side",
+        previewHtml: label,
+        pages: [label]
+      });
+    }
+    (service as any).logger = logger;
+    const release = (service as any).turnCoordinator.releaseHeldTerminalResults.bind((service as any).turnCoordinator);
+    (service as any).turnCoordinator.releaseHeldTerminalResults = async (chatId: string, sessionId: string) => {
+      releaseAttempts.push(sessionId);
+      if (sessionId === first.sessionId) throw new Error("first parent delivery unavailable");
+      return release(chatId, sessionId);
+    };
+
+    await service.run();
+    assert.equal(pollerRuns, 1);
+    assert.deepEqual(releaseAttempts, [first.sessionId, second.sessionId]);
+    assert.equal(((service as any).store as BridgeStateStore).countHeldTerminalResults(first.sessionId), 1);
+    assert.equal(((service as any).store as BridgeStateStore).countHeldTerminalResults(second.sessionId), 0);
+    assert.equal(delivered.filter((text) => text.includes("Second held result")).length, 1);
+    assert.equal(warn.some((entry) => entry.message === "held Side result release failed"), true);
+    await service.stop({ source: "release_retry" });
+
+    retryService = new BridgeService(paths, testConfig, deps);
+    await retryService.run();
+    assert.equal(pollerRuns, 2);
+    assert.equal(delivered.filter((text) => text.includes("First held result")).length, 1);
+    assert.equal(delivered.filter((text) => text.includes("Second held result")).length, 1);
+  } finally {
+    await retryService?.stop({ source: "test_complete" });
+    await cleanup();
+  }
+});
+
 test("bot-authored private service messages do not trigger unauthorized replies", async () => {
   const sent: Array<{ chatId: string; text: string }> = [];
   const { service, store, cleanup } = await createServiceContext();
