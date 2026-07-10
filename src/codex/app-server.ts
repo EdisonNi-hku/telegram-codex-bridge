@@ -731,6 +731,13 @@ export class CodexAppServerClient {
     await this.request("thread/backgroundTerminals/clean", { threadId });
   }
 
+  async runThreadShellCommand(threadId: string, command: string): Promise<void> {
+    await this.request<Record<string, never>>("thread/shellCommand", {
+      threadId,
+      command
+    });
+  }
+
   async startTurn(options: {
     threadId: string;
     cwd: string;
