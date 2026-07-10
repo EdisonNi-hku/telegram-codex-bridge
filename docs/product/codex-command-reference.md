@@ -248,8 +248,8 @@ External-file confirmation:
 File rules and delivery:
 - sends exactly one readable regular file; directories and special files are rejected
 - rejects files larger than 50 MiB; a file of exactly 50 MiB is allowed
-- stages a private immutable snapshot before upload and removes it afterward, so Telegram receives the validated bytes even if the source changes after staging
-- aborts if the source changes while the snapshot is being copied
+- copies the validated source into a private staged file created with mode `0600` before upload and removes it afterward; Telegram uploads from that staged copy, isolating the upload from later changes or replacement at the original source path
+- aborts staging when before/after checks detect a device, inode, size, or modification-time change, or when the bounded read observes more than 50 MiB; these checks provide guarded snapshot consistency, not cryptographic immutability
 - preserves the resolved file name and includes the resolved project-relative path, or external real path, plus file size in the Telegram caption
 
 Examples:
