@@ -39,6 +39,27 @@ General command contract:
 - structured Telegram command replies render field labels in bold via Telegram HTML
 - plain one-line prompts and simple lists may stay plain text when they do not expose label-value fields
 
+### `!<shell command>`
+
+Behavior:
+- only a `!` in the first character of the original message activates shell mode; `!ls` executes, while ` !ls` and `please !ls` remain normal Codex prompts
+- strips exactly one leading `!` and submits the remaining script through Codex app-server `thread/shellCommand`
+- runs in the active Codex thread working directory; `!cd subdir && pwd` changes directory only inside that invocation, and the next `!pwd` returns to the unchanged thread cwd
+- retains native Codex user-shell context so a later model turn can use the command result
+- creates the active session's Codex thread first when the bridge session has not materialized one yet
+- refuses when there is no active bridge session
+
+Safety:
+- known inspection commands and project-relative `mkdir` run directly
+- deletion, privilege changes, downloads, Git mutation, shell composition or redirection, unknown commands, and syntax the bridge cannot confidently classify require an inline confirmation
+- confirmations are single-use, expire after two minutes, and are bound to the authorized chat plus the original bridge session and Codex thread
+- native Codex user shell is unsandboxed; approving a command grants that exact script full host access
+- only one user-shell command may run per Codex thread at a time
+
+Delivery:
+- the bridge reports command output and exit code in Telegram
+- oversized output is truncated for Telegram while Codex retains its native command context
+
 ### `/plan`
 
 Behavior:
