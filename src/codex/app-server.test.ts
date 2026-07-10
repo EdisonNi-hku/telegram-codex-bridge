@@ -204,10 +204,15 @@ test("readConfig sends cwd and includeLayers when requested", async () => {
 
   (client as any).request = async (method: string, params: unknown) => {
     captured = { method, params };
-    return { config: {}, origins: {} };
+    return {
+      config: {
+        developer_instructions: "Keep side conversations isolated."
+      },
+      origins: {}
+    };
   };
 
-  await client.readConfig({
+  const result = await client.readConfig({
     cwd: "/tmp/project",
     includeLayers: true
   });
@@ -219,6 +224,72 @@ test("readConfig sends cwd and includeLayers when requested", async () => {
       includeLayers: true
     }
   });
+  assert.equal(result.config.developer_instructions, "Keep side conversations isolated.");
+});
+
+test("side thread methods send the exact JSON-RPC contract in order", async () => {
+  const client = new CodexAppServerClient("codex", "/tmp/app-server.log", testLogger);
+  const captured: Array<{ method: string; params: unknown }> = [];
+  const boundaryItem = {
+    type: "message",
+    role: "user",
+    content: [{
+      type: "input_text",
+      text: "Continue as a side conversation."
+    }]
+  };
+
+  (client as any).request = async (method: string, params: unknown) => {
+    captured.push({ method, params });
+    if (method === "thread/fork") {
+      return {
+        thread: { id: "side-thread", turns: [] },
+        cwd: "/repo",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "max"
+      };
+    }
+    return {};
+  };
+
+  await client.forkSideThread({
+    threadId: "parent-thread",
+    cwd: "/repo",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "max",
+    developerInstructions: "Handle this as an isolated side conversation."
+  });
+  await client.injectThreadItems("side-thread", [boundaryItem]);
+  await client.unsubscribeThread("side-thread");
+
+  assert.deepEqual(captured, [
+    {
+      method: "thread/fork",
+      params: {
+        threadId: "parent-thread",
+        cwd: "/repo",
+        model: "gpt-5.6-sol",
+        ephemeral: true,
+        developerInstructions: "Handle this as an isolated side conversation.",
+        config: {
+          model_reasoning_effort: "max"
+        }
+      }
+    },
+    {
+      method: "thread/inject_items",
+      params: {
+        threadId: "side-thread",
+        items: [boundaryItem]
+      }
+    },
+    {
+      method: "thread/unsubscribe",
+      params: {
+        threadId: "side-thread"
+      }
+    }
+  ]);
 });
 
 test("runThreadShellCommand sends the native thread shell request", async () => {

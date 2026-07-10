@@ -178,6 +178,7 @@ export interface ConfigReadResult {
     model?: string | null;
     model_reasoning_effort?: ReasoningEffort | null;
     plan_mode_reasoning_effort?: ReasoningEffort | null;
+    developer_instructions?: string | null;
     migrations?: Record<string, string> | null;
   };
   layers?: unknown[] | null;
@@ -354,6 +355,14 @@ export interface ThreadForkResult {
   cwd: string;
   model: string;
   reasoningEffort?: ReasoningEffort | null;
+}
+
+export interface SideThreadForkOptions {
+  threadId: string;
+  cwd: string;
+  model?: string | null;
+  reasoningEffort?: ReasoningEffort | null;
+  developerInstructions: string;
 }
 
 export interface ThreadRollbackResult {
@@ -774,6 +783,27 @@ export class CodexAppServerClient {
       threadId: options.threadId,
       ...(options.model ? { model: options.model } : {})
     });
+  }
+
+  async forkSideThread(options: SideThreadForkOptions): Promise<ThreadForkResult> {
+    return await this.request<ThreadForkResult>("thread/fork", {
+      threadId: options.threadId,
+      cwd: options.cwd,
+      ephemeral: true,
+      developerInstructions: options.developerInstructions,
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.reasoningEffort
+        ? { config: { model_reasoning_effort: options.reasoningEffort } }
+        : {})
+    });
+  }
+
+  async injectThreadItems(threadId: string, items: unknown[]): Promise<void> {
+    await this.request("thread/inject_items", { threadId, items });
+  }
+
+  async unsubscribeThread(threadId: string): Promise<void> {
+    await this.request("thread/unsubscribe", { threadId });
   }
 
   async rollbackThread(threadId: string, numTurns: number): Promise<ThreadRollbackResult> {
