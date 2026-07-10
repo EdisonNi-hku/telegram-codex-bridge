@@ -2624,7 +2624,7 @@ test("TurnCoordinator holds a parent app-server-exit failure until side return a
     assert.equal(held[0]?.deliveryState, "held_for_side");
     assert.match(held[0]?.pages[0] ?? "", /Codex 服务暂时不可用，请稍后重试。/u);
     assert.deepEqual(safeMessages, []);
-    assert.deepEqual(sentHtmlMessages, []);
+    assert.equal(sentHtmlMessages.length, 0);
     assert.deepEqual(finalizedHandoffs, []);
     assert.deepEqual(currentSessionCardSyncs, [
       { sessionId: parent.sessionId, reason: "terminal_output_held_for_side" }
