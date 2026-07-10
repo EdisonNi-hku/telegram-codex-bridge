@@ -517,6 +517,7 @@ export class BridgeService {
         this.reanchorRuntimeAfterBridgeReply(chatId, reason, sessionId),
       finalizeTerminalRuntimeHandoff: async (chatId, sessionId) =>
         this.runtimeSurfaceController.completeTerminalRuntimeHandoff(chatId, sessionId),
+      shouldHoldTerminalOutput: (sessionId) => this.store?.getActiveSideForParent(sessionId) !== null,
       disposeRuntimeCards: (activeTurn) =>
         this.runtimeSurfaceController.disposeRuntimeCards(activeTurn as ActiveTurnState),
       safeSendMessage: async (chatId, text) => this.safeSendMessage(chatId, text),
@@ -680,7 +681,8 @@ export class BridgeService {
           this.richInputAdapter.resetPendingTransientState(chatId);
         }
       },
-      releaseHeldTerminalResults: async () => 0,
+      releaseHeldTerminalResults: async (chatId, sessionId) =>
+        this.turnCoordinator.releaseHeldTerminalResults(chatId, sessionId),
       getParentStatus: (parent) => {
         const pending = this.store?.listPendingInteractionsByChat(parent.chatId, ["pending", "awaiting_text"])
           .filter((row) => row.sessionId === parent.sessionId) ?? [];

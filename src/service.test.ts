@@ -1025,6 +1025,25 @@ test("side return interaction delegate surfaces parent rows through the broker",
   } finally { await cleanup(); }
 });
 
+test("terminal output service hooks detect active side and release through the turn coordinator", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const releases: unknown[] = [];
+  try {
+    const parent = authorizeNumericChatWithSession(store, "1");
+    store.updateSessionThreadId(parent.sessionId, "parent-thread");
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
+    const turnDeps = (service as any).turnCoordinator.deps;
+    assert.equal(turnDeps.shouldHoldTerminalOutput(parent.sessionId), true);
+    assert.equal(turnDeps.shouldHoldTerminalOutput(side.sessionId), false);
+    (service as any).turnCoordinator.releaseHeldTerminalResults = async (...args: unknown[]) => {
+      releases.push(args);
+      return 2;
+    };
+    assert.equal(await (service as any).sideConversationCoordinator.deps.releaseHeldTerminalResults("1", parent.sessionId), 2);
+    assert.deepEqual(releases, [["1", parent.sessionId]]);
+  } finally { await cleanup(); }
+});
+
 test("Feishu rejects /side before lifecycle entry", async () => {
   const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
   const sent: string[] = [];

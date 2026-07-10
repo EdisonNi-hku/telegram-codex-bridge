@@ -98,6 +98,7 @@ async function createCoordinatorContext(options: {
     model: string | null;
     reasoningEffort: ReasoningEffort | null;
   }>;
+  shouldHoldTerminalOutput?: (sessionId: string) => boolean;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ctb-turn-coordinator-test-"));
   const paths = createTestPaths(root);
@@ -203,6 +204,7 @@ async function createCoordinatorContext(options: {
     finalizeTerminalRuntimeHandoff: async (chatId, sessionId) => {
       finalizedHandoffs.push({ chatId, sessionId });
     },
+    shouldHoldTerminalOutput: options.shouldHoldTerminalOutput ?? (() => false),
     disposeRuntimeCards: () => {},
     safeSendMessage: async (_chatId, text) => {
       safeMessages.push(text);
@@ -1763,6 +1765,216 @@ test("TurnCoordinator completes plan-mode turns by sending a plan result with im
     assert.equal(views[0]?.deliveryState, "visible");
     assert.deepEqual(reanchorReasons, []);
     assert.deepEqual(finalizedHandoffs, [{ chatId: "chat-1", sessionId: session.sessionId }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator holds parent final answers while side mode is active and releases them once", async () => {
+  const heldSessions = new Set<string>();
+  const { coordinator, store, sentHtmlMessages, finalizedHandoffs, currentSessionCardSyncs, cleanup } =
+    await createCoordinatorContext({
+      shouldHoldTerminalOutput: (sessionId) => heldSessions.has(sessionId),
+      appServer: {
+        resumeThread: async () => ({
+          thread: {
+            id: "thread-held-parent",
+            turns: [{
+              id: "turn-held-parent",
+              items: [{ type: "agentMessage", phase: "final_answer", text: "Held parent answer" }]
+            }]
+          }
+        })
+      }
+    });
+
+  try {
+    store.upsertPendingAuthorization({ userId: "user-chat-1", chatId: "chat-1", displayName: null });
+    store.confirmPendingAuthorization(store.listPendingAuthorizations().find((row) => row.chatId === "chat-1")!);
+    const parent = store.createSession({
+      chatId: "chat-1",
+      displayName: "Parent",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one"
+    });
+    heldSessions.add(parent.sessionId);
+
+    await coordinator.beginActiveTurn("chat-1", parent, "thread-held-parent", "turn-held-parent", "inProgress");
+    await coordinator.handleAppServerNotification("turn/completed", {
+      threadId: "thread-held-parent",
+      turnId: "turn-held-parent",
+      status: "completed"
+    });
+
+    assert.equal(store.getSessionById(parent.sessionId)?.status, "idle");
+    assert.equal(store.listTerminalResultViews("chat-1")[0]?.deliveryState, "held_for_side");
+    assert.equal(store.listTerminalResultViews("chat-1")[0]?.kind, "final_answer");
+    assert.equal(sentHtmlMessages.length, 0);
+    assert.equal(store.countRuntimeNotices(), 0);
+    assert.deepEqual(finalizedHandoffs, []);
+    assert.deepEqual(currentSessionCardSyncs, [{ sessionId: parent.sessionId, reason: "terminal_output_held_for_side" }]);
+
+    heldSessions.delete(parent.sessionId);
+    assert.equal(await coordinator.releaseHeldTerminalResults("chat-1", parent.sessionId), 1);
+    assert.equal(store.listTerminalResultViews("chat-1")[0]?.deliveryState, "visible");
+    assert.equal(sentHtmlMessages.length, 1);
+    assert.match(sentHtmlMessages[0]?.html ?? "", /Held parent answer/u);
+    assert.deepEqual(finalizedHandoffs, [{ chatId: "chat-1", sessionId: parent.sessionId }]);
+    assert.equal(await coordinator.releaseHeldTerminalResults("chat-1", parent.sessionId), 0);
+    assert.equal(sentHtmlMessages.length, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator holds parent plan results but side results still deliver immediately", async () => {
+  const heldSessions = new Set<string>();
+  const { coordinator, store, sentHtmlMessages, cleanup } = await createCoordinatorContext({
+    shouldHoldTerminalOutput: (sessionId) => heldSessions.has(sessionId),
+    appServer: {
+      resumeThread: async (threadId: string) => ({
+        thread: {
+          id: threadId,
+          turns: [{
+            id: threadId === "thread-parent-plan" ? "turn-parent-plan" : "turn-side",
+            items: threadId === "thread-parent-plan"
+              ? [{ type: "plan", text: "## Held plan\n\nImplement it." }]
+              : [{ type: "agentMessage", phase: "final_answer", text: "Side answer" }]
+          }]
+        }
+      })
+    }
+  });
+
+  try {
+    store.upsertPendingAuthorization({ userId: "user-chat-1", chatId: "chat-1", displayName: null });
+    store.confirmPendingAuthorization(store.listPendingAuthorizations().find((row) => row.chatId === "chat-1")!);
+    const parent = store.createSession({
+      chatId: "chat-1", projectName: "Project One", projectPath: "/tmp/project-one", planMode: true
+    });
+    store.setActiveSession("chat-1", parent.sessionId);
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-side" });
+    heldSessions.add(parent.sessionId);
+    await coordinator.beginActiveTurn("chat-1", parent, "thread-parent-plan", "turn-parent-plan", "inProgress");
+    await coordinator.handleAppServerNotification("turn/completed", {
+      threadId: "thread-parent-plan", turnId: "turn-parent-plan", status: "completed"
+    });
+    assert.equal(store.listTerminalResultViews("chat-1")[0]?.kind, "plan_result");
+    assert.equal(store.listTerminalResultViews("chat-1")[0]?.deliveryState, "held_for_side");
+    assert.equal(sentHtmlMessages.length, 0);
+
+    await coordinator.beginActiveTurn("chat-1", side, "thread-side", "turn-side", "inProgress");
+    await coordinator.handleAppServerNotification("turn/completed", {
+      threadId: "thread-side", turnId: "turn-side", status: "completed"
+    });
+    assert.equal(sentHtmlMessages.length, 1);
+    assert.match(sentHtmlMessages[0]?.html ?? "", /Side answer/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator holds failed parent text, refreshes interrupted parent state, and creates no side-chat messages", async () => {
+  const heldSessions = new Set<string>();
+  const { coordinator, store, safeMessages, sentHtmlMessages, currentSessionCardSyncs, cleanup } =
+    await createCoordinatorContext({ shouldHoldTerminalOutput: (sessionId) => heldSessions.has(sessionId) });
+  try {
+    const failed = store.createSession({ chatId: "chat-1", projectName: "P", projectPath: "/tmp/p" });
+    heldSessions.add(failed.sessionId);
+    await coordinator.beginActiveTurn("chat-1", failed, "thread-failed-held", "turn-failed-held", "inProgress");
+    await coordinator.handleAppServerNotification("turn/completed", {
+      threadId: "thread-failed-held", turnId: "turn-failed-held", status: "failed"
+    });
+    const heldFailure = store.listTerminalResultViews("chat-1")[0];
+    assert.equal(heldFailure?.deliveryState, "held_for_side");
+    assert.match(heldFailure?.pages[0] ?? "", /这次操作未成功完成，请重试。/u);
+    assert.deepEqual(safeMessages, []);
+    assert.deepEqual(sentHtmlMessages, []);
+
+    const interrupted = store.createSession({ chatId: "chat-1", projectName: "P2", projectPath: "/tmp/p2" });
+    heldSessions.add(interrupted.sessionId);
+    await coordinator.beginActiveTurn("chat-1", interrupted, "thread-interrupted-held", "turn-interrupted-held", "inProgress");
+    await coordinator.handleAppServerNotification("turn/completed", {
+      threadId: "thread-interrupted-held", turnId: "turn-interrupted-held", status: "interrupted"
+    });
+    assert.equal(store.listTerminalResultViews("chat-1").length, 1);
+    assert.deepEqual(safeMessages, []);
+    assert.deepEqual(currentSessionCardSyncs, [
+      { sessionId: failed.sessionId, reason: "terminal_output_held_for_side" },
+      { sessionId: interrupted.sessionId, reason: "terminal_output_held_for_side" }
+    ]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator releases held results in creation order and defers failed delivery", async () => {
+  let attempts = 0;
+  const { coordinator, store, sentHtmlMessages, finalizedHandoffs, cleanup } = await createCoordinatorContext({
+    safeSendHtmlMessageResult: async () => (++attempts === 1 ? { messageId: 41 } : attempts === 2 ? null : { messageId: 42 })
+  });
+  try {
+    const parent = store.createSession({ chatId: "chat-1", projectName: "P", projectPath: "/tmp/p" });
+    store.saveTerminalResultView({
+      chatId: "chat-1", sessionId: parent.sessionId, threadId: "t1", turnId: "u1",
+      kind: "final_answer", deliveryState: "held_for_side", previewHtml: "first", pages: ["first"]
+    });
+    store.saveTerminalResultView({
+      chatId: "chat-1", sessionId: parent.sessionId, threadId: "t2", turnId: "u2",
+      kind: "final_answer", deliveryState: "held_for_side", previewHtml: "second", pages: ["second"]
+    });
+
+    assert.equal(await coordinator.releaseHeldTerminalResults("chat-1", parent.sessionId), 2);
+    assert.match(sentHtmlMessages[0]?.html ?? "", /first/u);
+    assert.match(sentHtmlMessages[1]?.html ?? "", /暂未送达/u);
+    assert.deepEqual(store.listTerminalResultViews("chat-1").map((view) => view.deliveryState).sort(), [
+      "deferred_notice_visible", "visible"
+    ]);
+    assert.deepEqual(finalizedHandoffs, [{ chatId: "chat-1", sessionId: parent.sessionId }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator sends exactly once when parent completion races with held-result release", async () => {
+  let hold = true;
+  let resumeEntered!: () => void;
+  const entered = new Promise<void>((resolve) => { resumeEntered = resolve; });
+  let finishResume!: () => void;
+  const resumeGate = new Promise<void>((resolve) => { finishResume = resolve; });
+  const { coordinator, store, sentHtmlMessages, cleanup } = await createCoordinatorContext({
+    shouldHoldTerminalOutput: () => hold,
+    appServer: {
+      resumeThread: async () => {
+        resumeEntered();
+        await resumeGate;
+        return {
+          thread: {
+            id: "thread-race",
+            turns: [{
+              id: "turn-race",
+              items: [{ type: "agentMessage", phase: "final_answer", text: "Race answer" }]
+            }]
+          }
+        };
+      }
+    }
+  });
+  try {
+    const parent = store.createSession({ chatId: "chat-1", projectName: "P", projectPath: "/tmp/p" });
+    await coordinator.beginActiveTurn("chat-1", parent, "thread-race", "turn-race", "inProgress");
+    const completion = coordinator.handleAppServerNotification("turn/completed", {
+      threadId: "thread-race", turnId: "turn-race", status: "completed"
+    });
+    await entered;
+    hold = false;
+    const release = coordinator.releaseHeldTerminalResults("chat-1", parent.sessionId);
+    finishResume();
+    await Promise.all([completion, release]);
+
+    assert.equal(sentHtmlMessages.length, 1);
+    assert.match(sentHtmlMessages[0]?.html ?? "", /Race answer/u);
+    assert.equal(store.countHeldTerminalResults(parent.sessionId), 0);
   } finally {
     await cleanup();
   }

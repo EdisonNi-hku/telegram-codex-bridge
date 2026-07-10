@@ -45,7 +45,7 @@ import type {
 } from "./interaction-broker.js";
 import type { EgressMessageSendResult } from "../packs/contract.js";
 import type { BridgeStateStore } from "../state/store.js";
-import type { SessionRow, ReasoningEffort } from "../types.js";
+import type { SessionRow, ReasoningEffort, TerminalResultViewRow } from "../types.js";
 import {
   createStatusCardMessageState,
   type ErrorCardState,
@@ -200,6 +200,7 @@ interface TurnCoordinatorDeps {
   syncCurrentSessionCardForSession: (sessionId: string, reason: string) => Promise<void>;
   reanchorRuntimeAfterBridgeReply: (chatId: string, reason: string, sessionId?: string) => Promise<void>;
   finalizeTerminalRuntimeHandoff: (chatId: string, sessionId: string) => Promise<void>;
+  shouldHoldTerminalOutput: (sessionId: string) => boolean;
   disposeRuntimeCards: (activeTurn: ActiveTurnState) => void;
   safeSendMessage: (chatId: string, text: string) => Promise<boolean>;
   platformActions: {
@@ -846,7 +847,8 @@ export class TurnCoordinator {
     }
 
     if (classified.status === "completed") {
-      const holdTerminalRuntimeSurface = this.listActiveTurns()
+      const holdTerminalOutput = this.deps.shouldHoldTerminalOutput(activeTurn.sessionId);
+      const holdTerminalRuntimeSurface = holdTerminalOutput || this.listActiveTurns()
         .filter((candidate) => candidate.chatId === activeTurn.chatId)
         .length === 1;
       activeTurn.terminalDeliveryPending = holdTerminalRuntimeSurface;
@@ -952,6 +954,10 @@ export class TurnCoordinator {
         return;
       }
 
+      if (holdTerminalOutput) {
+        await this.deps.syncCurrentSessionCardForSession(activeTurn.sessionId, "terminal_output_held_for_side");
+      }
+
       if (!holdTerminalRuntimeSurface) {
         this.deps.disposeRuntimeCards(activeTurn);
       }
@@ -967,6 +973,9 @@ export class TurnCoordinator {
         lastTurnStatus: "interrupted"
       });
       this.deps.disposeRuntimeCards(activeTurn);
+      if (this.deps.shouldHoldTerminalOutput(activeTurn.sessionId)) {
+        await this.deps.syncCurrentSessionCardForSession(activeTurn.sessionId, "terminal_output_held_for_side");
+      }
       return;
     }
 
@@ -975,6 +984,13 @@ export class TurnCoordinator {
       lastTurnId: activeTurn.turnId,
       lastTurnStatus: classified.status
     });
+    if (this.deps.shouldHoldTerminalOutput(activeTurn.sessionId)) {
+      activeTurn.terminalDeliveryPending = true;
+      this.pendingTerminalRuntimeHandoffsBySessionId.set(activeTurn.sessionId, activeTurn);
+      await this.sendFinalAnswer(activeTurn, "这次操作未成功完成，请重试。");
+      await this.deps.syncCurrentSessionCardForSession(activeTurn.sessionId, "terminal_output_held_for_side");
+      return;
+    }
     this.deps.disposeRuntimeCards(activeTurn);
     await this.deps.safeSendMessage(activeTurn.chatId, "这次操作未成功完成，请重试。");
   }
@@ -1021,6 +1037,23 @@ export class TurnCoordinator {
     }
 
     await this.completePendingTerminalRuntimeHandoff(pendingTurn);
+  }
+
+  async releaseHeldTerminalResults(chatId: string, sessionId: string): Promise<number> {
+    const store = this.deps.getStore();
+    if (!store) return 0;
+    if (store.getSessionById(sessionId)?.chatId !== chatId) return 0;
+    const held = store.claimHeldTerminalResults(sessionId);
+    const deliveries: TerminalDeliveryResult[] = [];
+    for (const saved of held) {
+      deliveries.push(await this.deliverPersistedTerminalResult(saved));
+    }
+    if (held.length > 0 && deliveries.every((delivery) => delivery.visible)) {
+      const pending = this.pendingTerminalRuntimeHandoffsBySessionId.get(sessionId);
+      if (pending) await this.completePendingTerminalRuntimeHandoff(pending);
+      else await this.deps.finalizeTerminalRuntimeHandoff(chatId, sessionId);
+    }
+    return held.length;
   }
 
   private async completePendingTerminalRuntimeHandoff(activeTurn: ActiveTurnState): Promise<void> {
@@ -1146,47 +1179,21 @@ export class TurnCoordinator {
       threadId: activeTurn.threadId,
       turnId: activeTurn.turnId,
       kind: "final_answer",
-      deliveryState: "pending",
+      deliveryState: this.deps.shouldHoldTerminalOutput(activeTurn.sessionId) ? "held_for_side" : "pending",
       previewHtml: rendered.previewHtml,
       pages: rendered.pages
     });
 
-    const directDelivery = createTerminalResultDeliveryView(saved, rendered.truncated);
-    const directMarkup = this.buildTerminalResultReplyMarkup(saved, directDelivery.controls);
-    const sent = await executeTelegramHtmlSurfaceOperation({
-      intent: "terminal_result",
-      chatId: activeTurn.chatId,
-      html: directDelivery.html,
-      replyMarkup: directMarkup,
-      deferredIntent: "terminal_result_deferred_notice",
-      requirements: {
-        requiresCallbacks: Boolean(directMarkup),
-        requiresLongFormPagination: directDelivery.controls.totalPages > 1,
-        requiresRichTextPreview: true
-      },
-      sendHtmlMessage: this.deps.safeSendHtmlMessageResult
-    });
-    if (sent.outcome === "sent") {
-      store.setTerminalResultMessageId(saved.answerId, sent.deliveryRef.messageId);
-      store.setTerminalResultDeliveryState(saved.answerId, "visible");
+    if (saved.deliveryState === "held_for_side") {
       return {
         answerId: saved.answerId,
         kind: "final_answer",
-        visible: true,
-        resultVisible: true,
+        visible: false,
+        resultVisible: false,
         deferredNoticeVisible: false
       };
     }
-
-    const deferredNoticeResult = await this.sendDeferredTerminalNotice(activeTurn, saved);
-    const deferredNoticeVisible = deferredNoticeResult.outcome === "deferred";
-    return {
-      answerId: saved.answerId,
-      kind: "final_answer",
-      visible: deferredNoticeVisible,
-      resultVisible: false,
-      deferredNoticeVisible
-    };
+    return this.deliverPersistedTerminalResult(saved);
   }
 
   private async sendPlanResult(activeTurn: ActiveTurnState, planMarkdown: string): Promise<TerminalDeliveryResult> {
@@ -1208,42 +1215,52 @@ export class TurnCoordinator {
       threadId: activeTurn.threadId,
       turnId: activeTurn.turnId,
       kind: "plan_result",
-      deliveryState: "pending",
+      deliveryState: this.deps.shouldHoldTerminalOutput(activeTurn.sessionId) ? "held_for_side" : "pending",
       previewHtml: rendered.previewHtml,
       pages: rendered.pages
     });
 
-    const directDelivery = createTerminalResultDeliveryView(saved, rendered.truncated);
+    if (saved.deliveryState === "held_for_side") {
+      return {
+        answerId: saved.answerId,
+        kind: "plan_result",
+        visible: false,
+        resultVisible: false,
+        deferredNoticeVisible: false
+      };
+    }
+    return this.deliverPersistedTerminalResult(saved);
+  }
+
+  private async deliverPersistedTerminalResult(
+    saved: TerminalResultViewRow
+  ): Promise<TerminalDeliveryResult> {
+    const store = this.deps.getStore();
+    const directDelivery = createTerminalResultDeliveryView(saved, saved.pages.length > 1);
+    const directMarkup = this.buildTerminalResultReplyMarkup(saved, directDelivery.controls);
     const sent = await executeTelegramHtmlSurfaceOperation({
       intent: "terminal_result",
-      chatId: activeTurn.chatId,
+      chatId: saved.chatId,
       html: directDelivery.html,
-      replyMarkup: this.buildTerminalResultReplyMarkup(saved, directDelivery.controls),
+      replyMarkup: directMarkup,
       deferredIntent: "terminal_result_deferred_notice",
       requirements: {
-        requiresCallbacks: true,
+        requiresCallbacks: Boolean(directMarkup),
         requiresLongFormPagination: directDelivery.controls.totalPages > 1,
         requiresRichTextPreview: true
       },
       sendHtmlMessage: this.deps.safeSendHtmlMessageResult
     });
     if (sent.outcome === "sent") {
-      store.setTerminalResultMessageId(saved.answerId, sent.deliveryRef.messageId);
-      store.setTerminalResultDeliveryState(saved.answerId, "visible");
-      return {
-        answerId: saved.answerId,
-        kind: "plan_result",
-        visible: true,
-        resultVisible: true,
-        deferredNoticeVisible: false
-      };
+      store?.setTerminalResultMessageId(saved.answerId, sent.deliveryRef.messageId);
+      store?.setTerminalResultDeliveryState(saved.answerId, "visible");
+      return { answerId: saved.answerId, kind: saved.kind, visible: true, resultVisible: true, deferredNoticeVisible: false };
     }
-
-    const deferredNoticeResult = await this.sendDeferredTerminalNotice(activeTurn, saved);
+    const deferredNoticeResult = await this.sendDeferredTerminalNotice(saved);
     const deferredNoticeVisible = deferredNoticeResult.outcome === "deferred";
     return {
       answerId: saved.answerId,
-      kind: "plan_result",
+      kind: saved.kind,
       visible: deferredNoticeVisible,
       resultVisible: false,
       deferredNoticeVisible
@@ -1281,8 +1298,7 @@ export class TurnCoordinator {
   }
 
   private async sendDeferredTerminalNotice(
-    activeTurn: ActiveTurnState,
-    saved: ReturnType<BridgeStateStore["saveTerminalResultView"]>
+    saved: TerminalResultViewRow
   ): Promise<PlatformSurfaceOperationResult> {
     const store = this.deps.getStore();
     if (!store) {
@@ -1291,19 +1307,19 @@ export class TurnCoordinator {
 
     const renderedNotice = createDeferredTerminalNoticeView(saved);
     const notice = store.createRuntimeNotice({
-      chatId: activeTurn.chatId,
+      chatId: saved.chatId,
       type: "terminal_delivery_deferred",
       message: renderedNotice.html,
       parseMode: "HTML",
       replyMarkup: saved.kind === "plan_result"
         ? buildPlanResultReplyMarkup(renderedNotice.controls)
         : buildFinalAnswerReplyMarkup(renderedNotice.controls),
-      sessionId: activeTurn.sessionId,
-      turnId: activeTurn.turnId
+      sessionId: saved.sessionId,
+      turnId: saved.turnId
     });
     const sent = await executeTelegramHtmlSurfaceOperation({
       intent: "terminal_result_deferred_notice",
-      chatId: activeTurn.chatId,
+      chatId: saved.chatId,
       html: renderedNotice.html,
       replyMarkup: saved.kind === "plan_result"
         ? buildPlanResultReplyMarkup(renderedNotice.controls)
