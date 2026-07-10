@@ -998,6 +998,33 @@ test("parent session status changes refresh the active side card", async () => {
   } finally { await cleanup(); }
 });
 
+test("interaction broker service hooks detect an active child side and refresh its card", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const syncs: unknown[] = [];
+  try {
+    const parent = authorizeNumericChatWithSession(store, "1");
+    store.updateSessionThreadId(parent.sessionId, "parent-thread");
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
+    const deps = (service as any).interactionBroker.deps;
+    assert.equal(deps.shouldHoldInteractionSurface(parent.sessionId), true);
+    assert.equal(deps.shouldHoldInteractionSurface(side.sessionId), false);
+    (service as any).currentSessionCardController.syncForChat = async (...args: unknown[]) => { syncs.push(args); };
+    await deps.onInteractionSurfaceHeld(parent.sessionId);
+    assert.deepEqual(syncs, [["1", "parent_interaction_held"]]);
+  } finally { await cleanup(); }
+});
+
+test("side return interaction delegate surfaces parent rows through the broker", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const calls: unknown[] = [];
+  try {
+    const parent = authorizeNumericChatWithSession(store, "1");
+    (service as any).interactionBroker.surfacePendingInteractionCardsForSession = async (...args: unknown[]) => { calls.push(args); };
+    await (service as any).sideConversationCoordinator.deps.surfacePendingInteractions("1", parent.sessionId);
+    assert.deepEqual(calls, [["1", parent.sessionId]]);
+  } finally { await cleanup(); }
+});
+
 test("Feishu rejects /side before lifecycle entry", async () => {
   const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
   const sent: string[] = [];

@@ -50,6 +50,10 @@ function createTestPaths(root: string): BridgePaths {
 
 async function createBrokerContext(options: {
   appServer?: Record<string, unknown>;
+  shouldHoldInteractionSurface?: (sessionId: string) => boolean;
+  onInteractionSurfaceHeld?: (sessionId: string) => Promise<void>;
+  sendHtml?: (chatId: string, html: string) => Promise<unknown>;
+  appendInteractionResolvedJournal?: (...args: unknown[]) => Promise<void>;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ctb-interaction-broker-test-"));
   const paths = createTestPaths(root);
@@ -71,6 +75,9 @@ async function createBrokerContext(options: {
     safeSendMessage: async () => true,
     safeSendHtmlMessageResult: async (chatId, html) => {
       sentHtml.push({ chatId, html });
+      if (options.sendHtml) {
+        return await options.sendHtml(chatId, html) as never;
+      }
       return {
         messageId: 100 + sentHtml.length
       } as never;
@@ -81,7 +88,9 @@ async function createBrokerContext(options: {
     },
     safeAnswerCallbackQuery: async () => {},
     appendInteractionCreatedJournal: async () => {},
-    appendInteractionResolvedJournal: async () => {}
+    appendInteractionResolvedJournal: async (...args) => options.appendInteractionResolvedJournal?.(...args),
+    shouldHoldInteractionSurface: options.shouldHoldInteractionSurface ?? (() => false),
+    onInteractionSurfaceHeld: options.onInteractionSurfaceHeld ?? (async () => {})
   });
 
   return {
@@ -93,6 +102,35 @@ async function createBrokerContext(options: {
       store.close();
       await rm(root, { recursive: true, force: true });
     }
+  };
+}
+
+function createActiveTurn(sessionId: string) {
+  return {
+    chatId: "chat-1", sessionId, threadId: "thread-1", turnId: "turn-1",
+    tracker: {
+      getInspectSnapshot: () => ({ agentSnapshot: [] } as unknown as InspectSnapshot),
+      getStatus: () => ({ turnStatus: "blocked" } as ActivityStatus)
+    },
+    statusCard: { needsReanchorOnActive: false }
+  };
+}
+
+function createApprovalRequest(id: string) {
+  return { id, method: "item/commandExecution/requestApproval" } as never;
+}
+
+function createApprovalInteraction(label: string) {
+  return {
+    kind: "approval" as const,
+    method: "item/commandExecution/requestApproval" as const,
+    threadId: "thread-1", turnId: "turn-1", rawParams: {}, itemId: `item-${label}`,
+    approvalId: null,
+    decisionOptions: [
+      { key: "accept", kind: "accept" as const, label: "批准", payload: { decision: { accept: true } } },
+      { key: "decline", kind: "decline" as const, label: "拒绝", payload: { decision: { accept: false } } }
+    ],
+    title: `Approval ${label}`, subtitle: "命令审批", body: `command ${label}`, detail: null
   };
 }
 
@@ -309,6 +347,113 @@ test("pending interaction cards include the /hub hint", async () => {
     }, activeTurn as never);
 
     assert.match(sentHtml[0]?.html ?? "", /如需查看或刷新 Hub，可发送 \/hub。/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("parent interaction is persisted and summarized but held while side is active", async () => {
+  const held: string[] = [];
+  const errors: unknown[] = [];
+  const { broker, store, sentHtml, cleanup } = await createBrokerContext({
+    appServer: {
+      respondToServerRequest: async () => {},
+      respondToServerRequestError: async (...args: unknown[]) => { errors.push(args); }
+    },
+    shouldHoldInteractionSurface: () => true,
+    onInteractionSurfaceHeld: async (sessionId) => { held.push(sessionId); }
+  });
+  try {
+    const parent = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Parent"
+    });
+    const activeTurn = createActiveTurn(parent.sessionId);
+    await broker.handleNormalizedServerRequest(createApprovalRequest("req-held"), createApprovalInteraction("req-held"), activeTurn);
+
+    const rows = store.listPendingInteractionsByChat("chat-1", ["pending"]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.messageId, null);
+    assert.deepEqual(sentHtml, []);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(held, [parent.sessionId]);
+    assert.equal(activeTurn.statusCard.needsReanchorOnActive, true);
+    assert.equal(broker.buildPendingInteractionSummaries(parent).length, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("surfacePendingInteractionCardsForSession sends unsurfaced actionable rows oldest first and is idempotent", async () => {
+  const { broker, store, sentHtml, cleanup } = await createBrokerContext();
+  try {
+    const parent = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      displayName: "Parent"
+    });
+    const first = store.createPendingInteraction({
+      interactionId: "first", chatId: "chat-1", sessionId: parent.sessionId,
+      threadId: "thread-1", turnId: "turn-1", requestId: "req-1",
+      requestMethod: "item/commandExecution/requestApproval", interactionKind: "approval",
+      promptJson: JSON.stringify(createApprovalInteraction("first"))
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const second = store.createPendingInteraction({
+      interactionId: "second", chatId: "chat-1", sessionId: parent.sessionId,
+      threadId: "thread-1", turnId: "turn-1", requestId: "req-2",
+      requestMethod: "item/commandExecution/requestApproval", interactionKind: "approval",
+      promptJson: JSON.stringify(createApprovalInteraction("second"))
+    });
+
+    await broker.surfacePendingInteractionCardsForSession("chat-1", parent.sessionId);
+    assert.match(sentHtml[0]?.html ?? "", /first/u);
+    assert.match(sentHtml[1]?.html ?? "", /second/u);
+    assert.notEqual(store.getPendingInteraction(first.interactionId)?.messageId, null);
+    assert.notEqual(store.getPendingInteraction(second.interactionId)?.messageId, null);
+
+    await broker.surfacePendingInteractionCardsForSession("chat-1", parent.sessionId);
+    assert.equal(sentHtml.length, 2);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("surfacing failure fails and journals the interaction and errors only a live request", async () => {
+  const errors: unknown[] = [];
+  const journals: unknown[][] = [];
+  const { broker, store, cleanup } = await createBrokerContext({
+    appServer: { respondToServerRequestError: async (...args: unknown[]) => { errors.push(args); } },
+    sendHtml: async () => null,
+    appendInteractionResolvedJournal: async (...args) => { journals.push(args); }
+  });
+  try {
+    const parent = store.createSession({
+      chatId: "chat-1", projectName: "Project One",
+      projectPath: "/tmp/project-one", displayName: "Parent"
+    });
+    const live = store.createPendingInteraction({
+      interactionId: "live", chatId: "chat-1", sessionId: parent.sessionId,
+      threadId: "thread-1", turnId: "turn-1", requestId: "req-live",
+      requestMethod: "item/commandExecution/requestApproval", interactionKind: "approval",
+      promptJson: JSON.stringify(createApprovalInteraction("live"))
+    });
+    const stale = store.createPendingInteraction({
+      interactionId: "stale", chatId: "chat-1", sessionId: parent.sessionId,
+      threadId: "thread-1", turnId: "turn-1", requestId: "req-stale",
+      requestMethod: "item/commandExecution/requestApproval", interactionKind: "approval",
+      promptJson: JSON.stringify(createApprovalInteraction("stale"))
+    });
+    store.markPendingInteractionAnswered(stale.interactionId, "{}");
+
+    await broker.surfacePendingInteractionCardsForSession("chat-1", parent.sessionId);
+    assert.equal(store.getPendingInteraction(live.interactionId)?.state, "failed");
+    assert.equal(store.getPendingInteraction(stale.interactionId)?.state, "answered");
+    assert.deepEqual(errors, [["req-live", -32603, "Failed to deliver the interaction surface"]]);
+    assert.equal((journals[0]?.[1] as { resolutionSource?: string })?.resolutionSource, "interaction_delivery_failed");
   } finally {
     await cleanup();
   }

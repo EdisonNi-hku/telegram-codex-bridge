@@ -356,7 +356,14 @@ export class BridgeService {
       safeEditHtmlMessageText: async (chatId, messageId, html, replyMarkup) => this.safeEditHtmlMessageText(chatId, messageId, html, replyMarkup),
       safeAnswerCallbackQuery: async (callbackQueryId, text) => this.safeAnswerCallbackQuery(callbackQueryId, text),
       appendInteractionCreatedJournal: async (row) => this.appendInteractionCreatedJournal(row),
-      appendInteractionResolvedJournal: async (row, resolution) => this.appendInteractionResolvedJournal(row, resolution)
+      appendInteractionResolvedJournal: async (row, resolution) => this.appendInteractionResolvedJournal(row, resolution),
+      shouldHoldInteractionSurface: (sessionId) => Boolean(this.store?.getActiveSideForParent(sessionId)),
+      onInteractionSurfaceHeld: async (sessionId) => {
+        const parent = this.store?.getSessionById(sessionId);
+        if (parent && this.store?.getActiveSideForParent(sessionId)) {
+          await this.currentSessionCardController.syncForChat(parent.chatId, "parent_interaction_held");
+        }
+      }
     });
     this.currentSessionCardController = new CurrentSessionCardController({
       logger: {
@@ -661,7 +668,8 @@ export class BridgeService {
       },
       startTextTurn: async (chatId, session, text) => this.turnCoordinator.startTextTurn(chatId, session, text),
       syncCurrentSessionCard: async (chatId, reason) => this.currentSessionCardController.syncForChat(chatId, reason),
-      surfacePendingInteractions: async () => undefined,
+      surfacePendingInteractions: async (chatId, sessionId) =>
+        this.interactionBroker.surfacePendingInteractionCardsForSession(chatId, sessionId),
       expireSideInteractions: async (chatId, sessionId, reason) =>
         this.interactionBroker.resolveActionablePendingInteractionsForSession(chatId, sessionId, {
           state: "expired", reason, resolutionSource: "turn_expired"
