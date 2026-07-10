@@ -168,6 +168,31 @@ test("CurrentSessionCardController forwards side controls unchanged on send and 
   } finally { await cleanup(); }
 });
 
+test("CurrentSessionCardController replaces a failed side edit and later replaces it with a regular parent card", async () => {
+  const { controller, store, sent, deleted, pinned, unpinned, sideMarkup, setRenderSide, setEditOutcome, cleanup } = await createControllerContext();
+  try {
+    authorizeChat(store, "chat-1");
+    const parent = store.createSession({ chatId: "chat-1", projectName: "Project", projectPath: "/repo", displayName: "Parent" });
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
+    setRenderSide(true);
+    await controller.syncForChat("chat-1", "side_entered");
+    assert.strictEqual(sent[0]?.replyMarkup, sideMarkup);
+    assert.deepEqual(pinned[0], { chatId: "chat-1", messageId: 700 });
+    setEditOutcome("failed");
+    await controller.syncForChat("chat-1", "parent_status_changed");
+    assert.strictEqual(sent[1]?.replyMarkup, sideMarkup);
+    assert.deepEqual(unpinned, [{ chatId: "chat-1", messageId: 700 }]);
+    assert.deepEqual(deleted, [{ chatId: "chat-1", messageId: 700 }]);
+
+    store.restoreParentAndDeleteSide(side.sessionId);
+    setRenderSide(false);
+    setEditOutcome("edited");
+    await controller.syncForChat("chat-1", "side_returned");
+    assert.equal(sent[2]?.replyMarkup, undefined);
+    assert.match(sent[2]?.text ?? "", /Parent/u);
+  } finally { await cleanup(); }
+});
+
 test("CurrentSessionCardController edits the existing card in place when possible", async () => {
   const { controller, store, edited, sent, pinned, cleanup } = await createControllerContext();
 

@@ -908,6 +908,110 @@ test("side callbacks delegate to the lifecycle coordinator and answer its result
   } finally { await cleanup(); }
 });
 
+test("each pending composer blocks /side with /cancel guidance", async () => {
+  for (const mode of ["rename", "manual", "rich"] as const) {
+    const { service, store, cleanup } = await createServiceContext();
+    const sent: string[] = [];
+    let entered = false;
+    try {
+      authorizeNumericChatWithSession(store, "1");
+      (service as any).api = { sendMessage: async (_id: string, text: string) => { sent.push(text); return createFakeTelegramMessage(1, text); } };
+      (service as any).isAwaitingRename = () => mode === "rename";
+      (service as any).isAwaitingManualProjectPath = () => mode === "manual";
+      (service as any).richInputAdapter.hasPendingRichInputComposer = () => mode === "rich";
+      (service as any).sideConversationCoordinator = { handleCommand: async () => { entered = true; } };
+      await (service as any).handleSideCommand("1", "question");
+      assert.equal(entered, false, mode);
+      assert.match(sent.at(-1) ?? "", /\/cancel/u, mode);
+    } finally { await cleanup(); }
+  }
+});
+
+test("ordinary text, voice, media, and leading bang ingress keep the active side target", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const targets: Array<[string, string]> = [];
+  try {
+    const parent = authorizeNumericChatWithSession(store, "1");
+    store.updateSessionThreadId(parent.sessionId, "parent-thread");
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
+    (service as any).api = { sendMessage: async (_id: string, text: string) => createFakeTelegramMessage(1, text) };
+    (service as any).submitNormalTextToSession = async (_chat: string, session: any) => { targets.push(["text", session.sessionId]); };
+    (service as any).shellCommandCoordinator.handleBangCommand = async () => { targets.push(["bang", store.getActiveSession("1")!.sessionId]); };
+    (service as any).richInputAdapter.handleVoiceMessage = async () => { targets.push(["voice", store.getActiveSession("1")!.sessionId]); };
+    (service as any).mediaIngressService.resolveMessageMedia = async (message: any) => message.photo ? { kind: "photo" } : null;
+    (service as any).richInputAdapter.handleInboundMediaEvent = async () => { targets.push(["media", store.getActiveSession("1")!.sessionId]); };
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 1, "hello"));
+    await (service as any).handleMessage({ ...createIncomingUserMessage(1, 1, 2, ""), voice: { file_id: "v", duration: 1 } });
+    await (service as any).handleMessage({ ...createIncomingUserMessage(1, 1, 3, "caption"), photo: [{ file_id: "p", width: 1, height: 1 }] });
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 4, "!ls"));
+    assert.deepEqual(targets, ["text", "voice", "media", "bang"].map((kind) => [kind, side.sessionId]));
+  } finally { await cleanup(); }
+});
+
+test("all side allowlisted commands reach their downstream handler", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const calls: string[] = [];
+  try {
+    const parent = authorizeNumericChatWithSession(store, "1");
+    store.updateSessionThreadId(parent.sessionId, "parent-thread");
+    store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
+    (service as any).sideConversationCoordinator = { isCommandAllowed: () => true, handleCommand: async () => { calls.push("side"); } };
+    (service as any).sendStatus = async () => { calls.push("status"); };
+    (service as any).sessionProjectCoordinator.sendWhere = async () => { calls.push("where"); };
+    (service as any).handleInspect = async () => { calls.push("inspect"); };
+    (service as any).retrieveFileCoordinator.handleCommand = async () => { calls.push("retrieve"); };
+    (service as any).handleInterrupt = async () => { calls.push("interrupt"); };
+    for (const command of ["status", "where", "inspect", "retrieve", "interrupt", "side"]) {
+      await (service as any).routeCommand("1", command, command === "side" ? "back" : "");
+    }
+    assert.deepEqual(calls, ["status", "where", "inspect", "retrieve", "interrupt", "side"]);
+  } finally { await cleanup(); }
+});
+
+test("every structural or unknown command is stopped by the side gate", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const sent: string[] = [];
+  try {
+    const parent = authorizeNumericChatWithSession(store, "1");
+    store.updateSessionThreadId(parent.sessionId, "parent-thread");
+    store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
+    (service as any).api = { sendMessage: async (_id: string, text: string) => { sent.push(text); return createFakeTelegramMessage(1, text); } };
+    (service as any).sideConversationCoordinator = { isCommandAllowed: () => false };
+    for (const command of ["new", "use", "model", "fork", "rollback", "clear", "compact", "commands", "unknown"]) {
+      await (service as any).routeCommand("1", command, "");
+    }
+    assert.equal(sent.length, 9);
+    assert.ok(sent.every((text) => text === "Side 模式中不能使用这个命令，请先返回主会话。"));
+  } finally { await cleanup(); }
+});
+
+test("parent session status changes refresh the active side card", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const syncs: unknown[] = [];
+  try {
+    const parent = authorizeNumericChatWithSession(store, "1");
+    store.updateSessionThreadId(parent.sessionId, "parent-thread");
+    store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
+    (service as any).currentSessionCardController.syncForChat = async (...args: unknown[]) => { syncs.push(args); };
+    await (service as any).syncCurrentSessionCardForSession(parent.sessionId, "parent_changed");
+    assert.deepEqual(syncs, [["1", "parent_changed"]]);
+  } finally { await cleanup(); }
+});
+
+test("Feishu rejects /side before lifecycle entry", async () => {
+  const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
+  const sent: string[] = [];
+  let entered = false;
+  try {
+    authorizeFeishuChat(store, "feishu-chat", "feishu-user");
+    (service as any).api = { sendMessage: async (_id: string, text: string) => { sent.push(text); return createFakeTelegramMessage(1, text); } };
+    (service as any).sideConversationCoordinator = { handleCommand: async () => { entered = true; } };
+    await (service as any).handleSideCommand("feishu-chat", "question");
+    assert.equal(entered, false);
+    assert.ok(sent.length > 0);
+  } finally { await cleanup(); }
+});
+
 test("bang shell ingress requires the first message character and forwards callbacks and notifications", async () => {
   const { service, store, cleanup } = await createServiceContext();
   const shellInputs: string[] = [];
@@ -1228,6 +1332,8 @@ test("retrieve help is advertised on Telegram but hidden from Feishu", async () 
 
     assert.match(telegramMessages.at(-1) ?? "", /\/retrieve <文件路径>/u);
     assert.doesNotMatch(feishuMessages.at(-1) ?? "", /\/retrieve\b/u);
+    assert.match(telegramMessages.at(-1) ?? "", /\/side\b/u);
+    assert.doesNotMatch(feishuMessages.at(-1) ?? "", /\/side\b/u);
   } finally {
     await telegram.cleanup();
     await feishu.cleanup();
