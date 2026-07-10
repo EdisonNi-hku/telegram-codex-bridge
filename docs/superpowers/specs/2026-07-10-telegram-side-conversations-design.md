@@ -195,7 +195,7 @@ Side threads are intentionally non-resumable. During startup recovery, before no
 4. Convert held parent terminal results into the normal pending-delivery path.
 5. Restore the regular current-session card.
 6. Send `Side 已因服务重启关闭。`
-7. Deliver claimed parent results and surface pending parent interactions.
+7. Deliver claimed parent results. Existing restart recovery marks pre-restart parent interactions failed because their app-server request IDs are no longer actionable; it must not surface stale approval buttons.
 
 Recovery operations are idempotent. A second startup finds no side row and does not repeat the close notice or terminal delivery.
 
@@ -251,7 +251,7 @@ Feishu does not advertise or route `/side` in this release.
 
 ### Recovery and UI
 
-- Restart closes side, restores parent, sends one notice, and releases held output once.
+- Restart closes side, restores parent, sends one notice, releases held output once, and leaves pre-restart interactions in the existing failed-recovery state.
 - Every side/parent state renders defined localized text.
 - Side buttons stay within Telegram callback limits.
 - Card updates edit in place and replacement cleanup follows existing pin/unpin rules.
