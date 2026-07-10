@@ -24,20 +24,25 @@ export interface SideCardViewModel {
 
 export function buildSideSessionCardMessage(view: SideCardViewModel): { text: string; replyMarkup: TelegramInlineKeyboardMarkup } {
   const en = view.language === "en";
-  const statusLabel = en ? "Parent status" : "主任务状态";
-  const backLabel = view.heldResultCount > 0
-    ? (en ? "Return to view results" : "返回查看结果")
-    : view.parentNeedsAction
-      ? parentActionLabel(view.parentStatus, view.language)
-      : (en ? "Return to main" : "返回主会话");
-  const firstButton = view.sideStatus === "running"
-    ? { text: en ? "Interrupt Side" : "中断 Side", callback_data: encodeSideInterruptCallback(view.token) }
-    : { text: statusLabel, callback_data: encodeSideStatusCallback(view.token) };
+  const backButton = (text: string) => ({ text, callback_data: encodeSideBackCallback(view.token) });
+  const controls = view.parentNeedsAction
+    ? [backButton(en ? "Return and handle approval" : "返回并处理审批")]
+    : view.heldResultCount > 0
+      ? [backButton(en ? "Return to view results" : "返回查看结果")]
+      : view.sideStatus === "running"
+        ? [
+            { text: en ? "Interrupt Side" : "中断 Side", callback_data: encodeSideInterruptCallback(view.token) },
+            backButton(en ? "Return to main" : "返回主会话")
+          ]
+        : [
+            { text: en ? "Parent status" : "主任务状态", callback_data: encodeSideStatusCallback(view.token) },
+            backButton(en ? "Return to main" : "返回主会话")
+          ];
   const held = view.heldResultCount > 0 ? `\n${en ? "Held results" : "待查看结果"}: ${view.heldResultCount}` : "";
 
   return {
     text: `<b>↪ Side</b>\n${en ? "Project" : "项目"}: ${escapeHtml(view.projectName)}\n${en ? "Parent" : "主会话"}: ${escapeHtml(view.parentSessionName)}\n${en ? "Side state" : "Side 状态"}: ${sideStatusLabel(view.sideStatus, view.language)}\n${en ? "Parent state" : "主任务状态"}: ${parentStatusLabel(view.parentStatus, view.language)}${held}`,
-    replyMarkup: { inline_keyboard: [[firstButton, { text: backLabel, callback_data: encodeSideBackCallback(view.token) }]] }
+    replyMarkup: { inline_keyboard: [controls] }
   };
 }
 
@@ -73,9 +78,4 @@ function parentStatusLabel(status: SideParentStatus, language: UiLanguage): stri
     failed: { zh: "失败", en: "failed" }, closed: { zh: "已关闭", en: "closed" }
   };
   return labels[status][language];
-}
-
-function parentActionLabel(status: SideParentStatus, language: UiLanguage): string {
-  if (language === "en") return status === "waiting_input" ? "Return and handle input" : "Return and handle approval";
-  return status === "waiting_input" ? "返回并处理输入" : "返回并处理审批";
 }

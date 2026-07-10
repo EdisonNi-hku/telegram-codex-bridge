@@ -69,18 +69,23 @@ test("side session cards render localized controls for each parent state", () =>
 
   const running = buildSideSessionCardMessage({ ...base, sideStatus: "running" });
   assert.deepEqual(running.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["中断 Side", "返回主会话"]]);
-  const action = buildSideSessionCardMessage({ ...base, parentStatus: "waiting_approval", parentNeedsAction: true });
-  assert.deepEqual(action.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["主任务状态", "返回并处理审批"]]);
+  const action = buildSideSessionCardMessage({ ...base, sideStatus: "running", parentStatus: "running", parentNeedsAction: true, heldResultCount: 2 });
+  assert.deepEqual(action.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["返回并处理审批"]]);
+  assert.equal(action.replyMarkup.inline_keyboard[0]?.[0]?.callback_data, encodeSideBackCallback("side-token"));
+  const waitingInput = buildSideSessionCardMessage({ ...base, parentStatus: "waiting_input", parentNeedsAction: true });
+  const waitingApproval = buildSideSessionCardMessage({ ...base, parentStatus: "waiting_approval", parentNeedsAction: true });
+  assert.deepEqual(waitingInput.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["返回并处理审批"]]);
+  assert.deepEqual(waitingApproval.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["返回并处理审批"]]);
   const held = buildSideSessionCardMessage({ ...base, parentStatus: "completed", heldResultCount: 2 });
   assert.match(held.text, /2/u);
-  assert.deepEqual(held.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["主任务状态", "返回查看结果"]]);
+  assert.deepEqual(held.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["返回查看结果"]]);
   assert.equal([idle, running, action, held].some(({ text }) => text.includes("undefined")), false);
 });
 
 test("side messages render English and return confirmation without switching", () => {
   const view = { token: "tok", language: "en" as const, projectName: "Project", parentSessionName: "Main", sideStatus: "running" as const, parentStatus: "waiting_input" as const, parentNeedsAction: true, heldResultCount: 0 };
   const card = buildSideSessionCardMessage(view);
-  assert.deepEqual(card.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["Interrupt Side", "Return and handle input"]]);
+  assert.deepEqual(card.replyMarkup.inline_keyboard.map((row) => row.map(({ text }) => text)), [["Return and handle approval"]]);
   assert.match(buildSideParentStatusMessage(view), /waiting for input/i);
   const confirmation = buildSideReturnConfirmationMessage("tok", "zh");
   assert.match(confirmation.text, /中断/u);
