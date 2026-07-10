@@ -121,7 +121,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
             ${sessionSelectColumns("s", "rp")}
           FROM session s
           LEFT JOIN recent_project rp ON rp.project_path = s.project_path
-          WHERE s.session_id = ? AND s.archived = 0
+          WHERE s.session_id = ? AND s.archived = 0 AND s.session_kind = 'regular'
         `
       )
       .get(sessionId) as SessionRecord | undefined;

@@ -640,6 +640,7 @@ test("side session invariants reject invalid parents and history mutations", asy
     const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-side-negative" });
     assert.throws(() => store.createSideSession({ parentSessionId: side.sessionId, threadId: "nested" }), /regular parent/i);
     store.setActiveSession(parent.chatId, parent.sessionId);
+    assert.equal(store.getActiveSideForParent(parent.sessionId), null);
     assert.throws(() => store.createSideSession({ parentSessionId: parent.sessionId, threadId: "duplicate" }), /side session/i);
     assert.throws(() => store.archiveSession(side.sessionId), /side session/i);
     assert.throws(() => store.unarchiveSession(side.sessionId), /side session/i);
@@ -647,6 +648,64 @@ test("side session invariants reject invalid parents and history mutations", asy
     assert.equal(store.autoRenameSession(side.sessionId, "No"), false);
     assert.throws(() => store.restoreParentAndDeleteSide(parent.sessionId), /side session/i);
   } finally {
+    await cleanup();
+  }
+});
+
+test("one stale open side blocks side creation for every parent in the same chat", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    authorizeTestChat(store, "chat-side-per-chat");
+    const first = store.createSession({ chatId: "chat-side-per-chat", projectName: "First", projectPath: "/tmp/first" });
+    const second = store.createSession({ chatId: "chat-side-per-chat", projectName: "Second", projectPath: "/tmp/second" });
+    const staleSide = store.createSideSession({ parentSessionId: first.sessionId, threadId: "thread-first-side" });
+    store.setActiveSession(first.chatId, second.sessionId);
+
+    assert.throws(() => store.createSideSession({ parentSessionId: second.sessionId, threadId: "thread-second-side" }), /side session/i);
+    assert.equal(store.getSessionById(staleSide.sessionId)?.sessionKind, "side");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("stale side restore returns null and preserves the side row", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    authorizeTestChat(store, "chat-side-stale-restore");
+    const parent = store.createSession({ chatId: "chat-side-stale-restore", projectName: "Parent", projectPath: "/tmp/stale-parent" });
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-stale-restore" });
+    store.setActiveSession(parent.chatId, parent.sessionId);
+
+    assert.equal(store.restoreParentAndDeleteSide(side.sessionId), null);
+    assert.equal(store.getSessionById(side.sessionId)?.sessionId, side.sessionId);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("createSideSession rejects empty and blank thread ids", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    const parent = store.createSession({ chatId: "chat-side-thread", projectName: "Parent", projectPath: "/tmp/thread-parent" });
+    assert.throws(() => store.createSideSession({ parentSessionId: parent.sessionId, threadId: "" }), /thread/i);
+    assert.throws(() => store.createSideSession({ parentSessionId: parent.sessionId, threadId: "   \n" }), /thread/i);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("open normalizes an active side pointer to the newest visible regular session", async () => {
+  const { paths, store, cleanup } = await openStore();
+  let reopened: BridgeStateStore | null = null;
+  try {
+    authorizeTestChat(store, "chat-side-normalize");
+    const parent = store.createSession({ chatId: "chat-side-normalize", projectName: "Parent", projectPath: "/tmp/normalize-parent" });
+    store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-side-normalize" });
+    store.close();
+    reopened = await BridgeStateStore.open(paths, testLogger);
+    assert.equal(reopened.getActiveSession(parent.chatId)?.sessionId, parent.sessionId);
+  } finally {
+    reopened?.close();
     await cleanup();
   }
 });
