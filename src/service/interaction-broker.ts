@@ -110,6 +110,7 @@ interface InteractionBrokerDeps {
 
 export class InteractionBroker {
   private readonly pendingInteractionTextModes = new Map<string, PendingInteractionTextMode>();
+  private readonly interactionSurfaceQueues = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: InteractionBrokerDeps) {}
 
@@ -584,6 +585,22 @@ export class InteractionBroker {
   }
 
   async surfacePendingInteractionCardsForSession(chatId: string, sessionId: string): Promise<void> {
+    const queueKey = `${chatId}\u0000${sessionId}`;
+    const previous = this.interactionSurfaceQueues.get(queueKey) ?? Promise.resolve();
+    const run = previous
+      .catch(() => undefined)
+      .then(() => this.surfacePendingInteractionCardsForSessionNow(chatId, sessionId));
+    const cleanup = () => {
+      if (this.interactionSurfaceQueues.get(queueKey) === tracked) {
+        this.interactionSurfaceQueues.delete(queueKey);
+      }
+    };
+    const tracked = run.then(cleanup, cleanup);
+    this.interactionSurfaceQueues.set(queueKey, tracked);
+    return await run;
+  }
+
+  private async surfacePendingInteractionCardsForSessionNow(chatId: string, sessionId: string): Promise<void> {
     const store = this.deps.getStore();
     if (!store) {
       return;
@@ -594,6 +611,7 @@ export class InteractionBroker {
     for (const row of pending) {
       const interaction = parseStoredInteraction(row.promptJson);
       if (!interaction) {
+        await this.failUnsurfacedInteraction(row, "interaction_delivery_failed_malformed_payload");
         continue;
       }
       const sent = await this.sendPendingInteractionCard(chatId, row, interaction);
@@ -602,20 +620,25 @@ export class InteractionBroker {
         continue;
       }
 
-      const live = store.getPendingInteraction(row.interactionId, chatId);
-      if (!live || !isPendingInteractionActionable(live)) {
-        continue;
-      }
-      store.markPendingInteractionFailed(row.interactionId, "interaction_delivery_failed");
-      await this.deps.appendInteractionResolvedJournal(row, {
-        finalState: "failed",
-        errorReason: "interaction_delivery_failed",
-        resolutionSource: "interaction_delivery_failed"
-      });
-      const appServer = this.deps.getAppServer();
-      if (appServer) {
-        await appServer.respondToServerRequestError(row.requestId, -32603, "Failed to deliver the interaction surface");
-      }
+      await this.failUnsurfacedInteraction(row, "interaction_delivery_failed");
+    }
+  }
+
+  private async failUnsurfacedInteraction(row: PendingInteractionRow, reason: string): Promise<void> {
+    const store = this.deps.getStore();
+    const live = store?.getPendingInteraction(row.interactionId, row.chatId);
+    if (!store || !live || !isPendingInteractionActionable(live)) {
+      return;
+    }
+    store.markPendingInteractionFailed(row.interactionId, reason);
+    await this.deps.appendInteractionResolvedJournal(row, {
+      finalState: "failed",
+      errorReason: reason,
+      resolutionSource: "interaction_delivery_failed"
+    });
+    const appServer = this.deps.getAppServer();
+    if (appServer) {
+      await appServer.respondToServerRequestError(row.requestId, -32603, "Failed to deliver the interaction surface");
     }
   }
 

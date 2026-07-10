@@ -461,6 +461,82 @@ test("surfacing failure fails and journals the interaction and errors only a liv
   }
 });
 
+test("concurrent surfacing calls serialize per session and send each row once", async () => {
+  let releaseFirstSend!: () => void;
+  let firstSendStarted!: () => void;
+  const sendStarted = new Promise<void>((resolve) => { firstSendStarted = resolve; });
+  const sendRelease = new Promise<void>((resolve) => { releaseFirstSend = resolve; });
+  let sendCount = 0;
+  const { broker, store, cleanup } = await createBrokerContext({
+    sendHtml: async () => {
+      sendCount += 1;
+      firstSendStarted();
+      await sendRelease;
+      return { messageId: 700 + sendCount };
+    }
+  });
+  try {
+    const parent = store.createSession({
+      chatId: "chat-1", projectName: "Project One", projectPath: "/tmp/project-one", displayName: "Parent"
+    });
+    const row = store.createPendingInteraction({
+      chatId: "chat-1", sessionId: parent.sessionId, threadId: "thread-1", turnId: "turn-1",
+      requestId: "req-concurrent", requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval", promptJson: JSON.stringify(createApprovalInteraction("concurrent"))
+    });
+
+    const first = broker.surfacePendingInteractionCardsForSession("chat-1", parent.sessionId);
+    await sendStarted;
+    const second = broker.surfacePendingInteractionCardsForSession("chat-1", parent.sessionId);
+    await new Promise((resolve) => setImmediate(resolve));
+    const countWhileBlocked = sendCount;
+    releaseFirstSend();
+    await Promise.all([first, second]);
+
+    assert.equal(countWhileBlocked, 1);
+    assert.equal(sendCount, 1);
+    assert.equal(store.getPendingInteraction(row.interactionId)?.messageId, 701);
+  } finally {
+    releaseFirstSend?.();
+    await cleanup();
+  }
+});
+
+test("malformed unsurfaced interaction fails safely and does not block later rows", async () => {
+  const errors: unknown[] = [];
+  const journals: unknown[][] = [];
+  const { broker, store, sentHtml, cleanup } = await createBrokerContext({
+    appServer: { respondToServerRequestError: async (...args: unknown[]) => { errors.push(args); } },
+    appendInteractionResolvedJournal: async (...args) => { journals.push(args); }
+  });
+  try {
+    const parent = store.createSession({
+      chatId: "chat-1", projectName: "Project One", projectPath: "/tmp/project-one", displayName: "Parent"
+    });
+    const malformed = store.createPendingInteraction({
+      chatId: "chat-1", sessionId: parent.sessionId, threadId: "thread-1", turnId: "turn-1",
+      requestId: "req-malformed", requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval", promptJson: "{not-json"
+    });
+    const valid = store.createPendingInteraction({
+      chatId: "chat-1", sessionId: parent.sessionId, threadId: "thread-1", turnId: "turn-1",
+      requestId: "req-valid", requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval", promptJson: JSON.stringify(createApprovalInteraction("valid-after-malformed"))
+    });
+
+    await broker.surfacePendingInteractionCardsForSession("chat-1", parent.sessionId);
+
+    assert.equal(store.getPendingInteraction(malformed.interactionId)?.state, "failed");
+    assert.equal(store.getPendingInteraction(malformed.interactionId)?.errorReason, "interaction_delivery_failed_malformed_payload");
+    assert.equal(store.getPendingInteraction(valid.interactionId)?.messageId, 101);
+    assert.equal(sentHtml.length, 1);
+    assert.deepEqual(errors, [["req-malformed", -32603, "Failed to deliver the interaction surface"]]);
+    assert.equal((journals[0]?.[1] as { resolutionSource?: string })?.resolutionSource, "interaction_delivery_failed");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("answered and canceled interaction cards include the /hub hint", async () => {
   const { broker, store, editedHtml, cleanup } = await createBrokerContext({
     appServer: {
