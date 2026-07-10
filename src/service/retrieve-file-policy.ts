@@ -10,7 +10,8 @@ export type RetrieveFileErrorCode =
   | "not_found"
   | "unreadable"
   | "not_regular_file"
-  | "too_large";
+  | "too_large"
+  | "changed";
 
 export class RetrieveFileValidationError extends Error {
   constructor(
@@ -31,6 +32,14 @@ export interface ResolvedRetrieveFile {
   sizeBytes: number;
   insideProject: boolean;
   displayPath: string;
+  identity: RetrieveFileIdentity;
+}
+
+export interface RetrieveFileIdentity {
+  dev: number;
+  ino: number;
+  mtimeMs: number;
+  sizeBytes: number;
 }
 
 interface ResolveRetrieveFileOptions {
@@ -90,7 +99,13 @@ export async function resolveRetrieveFile(
     fileName: basename(targetRealPath),
     sizeBytes: targetStat.size,
     insideProject,
-    displayPath: insideProject ? projectRelative : targetRealPath
+    displayPath: insideProject ? projectRelative : targetRealPath,
+    identity: {
+      dev: targetStat.dev,
+      ino: targetStat.ino,
+      mtimeMs: targetStat.mtimeMs,
+      sizeBytes: targetStat.size
+    }
   };
 }
 

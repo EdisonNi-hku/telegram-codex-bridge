@@ -94,6 +94,10 @@ test("resolves relative, matching outer-quoted, home, and absolute paths", async
     assert.equal(relativeFile.insideProject, true);
     assert.equal(relativeFile.displayPath, join("reports", "audit.html"));
     assert.equal(relativeFile.requestedPath, "reports/audit.html");
+    assert.equal(relativeFile.identity.sizeBytes, 5);
+    assert.equal(Number.isInteger(relativeFile.identity.dev), true);
+    assert.equal(Number.isInteger(relativeFile.identity.ino), true);
+    assert.equal(Number.isFinite(relativeFile.identity.mtimeMs), true);
     assert.equal(quotedFile.fileName, "audit report.html");
     assert.equal(quotedFile.requestedPath, "reports/audit report.html");
     assert.equal(homeFile.insideProject, false);
