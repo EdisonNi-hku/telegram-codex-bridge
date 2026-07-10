@@ -47,25 +47,33 @@ function harness(options: { active?: SessionRow | null; version?: string | null;
       const side = session({ ...parent, sessionId: "side", sessionKind: "side", parentSessionId, threadId,
         displayName: `Side: ${parent.displayName}`, status: "idle" });
       rows.set(side.sessionId, side); active = side; return side;
+    },
+    restoreParentAndDeleteSide: (sideSessionId: string) => {
+      const side = rows.get(sideSessionId);
+      const parent = side?.parentSessionId ? rows.get(side.parentSessionId) : null;
+      if (!side || side.sessionKind !== "side" || !parent || active?.sessionId !== side.sessionId) return null;
+      events.push("restore-parent"); active = parent; rows.delete(side.sessionId); return { side, parent };
     }
   };
   const client = {
     readConfig: async () => { events.push("read-config"); return { config: {}, origins: {} }; },
     forkSideThread: async (value: unknown) => { events.push("fork"); forkOptions.push(value); return { thread: { id: "side-thread", turns: [] }, cwd: "/project", model: "m" }; },
     injectThreadItems: async (_id: string, value: unknown[]) => { events.push("inject"); injections.push(value); },
-    unsubscribeThread: async () => { events.push("unsubscribe"); },
-    interruptTurn: async () => undefined
+    unsubscribeThread: async (threadId: string) => { events.push(`unsubscribe:${threadId}`); },
+    interruptTurn: async (threadId: string, turnId: string) => { events.push(`interrupt:${threadId}:${turnId}`); }
   };
   const deps = {
     getStore: () => store,
     ensureAppServerAvailable: async () => client,
     getCodexVersion: () => options.version === undefined ? "codex-cli 0.144.1" : options.version,
     getRunningTurnCapacity: () => ({ allowed: options.capacity ?? true, limit: 2, running: 0 }),
-    getActiveTurn: () => null,
+    getActiveTurn: (_sessionId: string): { threadId: string; turnId: string } | null => null,
     startTextTurn: async (_chatId: string, _side: SessionRow, text: string) => { events.push(`start:${text}`); },
     syncCurrentSessionCard: async (_chatId: string, reason: string) => { events.push(`sync:${reason}`); },
-    surfacePendingInteractions: async () => undefined, expireSideInteractions: async () => undefined,
-    clearSideTransientInput: () => undefined, releaseHeldTerminalResults: async () => 0,
+    surfacePendingInteractions: async (_chatId: string, id: string) => { events.push(`surface-interactions:${id}`); },
+    expireSideInteractions: async (_chatId: string, id: string) => { events.push(`expire-interactions:${id}`); },
+    clearSideTransientInput: (_chatId: string, id: string) => { events.push(`clear-transient-input:${id}`); },
+    releaseHeldTerminalResults: async (_chatId: string, id: string) => { events.push(`release-results:${id}`); return 0; },
     getParentStatus: () => options.parentNeedsAction ? "waiting_approval" as const : "idle" as const,
     parentNeedsAction: () => options.parentNeedsAction ?? false, countHeldResults: () => 0,
     getUiLanguage: () => "en" as const,
@@ -84,6 +92,112 @@ test("reports no active session when store or parent is unavailable", async () =
   const noStore = new SideConversationCoordinator({ ...h.deps, getStore: () => null });
   await noStore.handleCommand("chat", "");
   assert.match(h.messages.at(-1) ?? "", /no active session/i);
+});
+
+async function enterSide(h: ReturnType<typeof harness>): Promise<string> {
+  await h.coordinator.handleCommand("chat", "");
+  h.events.length = 0;
+  return h.coordinator.getCardView(h.active!)!.token;
+}
+
+test("idle side back restores parent and releases parent surfaces in order", async () => {
+  const h = harness();
+  const token = await enterSide(h);
+  await h.coordinator.handleCardAction("chat", "back", token);
+  assert.deepEqual(h.events, [
+    "unsubscribe:side-thread", "restore-parent", "sync:side_returned",
+    "surface-interactions:parent", "release-results:parent"
+  ]);
+  assert.equal(h.active?.sessionId, "parent");
+  assert.equal(h.rows.has("side"), false);
+});
+
+test("slash side back uses the same idle return path", async () => {
+  const h = harness(); await enterSide(h);
+  await h.coordinator.handleCommand("chat", " back ");
+  assert.equal(h.active?.sessionId, "parent");
+  assert.deepEqual(h.events, ["unsubscribe:side-thread", "restore-parent", "sync:side_returned",
+    "surface-interactions:parent", "release-results:parent"]);
+});
+
+test("running side back confirms without interrupting and cancel preserves side", async () => {
+  const h = harness(); const cardToken = await enterSide(h);
+  h.deps.getActiveTurn = () => ({ threadId: "side-thread", turnId: "side-turn" });
+  const confirmToken = await h.coordinator.handleCardAction("chat", "back", cardToken);
+  assert.deepEqual(h.events, []);
+  assert.match(h.messages.at(-1) ?? "", /interrupt.*running side/i);
+  await h.coordinator.handleCardAction("chat", "return_cancel", confirmToken!);
+  assert.equal(h.active?.sessionId, "side"); assert.deepEqual(h.events, ["sync:side_return_cancelled"]);
+});
+
+test("confirmed running return preserves cleanup and restore order", async () => {
+  const h = harness(); const cardToken = await enterSide(h);
+  h.deps.getActiveTurn = () => ({ threadId: "side-thread", turnId: "side-turn" });
+  const confirmToken = await h.coordinator.handleCardAction("chat", "back", cardToken);
+  await h.coordinator.handleCardAction("chat", "return_confirm", confirmToken!);
+  assert.deepEqual(h.events, [
+    "interrupt:side-thread:side-turn", "expire-interactions:side", "clear-transient-input:side",
+    "unsubscribe:side-thread", "restore-parent", "sync:side_returned",
+    "surface-interactions:parent", "release-results:parent"
+  ]);
+  const completedEvents = [...h.events];
+  await h.coordinator.handleCardAction("chat", "return_confirm", confirmToken!);
+  assert.deepEqual(h.events, completedEvents);
+  assert.equal(h.messages.at(-1), "这个 Side 操作已失效。");
+});
+
+test("completed side turn between confirmation and confirm skips interrupt", async () => {
+  const h = harness(); const cardToken = await enterSide(h); let running = true;
+  h.deps.getActiveTurn = () => running ? { threadId: "side-thread", turnId: "side-turn" } : null;
+  const confirmToken = await h.coordinator.handleCardAction("chat", "back", cardToken); running = false;
+  await h.coordinator.handleCardAction("chat", "return_confirm", confirmToken!);
+  assert.equal(h.events.some((event) => event.startsWith("interrupt:")), false);
+  assert.equal(h.active?.sessionId, "parent");
+});
+
+test("interrupt and unsubscribe failures keep side active", async () => {
+  for (const failure of ["interrupt", "unsubscribe"] as const) {
+    const h = harness(); const cardToken = await enterSide(h);
+    h.deps.getActiveTurn = () => ({ threadId: "side-thread", turnId: "side-turn" });
+    if (failure === "interrupt") h.client.interruptTurn = async () => { throw new Error("no"); };
+    else h.client.unsubscribeThread = async () => { throw new Error("no"); };
+    const confirmToken = await h.coordinator.handleCardAction("chat", "back", cardToken);
+    await h.coordinator.handleCardAction("chat", "return_confirm", confirmToken!);
+    assert.equal(h.active?.sessionId, "side"); assert.equal(h.rows.has("side"), true);
+    assert.match(h.messages.at(-1) ?? "", /could not return|return did not complete/i);
+  }
+});
+
+test("confirmation tokens are chat-bound expiring single-use and stale card tokens are harmless", async () => {
+  const h = harness(); const cardToken = await enterSide(h);
+  h.deps.getActiveTurn = () => ({ threadId: "side-thread", turnId: "side-turn" });
+  const confirmToken = await h.coordinator.handleCardAction("chat", "back", cardToken);
+  await h.coordinator.handleCardAction("wrong-chat", "return_confirm", confirmToken!);
+  assert.equal(h.messages.at(-1), "这个 Side 操作已失效。"); assert.deepEqual(h.events, []);
+  await h.coordinator.handleCardAction("chat", "return_confirm", confirmToken!);
+  assert.equal(h.messages.at(-1), "这个 Side 操作已失效。"); assert.deepEqual(h.events, []);
+
+  await h.coordinator.handleCardAction("chat", "status", "stale-card");
+  assert.equal(h.messages.at(-1), "这个 Side 操作已失效。"); assert.deepEqual(h.events, []);
+
+  const expiring = harness(); const expiringCard = await enterSide(expiring);
+  expiring.deps.getActiveTurn = () => ({ threadId: "side-thread", turnId: "turn" });
+  let now = 1; expiring.deps.nowMs = () => now;
+  const coordinator = new SideConversationCoordinator(expiring.deps);
+  const reboundToken = coordinator.getCardView(expiring.active!)!.token;
+  const expiringToken = await coordinator.handleCardAction("chat", "back", reboundToken); now = 120_002;
+  await coordinator.handleCardAction("chat", "return_confirm", expiringToken!);
+  assert.equal(expiring.messages.at(-1), "这个 Side 操作已失效。"); assert.equal(expiring.active?.sessionId, "side");
+  void expiringCard;
+});
+
+test("parent status is read-only and interrupt action targets only the side turn", async () => {
+  const h = harness(); const token = await enterSide(h);
+  h.deps.getActiveTurn = () => ({ threadId: "side-thread", turnId: "side-turn" });
+  await h.coordinator.handleCardAction("chat", "status", token);
+  assert.match(h.messages.at(-1) ?? "", /parent task status/i); assert.deepEqual(h.events, []);
+  await h.coordinator.handleCardAction("chat", "interrupt", token);
+  assert.deepEqual(h.events, ["interrupt:side-thread:side-turn"]); assert.equal(h.active?.sessionId, "side");
 });
 
 test("active side cannot nest and refreshes its card", async () => {
@@ -176,7 +290,7 @@ test("fork and inject failures preserve parent; inject unsubscribes best effort"
   const fork = harness(); fork.client.forkSideThread = async () => { throw new Error("boom"); };
   await fork.coordinator.handleCommand("chat", ""); assert.equal(fork.active?.sessionId, "parent"); assert.equal(fork.rows.has("side"), false);
   const inject = harness(); inject.client.injectThreadItems = async () => { throw new Error("boom"); };
-  await inject.coordinator.handleCommand("chat", ""); assert.deepEqual(inject.events, ["read-config", "fork", "unsubscribe"]);
+  await inject.coordinator.handleCommand("chat", ""); assert.deepEqual(inject.events, ["read-config", "fork", "unsubscribe:side-thread"]);
   assert.equal(inject.active?.sessionId, "parent");
   const cleanup = harness(); cleanup.client.injectThreadItems = async () => { throw new Error("boom"); };
   cleanup.client.unsubscribeThread = async () => { cleanup.events.push("unsubscribe"); throw new Error("cleanup"); };
@@ -188,14 +302,14 @@ test("store invariant failure is clear and does not change active parent", async
   h.store.createSideSession = () => { throw new Error("an open side session already exists for chat"); };
   await h.coordinator.handleCommand("chat", "");
   assert.equal(h.active?.sessionId, "parent"); assert.equal(h.rows.has("side"), false);
-  assert.ok(h.events.includes("unsubscribe")); assert.match(h.messages.at(-1) ?? "", /already open|session changed/i);
+  assert.ok(h.events.includes("unsubscribe:side-thread")); assert.match(h.messages.at(-1) ?? "", /already open|session changed/i);
 });
 
 test("generic persistence failure unsubscribes fork and preserves parent", async () => {
   const h = harness(); h.store.createSideSession = () => { throw new Error("disk unavailable"); };
   await h.coordinator.handleCommand("chat", "");
   assert.equal(h.active?.sessionId, "parent"); assert.equal(h.rows.has("side"), false);
-  assert.ok(h.events.includes("unsubscribe")); assert.match(h.messages.at(-1) ?? "", /could not create/i);
+  assert.ok(h.events.includes("unsubscribe:side-thread")); assert.match(h.messages.at(-1) ?? "", /could not create/i);
 });
 
 test("token or card sync failure after persistence keeps the active side and does not unsubscribe", async () => {
@@ -288,6 +402,11 @@ test("different chat queues progress independently", async () => {
     createSideSession: ({ parentSessionId, threadId }: { parentSessionId: string; threadId: string }) => {
       const parent = rows.get(parentSessionId)!; const side = session({ ...parent, sessionId: `s-${parentSessionId}`,
         sessionKind: "side", parentSessionId, threadId }); rows.set(side.sessionId, side); active.set(parent.chatId, side); return side;
+    },
+    restoreParentAndDeleteSide: (sideSessionId: string) => {
+      const side = rows.get(sideSessionId); const parent = side?.parentSessionId ? rows.get(side.parentSessionId) : null;
+      if (!side || !parent || active.get(side.chatId)?.sessionId !== side.sessionId) return null;
+      active.set(side.chatId, parent); rows.delete(side.sessionId); return { side, parent };
     }
   };
   const coordinator = new SideConversationCoordinator({

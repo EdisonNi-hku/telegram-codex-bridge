@@ -1,6 +1,7 @@
 import type { CodexAppServerClient, ConfigReadResult, SideThreadForkOptions } from "../codex/app-server.js";
 import type { SessionRow, UiLanguage } from "../types.js";
 import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
+import { buildSideParentStatusMessage, buildSideReturnConfirmationMessage } from "../telegram/ui-side.js";
 import type { SideCardViewModel, SideParentStatus } from "../telegram/ui-side.js";
 
 export const SIDE_MIN_CODEX_VERSION = [0, 144, 1] as const;
@@ -28,6 +29,7 @@ interface SideStore {
   getSideParent(sideSessionId: string): SessionRow | null;
   getActiveSideForParent(parentSessionId: string): SessionRow | null;
   createSideSession(options: { parentSessionId: string; threadId: string }): SessionRow;
+  restoreParentAndDeleteSide(sideSessionId: string): { side: SessionRow; parent: SessionRow } | null;
 }
 
 type SideClient = Pick<CodexAppServerClient,
@@ -64,21 +66,70 @@ interface CardBinding {
   token: string;
 }
 
+interface SideReturnConfirmation {
+  chatId: string;
+  sideSessionId: string;
+  parentSessionId: string;
+  expiresAtMs: number;
+  consumed: boolean;
+}
+
+export type SideCardAction = "status" | "back" | "interrupt" | "return_confirm" | "return_cancel";
+
+const RETURN_CONFIRMATION_TTL_MS = 120_000;
+const STALE_SIDE_ACTION = "这个 Side 操作已失效。";
+
 export class SideConversationCoordinator {
   private readonly queues = new Map<string, Promise<void>>();
   private readonly cardBindings = new Map<string, CardBinding>();
+  private readonly returnConfirmations = new Map<string, SideReturnConfirmation>();
   private generation = 0;
 
   constructor(private readonly deps: SideConversationCoordinatorDeps) {}
 
   async handleCommand(chatId: string, args: string): Promise<void> {
+    await this.enqueue(chatId, async () => {
+      if (args.trim().toLowerCase() === "back") await this.beginReturn(chatId, null);
+      else await this.createSide(chatId, args);
+    });
+  }
+
+  async handleCardAction(chatId: string, action: SideCardAction, token: string): Promise<string | null> {
+    return await this.enqueue(chatId, async () => {
+      if (action === "return_confirm" || action === "return_cancel") {
+        return await this.consumeReturnConfirmation(chatId, action, token);
+      }
+      const relationship = this.resolveCardBinding(chatId, token);
+      if (!relationship) { await this.stale(chatId); return null; }
+      if (action === "status") {
+        const view = this.getCardView(relationship.side);
+        if (!view) { await this.stale(chatId); return null; }
+        await this.deps.safeSendHtmlMessage(chatId, buildSideParentStatusMessage(view));
+        return null;
+      }
+      if (action === "interrupt") {
+        const turn = this.deps.getActiveTurn(relationship.side.sessionId);
+        if (!turn || turn.threadId !== relationship.side.threadId) { await this.stale(chatId); return null; }
+        try { await (await this.deps.ensureAppServerAvailable()).interruptTurn(turn.threadId, turn.turnId); }
+        catch (error) {
+          this.warn("side interrupt failed", error);
+          await this.deps.safeSendMessage(chatId, this.en("Could not interrupt Side. Please retry.", "无法中断 Side，请重试。"));
+        }
+        return null;
+      }
+      return await this.beginReturn(chatId, relationship.side);
+    });
+  }
+
+  private async enqueue<T>(chatId: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.queues.get(chatId) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(async () => this.createSide(chatId, args));
-    this.queues.set(chatId, current);
+    const execution = previous.catch(() => undefined).then(operation);
+    const tail = execution.then(() => undefined, () => undefined);
+    this.queues.set(chatId, tail);
     try {
-      await current;
+      return await execution;
     } finally {
-      if (this.queues.get(chatId) === current) this.queues.delete(chatId);
+      if (this.queues.get(chatId) === tail) this.queues.delete(chatId);
     }
   }
 
@@ -126,6 +177,106 @@ export class SideConversationCoordinator {
       parentNeedsAction: this.deps.parentNeedsAction(persistedSide.chatId, parent.sessionId),
       heldResultCount: this.deps.countHeldResults(parent.sessionId)
     };
+  }
+
+  private resolveCardBinding(chatId: string, token: string): { side: SessionRow; parent: SessionRow } | null {
+    const binding = [...this.cardBindings.values()].find((value) => value.token === token);
+    const store = this.deps.getStore();
+    if (!binding || binding.chatId !== chatId || !store) return null;
+    const side = store.getActiveSession(chatId);
+    if (!side || side.sessionId !== binding.sideSessionId || side.sessionKind !== "side") return null;
+    const parent = store.getSideParent(side.sessionId);
+    if (!parent || parent.sessionId !== side.parentSessionId || parent.sessionKind !== "regular") return null;
+    return { side, parent };
+  }
+
+  private async beginReturn(chatId: string, expectedSide: SessionRow | null): Promise<string | null> {
+    const store = this.deps.getStore();
+    const side = store?.getActiveSession(chatId) ?? null;
+    if (!store || !side || side.sessionKind !== "side" || (expectedSide && side.sessionId !== expectedSide.sessionId)) {
+      await this.stale(chatId); return null;
+    }
+    const parent = store.getSideParent(side.sessionId);
+    if (!parent || parent.sessionId !== side.parentSessionId) { await this.stale(chatId); return null; }
+    const turn = this.deps.getActiveTurn(side.sessionId);
+    if (!turn) { await this.closeSide(chatId, side, parent, false); return null; }
+    if (turn.threadId !== side.threadId) { await this.stale(chatId); return null; }
+    this.invalidateConfirmationsForSide(side.sessionId);
+    const token = this.deps.createToken();
+    this.returnConfirmations.set(token, { chatId, sideSessionId: side.sessionId,
+      parentSessionId: parent.sessionId, expiresAtMs: this.deps.nowMs() + RETURN_CONFIRMATION_TTL_MS, consumed: false });
+    const confirmation = buildSideReturnConfirmationMessage(token, this.deps.getUiLanguage());
+    await this.deps.safeSendMessage(chatId, confirmation.text, confirmation.replyMarkup);
+    return token;
+  }
+
+  private async consumeReturnConfirmation(chatId: string, action: "return_confirm" | "return_cancel", token: string): Promise<null> {
+    const confirmation = this.returnConfirmations.get(token);
+    if (!confirmation || confirmation.consumed || confirmation.expiresAtMs < this.deps.nowMs()) {
+      this.returnConfirmations.delete(token); await this.stale(chatId); return null;
+    }
+    confirmation.consumed = true;
+    this.returnConfirmations.delete(token);
+    if (confirmation.chatId !== chatId) { await this.stale(chatId); return null; }
+    const store = this.deps.getStore();
+    const side = store?.getActiveSession(chatId) ?? null;
+    const parent = side?.sessionKind === "side" ? store?.getSideParent(side.sessionId) ?? null : null;
+    if (!side || !parent || side.sessionId !== confirmation.sideSessionId
+      || parent.sessionId !== confirmation.parentSessionId) { await this.stale(chatId); return null; }
+    if (action === "return_cancel") {
+      await this.deps.syncCurrentSessionCard(chatId, "side_return_cancelled"); return null;
+    }
+    await this.closeSide(chatId, side, parent, true);
+    return null;
+  }
+
+  private async closeSide(chatId: string, side: SessionRow, parent: SessionRow, confirmed: boolean): Promise<void> {
+    if (!side.threadId) { await this.stale(chatId); return; }
+    let restored: { side: SessionRow; parent: SessionRow } | null = null;
+    try {
+      const client = await this.deps.ensureAppServerAvailable();
+      if (confirmed) {
+        const turn = this.deps.getActiveTurn(side.sessionId);
+        if (turn) {
+          if (turn.threadId !== side.threadId) { await this.stale(chatId); return; }
+          await client.interruptTurn(turn.threadId, turn.turnId);
+        }
+        await this.deps.expireSideInteractions(chatId, side.sessionId);
+        this.deps.clearSideTransientInput(chatId, side.sessionId);
+      }
+      await client.unsubscribeThread(side.threadId);
+      restored = this.deps.getStore()?.restoreParentAndDeleteSide(side.sessionId) ?? null;
+      if (!restored || restored.parent.sessionId !== parent.sessionId) throw new Error("side relationship changed during return");
+    } catch (error) {
+      this.warn("side return failed", error);
+      await this.deps.syncCurrentSessionCard(chatId, "side_return_failed").catch((syncError) => this.warn("side card refresh failed", syncError));
+      await this.sendReturnFailed(chatId);
+      return;
+    }
+    this.invalidateSideTokens(side.sessionId);
+    await this.runAfterReturn("sync parent card", () => this.deps.syncCurrentSessionCard(chatId, "side_returned"));
+    await this.runAfterReturn("surface parent interactions", () => this.deps.surfacePendingInteractions(chatId, parent.sessionId));
+    await this.runAfterReturn("release held terminal results", () => this.deps.releaseHeldTerminalResults(chatId, parent.sessionId));
+  }
+
+  private async runAfterReturn(label: string, operation: () => Promise<unknown>): Promise<void> {
+    try { await operation(); } catch (error) { this.warn(`failed to ${label} after side return`, error); }
+  }
+
+  private invalidateSideTokens(sideSessionId: string): void {
+    this.cardBindings.delete(sideSessionId);
+    this.invalidateConfirmationsForSide(sideSessionId);
+  }
+
+  private invalidateConfirmationsForSide(sideSessionId: string): void {
+    for (const [token, value] of this.returnConfirmations) if (value.sideSessionId === sideSessionId) this.returnConfirmations.delete(token);
+  }
+
+  private async stale(chatId: string): Promise<void> { await this.deps.safeSendMessage(chatId, STALE_SIDE_ACTION); }
+  private async sendReturnFailed(chatId: string): Promise<void> {
+    await this.deps.safeSendMessage(chatId, this.en(
+      "Could not return to the main conversation. Side remains active; please retry.",
+      "返回主会话未完成，Side 仍保持活动，请重试。"));
   }
 
   private async createSide(chatId: string, args: string): Promise<void> {
