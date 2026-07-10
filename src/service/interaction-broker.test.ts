@@ -537,6 +537,54 @@ test("malformed unsurfaced interaction fails safely and does not block later row
   }
 });
 
+test("surfacing isolates malformed-row reporting failures and keeps the queue reusable", async () => {
+  let journalAttempts = 0;
+  let errorAttempts = 0;
+  const { broker, store, sentHtml, cleanup } = await createBrokerContext({
+    appServer: {
+      respondToServerRequestError: async () => {
+        errorAttempts += 1;
+        throw new Error("app-server response unavailable");
+      }
+    },
+    appendInteractionResolvedJournal: async () => {
+      journalAttempts += 1;
+      throw new Error("journal unavailable");
+    }
+  });
+  try {
+    const parent = store.createSession({
+      chatId: "chat-1", projectName: "Project One", projectPath: "/tmp/project-one", displayName: "Parent"
+    });
+    store.createPendingInteraction({
+      chatId: "chat-1", sessionId: parent.sessionId, threadId: "thread-1", turnId: "turn-1",
+      requestId: "req-malformed-hooks", requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval", promptJson: "not-json"
+    });
+    const valid = store.createPendingInteraction({
+      chatId: "chat-1", sessionId: parent.sessionId, threadId: "thread-1", turnId: "turn-1",
+      requestId: "req-valid-hooks", requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval", promptJson: JSON.stringify(createApprovalInteraction("valid-despite-hooks"))
+    });
+
+    await broker.surfacePendingInteractionCardsForSession("chat-1", parent.sessionId);
+    assert.equal(journalAttempts, 1);
+    assert.equal(errorAttempts, 1);
+    assert.equal(store.getPendingInteraction(valid.interactionId)?.messageId, 101);
+
+    const later = store.createPendingInteraction({
+      chatId: "chat-1", sessionId: parent.sessionId, threadId: "thread-1", turnId: "turn-1",
+      requestId: "req-later", requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval", promptJson: JSON.stringify(createApprovalInteraction("later-call"))
+    });
+    await broker.surfacePendingInteractionCardsForSession("chat-1", parent.sessionId);
+    assert.equal(store.getPendingInteraction(later.interactionId)?.messageId, 102);
+    assert.equal(sentHtml.length, 2);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("answered and canceled interaction cards include the /hub hint", async () => {
   const { broker, store, editedHtml, cleanup } = await createBrokerContext({
     appServer: {

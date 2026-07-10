@@ -631,14 +631,32 @@ export class InteractionBroker {
       return;
     }
     store.markPendingInteractionFailed(row.interactionId, reason);
-    await this.deps.appendInteractionResolvedJournal(row, {
-      finalState: "failed",
-      errorReason: reason,
-      resolutionSource: "interaction_delivery_failed"
-    });
+    try {
+      await this.deps.appendInteractionResolvedJournal(row, {
+        finalState: "failed",
+        errorReason: reason,
+        resolutionSource: "interaction_delivery_failed"
+      });
+    } catch (error) {
+      await this.deps.logger.warn("failed to journal interaction surfacing failure", {
+        interactionId: row.interactionId,
+        error: String(error)
+      }).catch(() => undefined);
+    }
     const appServer = this.deps.getAppServer();
     if (appServer) {
-      await appServer.respondToServerRequestError(row.requestId, -32603, "Failed to deliver the interaction surface");
+      try {
+        await appServer.respondToServerRequestError(
+          row.requestId,
+          -32603,
+          "Failed to deliver the interaction surface"
+        );
+      } catch (error) {
+        await this.deps.logger.warn("failed to report interaction surfacing failure to app-server", {
+          interactionId: row.interactionId,
+          error: String(error)
+        }).catch(() => undefined);
+      }
     }
   }
 
