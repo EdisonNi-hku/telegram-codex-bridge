@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { routeBridgeCommand } from "./command-router.js";
-import { TELEGRAM_COMMANDS } from "../telegram/commands.js";
+import { buildHelpText, buildTelegramCommands, TELEGRAM_COMMANDS } from "../telegram/commands.js";
 
 function createHandlers(calls: string[]) {
   return {
@@ -13,6 +13,7 @@ function createHandlers(calls: string[]) {
     handleNew: async () => { calls.push("handleNew"); },
     handleResume: async () => { calls.push("handleResume"); },
     handleBrowse: async () => { calls.push("handleBrowse"); },
+    handleRetrieve: async () => { calls.push("handleRetrieve"); },
     handleCancel: async () => { calls.push("handleCancel"); },
     handleSessions: async () => { calls.push("handleSessions"); },
     handleArchive: async () => { calls.push("handleArchive"); },
@@ -54,6 +55,23 @@ test("routeBridgeCommand routes every synced command through the registry", asyn
     assert.equal(calls.length, 1);
     assert.notEqual(calls[0], "sendUnsupported");
   }
+});
+
+test("retrieve is registered with localized help and dispatches to its handler", async () => {
+  const calls: string[] = [];
+  await routeBridgeCommand("retrieve", createHandlers(calls));
+
+  assert.deepEqual(calls, ["handleRetrieve"]);
+  assert.deepEqual(
+    TELEGRAM_COMMANDS.find((entry) => entry.command === "retrieve"),
+    { command: "retrieve", description: "发送本地文件到聊天" }
+  );
+  assert.equal(
+    buildTelegramCommands("en").find((entry) => entry.command === "retrieve")?.description,
+    "Send a local file to this chat"
+  );
+  assert.match(buildHelpText("zh"), /\/retrieve <文件路径> 发送当前项目文件；项目外文件需要确认/u);
+  assert.match(buildHelpText("en"), /\/retrieve <file path> Send a project file; external files require confirmation/u);
 });
 
 test("routeBridgeCommand keeps aliases and unsupported fallback aligned with the registry", async () => {

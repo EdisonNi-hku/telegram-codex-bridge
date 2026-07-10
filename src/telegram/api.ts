@@ -1,3 +1,4 @@
+import { openAsBlob } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 
@@ -221,13 +222,15 @@ export class TelegramApi {
       fileName?: string;
     }
   ): Promise<TelegramMessage> {
+    const fileName = options?.fileName ?? basename(filePath);
+    validateMultipartFileName(fileName);
     const url = `${this.baseUrl}/bot${this.token}/sendDocument`;
     if (shouldPreferCurl() && await this.canUseCurl()) {
       return await this.sendDocumentWithCurl(chatId, filePath, options, 20_000, "proxy-environment");
     }
 
     try {
-      const fileBytes = await readFile(filePath);
+      const document = await openAsBlob(filePath);
       const formData = new FormData();
       formData.set("chat_id", chatId);
       if (options?.caption) {
@@ -236,7 +239,7 @@ export class TelegramApi {
       if (options?.parseMode) {
         formData.set("parse_mode", options.parseMode);
       }
-      formData.set("document", new Blob([fileBytes]), options?.fileName ?? basename(filePath));
+      formData.set("document", document, fileName);
 
       const response = await fetch(url, {
         method: "POST",
@@ -550,6 +553,9 @@ export class TelegramApi {
     timeoutMs: number,
     originalError: unknown
   ): Promise<TelegramMessage> {
+    if (options?.fileName) {
+      validateMultipartFileName(options.fileName);
+    }
     const url = `${this.baseUrl}/bot${this.token}/sendDocument`;
     const args = [
       "--silent",
@@ -560,7 +566,7 @@ export class TelegramApi {
       `chat_id=${chatId}`,
       "--form",
       options?.fileName
-        ? `document=@${filePath};filename=${options.fileName}`
+        ? `document=@${filePath};filename="${escapeCurlFormValue(options.fileName)}"`
         : `document=@${filePath}`
     ];
 
@@ -629,6 +635,16 @@ export class TelegramApi {
       `${action} failed via fetch and curl: ${String(originalError)} | ${result.stderr || result.stdout || `curl exited with code ${result.exitCode}`}`
     );
   }
+}
+
+function validateMultipartFileName(fileName: string): void {
+  if (/[\r\n\0]/u.test(fileName)) {
+    throw new TypeError("Telegram document filename must not contain CR, LF, or NUL characters.");
+  }
+}
+
+function escapeCurlFormValue(value: string): string {
+  return value.replace(/["\\]/gu, "\\$&");
 }
 
 function shouldPreferCurl(): boolean {

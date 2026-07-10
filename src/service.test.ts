@@ -949,6 +949,239 @@ test("bang shell ingress remains Telegram-only", async () => {
   }
 });
 
+test("retrieve sends a contained project report once with its staged content, name, and caption", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const documents: Array<{
+    chatId: string;
+    bytes: string;
+    fileName: string | undefined;
+    caption: string | undefined;
+    uploadedPath: string;
+  }> = [];
+
+  try {
+    const projectPath = join((service as any).paths.homeDir, "retrieve-project");
+    await mkdir(join(projectPath, "reports"), { recursive: true });
+    await writeFile(join(projectPath, "reports", "audit.html"), "<h1>audit result</h1>", "utf8");
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Retrieve Project", projectPath });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1, text),
+      sendDocument: async (chatId: string, filePath: string, options?: { fileName?: string; caption?: string }) => {
+        documents.push({
+          chatId,
+          bytes: await readFile(filePath, "utf8"),
+          fileName: options?.fileName,
+          caption: options?.caption,
+          uploadedPath: filePath
+        });
+        return createFakeTelegramMessage(2, "document");
+      }
+    };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2001, "/retrieve reports/audit.html"));
+
+    assert.equal(documents.length, 1);
+    assert.equal(documents[0]?.chatId, "1");
+    assert.equal(documents[0]?.bytes, "<h1>audit result</h1>");
+    assert.equal(documents[0]?.fileName, "audit.html");
+    assert.equal(documents[0]?.caption, "Retrieved: reports/audit.html\nSize: 21 B");
+    assert.notEqual(documents[0]?.uploadedPath, join(projectPath, "reports", "audit.html"));
+  } finally {
+    await cleanup();
+  }
+});
+
+test("retrieve routes a quoted path without collapsing repeated spaces", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const deliveredNames: string[] = [];
+
+  try {
+    const projectPath = join((service as any).paths.homeDir, "retrieve-spaced-project");
+    await mkdir(join(projectPath, "reports"), { recursive: true });
+    await writeFile(join(projectPath, "reports", "Q1  final.pdf"), "spaced", "utf8");
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Retrieve Project", projectPath });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1, text),
+      sendDocument: async (_chatId: string, _filePath: string, options?: { fileName?: string }) => {
+        deliveredNames.push(options?.fileName ?? "");
+        return createFakeTelegramMessage(2, "document");
+      }
+    };
+
+    await (service as any).handleMessage(
+      createIncomingUserMessage(1, 1, 2010, '/retrieve "reports/Q1  final.pdf"')
+    );
+
+    assert.deepEqual(deliveredNames, ["Q1  final.pdf"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("retrieve routes a filename containing a tab without rewriting it", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const deliveredNames: string[] = [];
+
+  try {
+    const projectPath = join((service as any).paths.homeDir, "retrieve-tab-project");
+    await mkdir(join(projectPath, "reports"), { recursive: true });
+    await writeFile(join(projectPath, "reports", "Q1\tfinal.pdf"), "tabbed", "utf8");
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Retrieve Project", projectPath });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1, text),
+      sendDocument: async (_chatId: string, _filePath: string, options?: { fileName?: string }) => {
+        deliveredNames.push(options?.fileName ?? "");
+        return createFakeTelegramMessage(2, "document");
+      }
+    };
+
+    await (service as any).handleMessage(
+      createIncomingUserMessage(1, 1, 2011, "/retrieve reports/Q1\tfinal.pdf")
+    );
+
+    assert.deepEqual(deliveredNames, ["Q1\tfinal.pdf"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("retrieve requires opaque callback approval before sending an external report", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const documents: Array<{ bytes: string; fileName: string | undefined; caption: string | undefined }> = [];
+  const sentMessages: Array<{ text: string; replyMarkup?: any }> = [];
+  const callbackAnswers: string[] = [];
+
+  try {
+    const homeDir = (service as any).paths.homeDir as string;
+    const projectPath = join(homeDir, "retrieve-project");
+    const externalPath = join(homeDir, "external report.html");
+    await mkdir(projectPath, { recursive: true });
+    await writeFile(externalPath, "external report bytes", "utf8");
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Retrieve Project", projectPath });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        sentMessages.push({ text, replyMarkup: options?.replyMarkup });
+        return createFakeTelegramMessage(10, text);
+      },
+      sendDocument: async (_chatId: string, filePath: string, options?: { fileName?: string; caption?: string }) => {
+        documents.push({ bytes: await readFile(filePath, "utf8"), fileName: options?.fileName, caption: options?.caption });
+        return createFakeTelegramMessage(11, "document");
+      },
+      answerCallbackQuery: async (_callbackId: string, text?: string) => {
+        callbackAnswers.push(text ?? "");
+      }
+    };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2002, `/retrieve ${externalPath}`));
+    assert.equal(documents.length, 0);
+
+    const callbackData = sentMessages.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.callback_data;
+    assert.equal(typeof callbackData, "string");
+    assert.match(callbackData, /^v10:rt:y:[A-Za-z0-9_-]+$/u);
+    assert.equal(callbackData.includes(externalPath), false);
+
+    await (service as any).handleCallback({
+      id: "retrieve-confirm-callback",
+      from: { id: 1, is_bot: false, first_name: "Tester" },
+      message: { message_id: 2003, chat: { id: 1, type: "private" } },
+      data: callbackData
+    });
+
+    assert.deepEqual(documents, [{
+      bytes: "external report bytes",
+      fileName: "external report.html",
+      caption: `Retrieved: ${externalPath}\nSize: 21 B`
+    }]);
+    assert.deepEqual(callbackAnswers, ["文件已发送。"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("retrieve remains unsupported on Feishu and never delivers a document", async () => {
+  const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
+  const sent: string[] = [];
+  let documentCalls = 0;
+
+  try {
+    authorizeFeishuChat(store, "feishu-chat", "feishu-user");
+    const session = createSession(store, "feishu-chat");
+    store.setActiveSession("feishu-chat", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        sent.push(text);
+        return createFakeTelegramMessage(20, text);
+      },
+      sendDocument: async () => {
+        documentCalls += 1;
+        return createFakeTelegramMessage(21, "document");
+      }
+    };
+
+    await (service as any).handleMessage({
+      message_id: 2004,
+      from: { id: "feishu-user", is_bot: false, first_name: "Tester" },
+      chat: { id: "feishu-chat", type: "private" },
+      date: 0,
+      text: "/retrieve /tmp/report.html"
+    });
+
+    assert.equal(documentCalls, 0);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0], "这个命令还没开放。");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("retrieve help is advertised on Telegram but hidden from Feishu", async () => {
+  const telegram = await createServiceContext();
+  const feishu = await createServiceContext({}, feishuTestConfig);
+  const telegramMessages: string[] = [];
+  const feishuMessages: string[] = [];
+
+  try {
+    authorizeNumericChatWithSession(telegram.store, "1");
+    (telegram.service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        telegramMessages.push(text);
+        return createFakeTelegramMessage(30, text);
+      }
+    };
+
+    authorizeFeishuChat(feishu.store, "feishu-chat", "feishu-user");
+    (feishu.service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        feishuMessages.push(text);
+        return createFakeTelegramMessage(31, text);
+      }
+    };
+
+    await (telegram.service as any).handleMessage(createIncomingUserMessage(1, 1, 2005, "/help"));
+    await (feishu.service as any).handleMessage({
+      message_id: 2006,
+      from: { id: "feishu-user", is_bot: false, first_name: "Tester" },
+      chat: { id: "feishu-chat", type: "private" },
+      date: 0,
+      text: "/help"
+    });
+
+    assert.match(telegramMessages.at(-1) ?? "", /\/retrieve <文件路径>/u);
+    assert.doesNotMatch(feishuMessages.at(-1) ?? "", /\/retrieve\b/u);
+  } finally {
+    await telegram.cleanup();
+    await feishu.cleanup();
+  }
+});
+
 test("service starts and stops perf sampling when monitoring is enabled", async () => {
   const samplerCalls: string[] = [];
   const samplerOptions: Array<{ getAppServerPid: () => number | null }> = [];
@@ -8207,6 +8440,92 @@ test("model command keeps small model lists on one page and supports two-step mo
       model: "o3",
       effort: "xhigh"
     }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("model effort callbacks persist GPT-5.6 max and ultra selections in the active session", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const sent: Array<{ text: string; options?: any }> = [];
+  const edited: Array<{ messageId: number; text: string; options?: any }> = [];
+  const callbackAnswers: string[] = [];
+
+  try {
+    const session = authorizeNumericChatWithSession(store, "1");
+    store.setSessionSelectedModel(session.sessionId, "gpt-5.6");
+    store.setSessionSelectedReasoningEffort(session.sessionId, "xhigh");
+
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        sent.push({ text, options });
+        return createFakeTelegramMessage(1250 + sent.length, text);
+      },
+      editMessageText: async (_chatId: string, messageId: number, text: string, options?: any) => {
+        edited.push({ messageId, text, options });
+        return createFakeTelegramMessage(messageId, text);
+      },
+      answerCallbackQuery: async (_callbackQueryId: string, text?: string) => {
+        callbackAnswers.push(text ?? "");
+      }
+    };
+
+    (service as any).appServer = {
+      isRunning: true,
+      listModels: async () => ({
+        data: [{
+          id: "gpt-5.6",
+          model: "gpt-5.6",
+          displayName: "GPT-5.6",
+          isDefault: true,
+          hidden: false,
+          description: "frontier",
+          defaultReasoningEffort: "max",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "max", description: "maximum" },
+            { reasoningEffort: "ultra", description: "automatic delegation" }
+          ]
+        }],
+        nextCursor: null
+      })
+    };
+
+    await (service as any).routeCommand("1", "model", "");
+    const modelCallbackData = getCallbackData(sent[0], 1, 0);
+
+    for (const [index, effort] of (["max", "ultra"] as const).entries()) {
+      await (service as any).handleCallback({
+        id: `cb-model-pick-gpt-5.6-${effort}`,
+        from: { id: 1, is_bot: false, first_name: "Tester" },
+        message: {
+          message_id: 1251,
+          chat: { id: 1, type: "private" },
+          date: 0,
+          text: sent[0]?.text ?? ""
+        },
+        data: modelCallbackData
+      });
+
+      const picker = edited.at(-1);
+      assert.match(picker?.text ?? "", /选择思考强度/u);
+      assert.equal(picker?.options?.replyMarkup?.inline_keyboard?.[1]?.[index]?.text, effort === "max" ? "Max" : "Ultra");
+
+      await (service as any).handleCallback({
+        id: `cb-effort-${effort}`,
+        from: { id: 1, is_bot: false, first_name: "Tester" },
+        message: {
+          message_id: 1251,
+          chat: { id: 1, type: "private" },
+          date: 0,
+          text: picker?.text ?? ""
+        },
+        data: getCallbackData(picker, 1, index)
+      });
+
+      assert.equal(store.getActiveSession("1")?.selectedModel, "gpt-5.6");
+      assert.equal(store.getActiveSession("1")?.selectedReasoningEffort, effort);
+      assert.equal(callbackAnswers.at(-1), "");
+    }
   } finally {
     await cleanup();
   }

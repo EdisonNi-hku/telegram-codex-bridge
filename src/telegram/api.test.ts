@@ -244,3 +244,160 @@ test("TelegramApi sends document uploads with expected form fields", async () =>
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("TelegramApi fetch upload keeps the document body file-backed until consumed", async () => {
+  const originalFetch = globalThis.fetch;
+  const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-lazy-document-"));
+  const filePath = join(root, "large-report.bin");
+  await writeFile(filePath, "original-bytes", "utf8");
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    const form = init?.body as FormData;
+    const document = form.get("document");
+    assert.ok(document instanceof Blob);
+    await writeFile(filePath, "changed bytes with a different size", "utf8");
+    await assert.rejects(document.arrayBuffer(), /modified|read|state|NotReadable/iu);
+    return {
+      ok: true,
+      json: async () => ({
+        ok: true,
+        result: { message_id: 43, date: 0, chat: { id: 1, type: "private" } }
+      })
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    await withEnvironment({
+      HTTPS_PROXY: undefined,
+      https_proxy: undefined,
+      HTTP_PROXY: undefined,
+      http_proxy: undefined,
+      ALL_PROXY: undefined,
+      all_proxy: undefined
+    }, async () => {
+      const api = new TelegramApi("test-token", "https://api.telegram.org");
+      const result = await api.sendDocument("chat-1", filePath, { fileName: "large-report.bin" });
+      assert.equal(result.message_id, 43);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TelegramApi curl upload quotes filename directives as literal filename text", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-curl-filename-"));
+  const filePath = join(root, "report.txt");
+  const requestBodies: string[] = [];
+  await writeFile(filePath, "document body", "utf8");
+
+  const server = createServer(async (req, res) => {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    requestBodies.push(Buffer.concat(chunks).toString("utf8"));
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      ok: true,
+      result: { message_id: 44, date: 0, chat: { id: 1, type: "private" } }
+    }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  try {
+    const api = new TelegramApi("test-token", `http://127.0.0.1:${address.port}`);
+    const fileName = '报告 Q1;headers="X-Injection: yes";headers=@/definitely/missing;type=text/x-evil;filename="override"\\tail.txt';
+    const result = await (api as any).sendDocumentWithCurl(
+      "chat-1",
+      filePath,
+      { fileName },
+      20_000,
+      new Error("forced fetch failure")
+    );
+
+    assert.equal(result.message_id, 44);
+    assert.equal(requestBodies.length, 1);
+    assert.doesNotMatch(requestBodies[0] ?? "", /\r\nX-Injection: yes\r\n/u);
+    assert.doesNotMatch(requestBodies[0] ?? "", /\r\nContent-Type: text\/x-evil\r\n/u);
+    assert.match(requestBodies[0] ?? "", /报告 Q1;headers=/u);
+    assert.match(requestBodies[0] ?? "", /headers=@\/definitely\/missing/u);
+    assert.match(requestBodies[0] ?? "", /override/u);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TelegramApi rejects curl multipart filenames containing CR, LF, or NUL", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-curl-control-filename-"));
+  const filePath = join(root, "report.txt");
+  await writeFile(filePath, "document body", "utf8");
+  const api = new TelegramApi("test-token", "http://127.0.0.1:1");
+
+  try {
+    for (const fileName of ["bad\rname.txt", "bad\nname.txt", "bad\0name.txt"]) {
+      await assert.rejects(
+        (api as any).sendDocumentWithCurl("chat-1", filePath, { fileName }, 20_000, "test"),
+        /filename.*(?:CR|LF|NUL|control)/iu
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TelegramApi falls back to curl when a file-backed fetch body detects mutation", async () => {
+  const originalFetch = globalThis.fetch;
+  const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-mutated-fallback-"));
+  const filePath = join(root, "report.txt");
+  await writeFile(filePath, "original", "utf8");
+
+  const server = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+      // Consume the curl fallback request.
+    }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      ok: true,
+      result: { message_id: 45, date: 0, chat: { id: 1, type: "private" } }
+    }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    const form = init?.body as FormData;
+    const document = form.get("document");
+    assert.ok(document instanceof Blob);
+    await writeFile(filePath, "mutated!", "utf8");
+    await document.arrayBuffer();
+    throw new Error("expected file-backed blob mutation detection");
+  }) as typeof fetch;
+
+  try {
+    await withEnvironment({
+      HTTPS_PROXY: undefined,
+      https_proxy: undefined,
+      HTTP_PROXY: undefined,
+      http_proxy: undefined,
+      ALL_PROXY: undefined,
+      all_proxy: undefined
+    }, async () => {
+      const api = new TelegramApi("test-token", `http://127.0.0.1:${address.port}`);
+      const result = await api.sendDocument("chat-1", filePath, { fileName: "report.txt" });
+      assert.equal(result.message_id, 45);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+    await rm(root, { recursive: true, force: true });
+  }
+});

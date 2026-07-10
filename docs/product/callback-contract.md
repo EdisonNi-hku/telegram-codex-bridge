@@ -38,6 +38,9 @@ Versioned callback families currently emitted by the bridge:
 - `v5` targeted runtime status and project-browser callbacks: `st:i|x:{session_id}`, `br:o|p|u|r|f|b|c|n|y|k:{token}[:{value36}]`
 - `v6` runtime-hub slot selector callbacks: `hb:s:{token}:{version36}:{slot36}`
 - `v7` recent-output entry callbacks: `rr:o|c|p:{answer_id}[:{page36}]`
+- `v8` command-panel callbacks: `cp:o`, `cp:h`, `cp:r:{command}`, `ce:o`, `ce:p:{token}:{page36}`, `ce:t:{token}:{command}`, `ce:s|r|c:{token}`
+- `v9` native user-shell confirmation callbacks: `sh:y|n:{token}`
+- `v10` Telegram file-retrieval confirmation callbacks: `rt:y|n:{token}`
 
 Rules:
 - `project_key` is a stable short hash of the project path, never the raw path
@@ -45,8 +48,10 @@ Rules:
 - decision and question selectors are compact bridge-local indexes, not raw `decision_key` or `question_id` values
 - runtime field selectors use short bridge-owned codes such as `mn`, `mw`, `pm`, and `fr`
 - compact callback indexes use base36 encoding to stay within Telegram size limits
+- `v9` shell and `v10` retrieval confirmations use opaque bridge-owned tokens; both are single-use and expire after two minutes; replacement or a later click after consumption returns stale feedback, a click after expiry but before timer cleanup returns expired feedback, and timer-pruned post-expiry clicks may return stale/invalid feedback because the pending token no longer exists; a binding mismatch returns a surface-specific refusal while consuming the token
+- retrieval confirmation tokens are bound to the authorized chat, active session, project, and resolved target path; `y` confirms sending and `n` cancels without sending
 - bridge-emitted callback payloads must stay within Telegram's 64-byte `callback_data` limit; interaction callbacks are the tightest budget
-- duplicate clicks must be idempotent and return `这个操作已处理。`
+- duplicate clicks on persisted interaction callbacks must be idempotent and return `这个操作已处理。`; single-use `v9` and `v10` confirmations instead return their compact stale/expired feedback
 - stale callbacks must return a compact expiry notice; generic interaction flows use `这个按钮已过期，请重新操作。`, while surface-specific flows may ask the user to re-send `/browse`, `/runtime`, `/inspect`, or `/rollback`
 - pre-session browse callbacks (`v1:new:browse:*` and `v5:br:n|y|k:*`) are bridge-owned flows and must stay idempotent like other picker callbacks
 - list-based bridge session switching and pinning remain text commands (`/use <n>` and `/pin`); Codex history resume selection uses bridge-owned numeric picker callbacks

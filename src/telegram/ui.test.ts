@@ -36,12 +36,18 @@ import {
   buildRuntimeHubReplyMarkup,
   buildRuntimeStatusReplyMarkup,
   buildRuntimeStatusCard,
+  buildReasoningEffortPickerMessage,
   buildSessionsText,
   buildCollapsibleFinalAnswerView,
   buildCurrentSessionCardText,
+  encodeRetrieveCancelCallback,
+  encodeRetrieveConfirmCallback,
+  encodeModelEffortCallback,
   encodeShellCancelCallback,
   encodeShellConfirmCallback,
+  formatReasoningEffortLabel,
   parseCallbackData,
+  parseCommand,
   renderFinalAnswerHtmlChunks
 } from "./ui.js";
 
@@ -74,6 +80,27 @@ async function withMockedNow<T>(nowIso: string, callback: () => Promise<T> | T):
     globalThis.Date = RealDate;
   }
 }
+
+test("parseCommand preserves repeated spaces inside a quoted retrieve path", () => {
+  assert.deepEqual(parseCommand('/retrieve "reports/Q1  final.pdf"'), {
+    name: "retrieve",
+    args: '"reports/Q1  final.pdf"'
+  });
+});
+
+test("parseCommand preserves tabs inside a retrieve filename", () => {
+  assert.deepEqual(parseCommand("/retrieve reports/Q1\tfinal.pdf"), {
+    name: "retrieve",
+    args: "reports/Q1\tfinal.pdf"
+  });
+});
+
+test("parseCommand still normalizes command mentions and trims only outer argument whitespace", () => {
+  assert.deepEqual(parseCommand("  /ReTrIeVe@BridgeBot\t  reports/Q1  final.pdf  \n"), {
+    name: "retrieve",
+    args: "reports/Q1  final.pdf"
+  });
+});
 
 function createSession(overrides: Partial<SessionRow>): SessionRow {
   const chatId = overrides.chatId ?? "chat-1";
@@ -447,6 +474,72 @@ test("buildCurrentSessionCardText renders the English current-session card", () 
       "Idle · configured Default model + default / effective Default model + default"
     ].join("\n")
   );
+});
+
+test("formatReasoningEffortLabel renders GPT-5.6 efforts and preserves unknown runtime values", () => {
+  assert.equal(formatReasoningEffortLabel("max"), "Max");
+  assert.equal(formatReasoningEffortLabel("ultra"), "Ultra");
+  assert.equal(formatReasoningEffortLabel("future" as never), "future");
+});
+
+test("buildReasoningEffortPickerMessage renders GPT-5.6 effort labels without undefined", () => {
+  const picker = buildReasoningEffortPickerMessage({
+    session: createSession({}),
+    model: {
+      id: "gpt-5.6-sol",
+      displayName: "GPT-5.6-Sol",
+      isDefault: true,
+      defaultReasoningEffort: "low",
+      supportedReasoningEfforts: [
+        { reasoningEffort: "max", description: "Maximum reasoning depth" },
+        { reasoningEffort: "ultra", description: "Automatic delegation" }
+      ]
+    },
+    modelIndex: 0
+  });
+  const labels = picker.replyMarkup.inline_keyboard.flat().map((button) => button.text);
+
+  assert.ok(labels.includes("Max"));
+  assert.ok(labels.includes("Ultra"));
+  assert.doesNotMatch(labels.join("\n"), /undefined/u);
+});
+
+test("buildCurrentSessionCardText renders GPT-5.6 efforts in English", () => {
+  for (const effort of ["max", "ultra"] as const) {
+    const text = buildCurrentSessionCardText(
+      createSession({ selectedModel: "gpt-5.6-sol", selectedReasoningEffort: effort }),
+      "en"
+    );
+
+    assert.match(text, new RegExp(`configured gpt-5\\.6-sol \\+ ${effort === "max" ? "Max" : "Ultra"}`, "u"));
+    assert.doesNotMatch(text, /undefined/u);
+  }
+});
+
+test("model effort callbacks round-trip GPT-5.6 efforts while preserving existing behavior", () => {
+  for (const effort of ["max", "ultra"] as const) {
+    const callback = encodeModelEffortCallback("session-1", 0, effort);
+    assert.deepEqual(parseCallbackData(callback), {
+      kind: "model_effort",
+      sessionId: "session-1",
+      modelIndex: 0,
+      effort
+    });
+  }
+
+  assert.deepEqual(parseCallbackData(encodeModelEffortCallback("session-1", 0, "high")), {
+    kind: "model_effort",
+    sessionId: "session-1",
+    modelIndex: 0,
+    effort: "high"
+  });
+  assert.deepEqual(parseCallbackData(encodeModelEffortCallback("session-1", 0, null)), {
+    kind: "model_effort",
+    sessionId: "session-1",
+    modelIndex: 0,
+    effort: null
+  });
+  assert.equal(parseCallbackData("v2:model:effort:session-1:0:future"), null);
 });
 
 test("buildManualPathConfirmMessage renders bold field labels and keeps the keyboard", () => {
@@ -1659,6 +1752,21 @@ test("shell confirmation callbacks round-trip through compact callback data", ()
   assert.ok(Buffer.byteLength(cancel, "utf8") <= 64);
   assert.deepEqual(parseCallbackData(confirm), { kind: "shell_confirm", token: "tok123" });
   assert.deepEqual(parseCallbackData(cancel), { kind: "shell_cancel", token: "tok123" });
+});
+
+test("retrieve callbacks round-trip compact opaque tokens and reject invalid actions", () => {
+  const confirm = encodeRetrieveConfirmCallback("tok123");
+  const cancel = encodeRetrieveCancelCallback("tok123");
+
+  assert.equal(confirm, "v10:rt:y:tok123");
+  assert.equal(cancel, "v10:rt:n:tok123");
+  assert.ok(Buffer.byteLength(confirm, "utf8") <= 64);
+  assert.ok(Buffer.byteLength(cancel, "utf8") <= 64);
+  assert.deepEqual(parseCallbackData(confirm), { kind: "retrieve_confirm", token: "tok123" });
+  assert.deepEqual(parseCallbackData(cancel), { kind: "retrieve_cancel", token: "tok123" });
+  assert.equal(parseCallbackData("v10:rt:z:tok123"), null);
+  assert.throws(() => encodeRetrieveConfirmCallback("x".repeat(56)), /exceeds 64 bytes/u);
+  assert.throws(() => encodeRetrieveCancelCallback("界".repeat(19)), /exceeds 64 bytes/u);
 });
 
 test("interaction cards render approval and questionnaire flows without leaking raw protocol fields", () => {

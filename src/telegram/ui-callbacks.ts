@@ -3,6 +3,8 @@ import type { ReasoningEffort, RuntimeStatusField, UiLanguage } from "../types.j
 export type ParsedCallbackData =
   | { kind: "shell_confirm"; token: string }
   | { kind: "shell_cancel"; token: string }
+  | { kind: "retrieve_confirm"; token: string }
+  | { kind: "retrieve_cancel"; token: string }
   | { kind: "commands_open" }
   | { kind: "commands_help" }
   | { kind: "commands_run"; command: string }
@@ -132,7 +134,8 @@ export function parseCommand(text: string): { name: string; args: string } | nul
     return null;
   }
 
-  const [commandToken, ...rest] = trimmed.split(/\s+/u);
+  const separatorIndex = trimmed.search(/\s/u);
+  const commandToken = separatorIndex === -1 ? trimmed : trimmed.slice(0, separatorIndex);
   if (!commandToken) {
     return null;
   }
@@ -144,7 +147,7 @@ export function parseCommand(text: string): { name: string; args: string } | nul
 
   return {
     name: commandName,
-    args: rest.join(" ").trim()
+    args: separatorIndex === -1 ? "" : trimmed.slice(separatorIndex).trim()
   };
 }
 
@@ -162,6 +165,14 @@ export function encodeShellConfirmCallback(token: string): string {
 
 export function encodeShellCancelCallback(token: string): string {
   return ensureTelegramCallbackDataLimit(`v9:sh:n:${token}`);
+}
+
+export function encodeRetrieveConfirmCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v10:rt:y:${token}`);
+}
+
+export function encodeRetrieveCancelCallback(token: string): string {
+  return ensureTelegramCallbackDataLimit(`v10:rt:n:${token}`);
 }
 
 export function encodeCommandPanelEditHelpCallback(): string {
@@ -492,6 +503,18 @@ export function encodeHubSelectCallback(token: string, version: number, slot: nu
 
 export function parseCallbackData(data: string): ParsedCallbackData | null {
   const parts = data.split(":");
+  if (parts[0] === "v10" && parts[1] === "rt" && parts[3]) {
+    if (parts[2] === "y") {
+      return { kind: "retrieve_confirm", token: parts[3] };
+    }
+
+    if (parts[2] === "n") {
+      return { kind: "retrieve_cancel", token: parts[3] };
+    }
+
+    return null;
+  }
+
   if (parts[0] === "v9" && parts[1] === "sh" && parts[3]) {
     if (parts[2] === "y") {
       return { kind: "shell_confirm", token: parts[3] };
@@ -1093,6 +1116,8 @@ function parseReasoningEffort(value: string): ReasoningEffort | null {
     case "medium":
     case "high":
     case "xhigh":
+    case "max":
+    case "ultra":
       return value;
     default:
       return null;

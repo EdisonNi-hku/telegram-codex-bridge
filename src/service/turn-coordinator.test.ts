@@ -14,6 +14,7 @@ import type {
 import type { EgressMessageSendResult } from "../packs/contract.js";
 import { TELEGRAM_PACK } from "../packs/telegram/index.js";
 import { BridgeStateStore } from "../state/store.js";
+import type { ReasoningEffort } from "../types.js";
 import { TurnCoordinator } from "./turn-coordinator.js";
 
 const testLogger: Logger = {
@@ -64,8 +65,8 @@ async function createCoordinatorContext(options: {
     description: string;
     hidden: boolean;
     isDefault: boolean;
-    defaultReasoningEffort: "low" | "medium" | "high";
-    supportedReasoningEfforts: Array<{ reasoningEffort: "low" | "medium" | "high"; description: string }>;
+    defaultReasoningEffort: ReasoningEffort;
+    supportedReasoningEfforts: Array<{ reasoningEffort: ReasoningEffort; description: string }>;
   }>;
   safeSendHtmlMessageResult?: (
     chatId: string,
@@ -95,7 +96,7 @@ async function createCoordinatorContext(options: {
   } | null;
   fetchRuntimeConfig?: () => Promise<{
     model: string | null;
-    reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
+    reasoningEffort: ReasoningEffort | null;
   }>;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ctb-turn-coordinator-test-"));
@@ -339,6 +340,80 @@ test("TurnCoordinator starts plan-mode turns with collaborationMode and records 
       kind: "text"
     }]);
     assert.equal(store.getSessionById(session.sessionId)?.status, "running");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator sends a selected max effort to app-server turn/start", async () => {
+  const startTurnCalls: unknown[] = [];
+  const { coordinator, store, cleanup } = await createCoordinatorContext({
+    appServer: {
+      startThread: async () => ({ thread: { id: "thread-max" } }),
+      startTurn: async (payload: unknown) => {
+        startTurnCalls.push(payload);
+        return { turn: { id: "turn-max", status: "inProgress" } };
+      }
+    }
+  });
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      selectedReasoningEffort: "max"
+    });
+
+    await coordinator.startTextTurn("chat-1", session, "Use maximum reasoning.");
+
+    assert.deepEqual(startTurnCalls, [{
+      threadId: "thread-max",
+      cwd: "/tmp/project-one",
+      text: "Use maximum reasoning.",
+      effort: "max"
+    }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator preserves ultra effort in collaboration-mode settings", async () => {
+  const startTurnCalls: unknown[] = [];
+  const { coordinator, store, cleanup } = await createCoordinatorContext({
+    appServer: {
+      startThread: async () => ({ thread: { id: "thread-ultra-plan" } }),
+      startTurn: async (payload: unknown) => {
+        startTurnCalls.push(payload);
+        return { turn: { id: "turn-ultra-plan", status: "inProgress" } };
+      }
+    }
+  });
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      planMode: true,
+      selectedReasoningEffort: "ultra"
+    });
+
+    await coordinator.startTextTurn("chat-1", session, "Plan with ultra reasoning.");
+
+    assert.deepEqual(startTurnCalls, [{
+      threadId: "thread-ultra-plan",
+      cwd: "/tmp/project-one",
+      text: "Plan with ultra reasoning.",
+      collaborationMode: {
+        mode: "plan",
+        settings: {
+          model: "gpt-5-default",
+          developerInstructions: null,
+          reasoningEffort: "ultra"
+        }
+      }
+    }]);
   } finally {
     await cleanup();
   }

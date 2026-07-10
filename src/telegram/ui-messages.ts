@@ -705,6 +705,12 @@ function formatReasoningEffortLabelForCard(effort: ReasoningEffort, language: Ui
       return "high";
     case "xhigh":
       return "very high";
+    case "max":
+      return "Max";
+    case "ultra":
+      return "Ultra";
+    default:
+      return effort;
   }
 }
 
