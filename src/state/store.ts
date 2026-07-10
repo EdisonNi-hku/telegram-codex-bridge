@@ -790,6 +790,9 @@ export class BridgeStateStore {
     return this.runtimeArtifacts.listHeldTerminalResultParentsReadyForRelease();
   }
   claimHeldTerminalResults(sessionId: string): TerminalResultViewRow[] { return this.runtimeArtifacts.claimHeldTerminalResults(sessionId); }
+  requeuePendingTerminalResultForSide(answerId: string): boolean {
+    return this.runtimeArtifacts.requeuePendingTerminalResultForSide(answerId);
+  }
 
   setTerminalResultMessageId(answerId: string, messageId: number): void {
     this.runtimeArtifacts.setTerminalResultMessageId(answerId, messageId);

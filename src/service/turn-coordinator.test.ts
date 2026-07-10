@@ -2007,6 +2007,73 @@ test("TurnCoordinator releases held results in creation order and defers failed 
   }
 });
 
+test("TurnCoordinator requeues a post-claim delivery exception and continues later held rows", async () => {
+  let firstDeliveryFails = true;
+  const { coordinator, store, sentHtmlMessages, cleanup } = await createCoordinatorContext({
+    safeSendHtmlMessageResult: async (_chatId, html) =>
+      firstDeliveryFails && html.includes("first retryable") ? null : { messageId: 81 }
+  });
+  try {
+    const parent = store.createSession({ chatId: "chat-1", projectName: "P", projectPath: "/tmp/p" });
+    store.saveTerminalResultView({
+      answerId: "post-claim-first", chatId: "chat-1", sessionId: parent.sessionId,
+      threadId: "t1", turnId: "u1", deliveryState: "held_for_side",
+      previewHtml: "first retryable", pages: ["first retryable"]
+    });
+    store.saveTerminalResultView({
+      answerId: "post-claim-second", chatId: "chat-1", sessionId: parent.sessionId,
+      threadId: "t2", turnId: "u2", deliveryState: "held_for_side",
+      previewHtml: "second succeeds", pages: ["second succeeds"]
+    });
+    const createRuntimeNotice = store.createRuntimeNotice.bind(store);
+    (store as any).createRuntimeNotice = (options: Parameters<typeof store.createRuntimeNotice>[0]) => {
+      if (options.turnId === "u1") throw new Error("notice persistence unavailable");
+      return createRuntimeNotice(options);
+    };
+
+    await assert.rejects(
+      coordinator.releaseHeldTerminalResults("chat-1", parent.sessionId),
+      /notice persistence unavailable/
+    );
+    assert.equal(store.getTerminalResultView("post-claim-first", "chat-1")?.deliveryState, "held_for_side");
+    assert.equal(store.getTerminalResultView("post-claim-second", "chat-1")?.deliveryState, "visible");
+    assert.deepEqual(sentHtmlMessages.map((entry) => entry.html), ["second succeeds"]);
+
+    firstDeliveryFails = false;
+    (store as any).createRuntimeNotice = createRuntimeNotice;
+    assert.equal(await coordinator.releaseHeldTerminalResults("chat-1", parent.sessionId), 1);
+    assert.equal(store.getTerminalResultView("post-claim-first", "chat-1")?.deliveryState, "visible");
+    assert.deepEqual(sentHtmlMessages.map((entry) => entry.html), ["second succeeds", "first retryable"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator never requeues after Telegram accepted a held result whose metadata write fails", async () => {
+  const { coordinator, store, sentHtmlMessages, cleanup } = await createCoordinatorContext({
+    safeSendHtmlMessageResult: async () => ({ messageId: 91 })
+  });
+  try {
+    const parent = store.createSession({ chatId: "chat-1", projectName: "P", projectPath: "/tmp/p" });
+    store.saveTerminalResultView({
+      answerId: "accepted-metadata-failure", chatId: "chat-1", sessionId: parent.sessionId,
+      threadId: "t1", turnId: "u1", deliveryState: "held_for_side",
+      previewHtml: "accepted exactly once", pages: ["accepted exactly once"]
+    });
+    const setMessageId = store.setTerminalResultMessageId.bind(store);
+    (store as any).setTerminalResultMessageId = () => { throw new Error("metadata unavailable"); };
+
+    assert.equal(await coordinator.releaseHeldTerminalResults("chat-1", parent.sessionId), 1);
+    assert.equal(store.getTerminalResultView("accepted-metadata-failure", "chat-1")?.deliveryState, "pending");
+    assert.equal(store.countHeldTerminalResults(parent.sessionId), 0);
+    assert.equal(await coordinator.releaseHeldTerminalResults("chat-1", parent.sessionId), 0);
+    assert.deepEqual(sentHtmlMessages.map((entry) => entry.html), ["accepted exactly once"]);
+    (store as any).setTerminalResultMessageId = setMessageId;
+  } finally {
+    await cleanup();
+  }
+});
+
 test("TurnCoordinator sends exactly once when parent completion races with held-result release", async () => {
   let hold = true;
   let resumeEntered!: () => void;

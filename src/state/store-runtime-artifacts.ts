@@ -248,6 +248,7 @@ export interface StoreRuntimeArtifacts {
   countHeldTerminalResults(sessionId: string): number;
   listHeldTerminalResultParentsReadyForRelease(): Array<{ chatId: string; sessionId: string }>;
   claimHeldTerminalResults(sessionId: string): TerminalResultViewRow[];
+  requeuePendingTerminalResultForSide(answerId: string): boolean;
   saveFinalAnswerView(options: {
     answerId?: string;
     chatId: string;
@@ -826,6 +827,19 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         db.exec("ROLLBACK");
         throw error;
       }
+    },
+
+    requeuePendingTerminalResultForSide(answerId) {
+      const result = db
+        .prepare(
+          `
+            UPDATE final_answer_view
+            SET delivery_state = 'held_for_side'
+            WHERE answer_id = ? AND delivery_state = 'pending'
+          `
+        )
+        .run(answerId);
+      return Number(result.changes ?? 0) === 1;
     },
 
     rebindTerminalResultViewsChatIds(chatId, previousChatIds) {

@@ -983,7 +983,6 @@ test("service startup retries durable held Side output after readiness fails pos
 
 test("service startup isolates held Side release failures and retries only the failed parent", async () => {
   const delivered: string[] = [];
-  const releaseAttempts: string[] = [];
   const { logger, warn } = createCapturingLogger();
   let pollerRuns = 0;
   let nextMessageId = 1950;
@@ -1004,6 +1003,7 @@ test("service startup isolates held Side release failures and retries only the f
   const { service, store, cleanup } = await createServiceContext(deps);
   const paths = (service as any).paths as BridgePaths;
   let retryService: BridgeService | null = null;
+  const createRuntimeNotice = BridgeStateStore.prototype.createRuntimeNotice;
 
   try {
     authorizeChat(store, "chat-side-release-first");
@@ -1032,21 +1032,25 @@ test("service startup isolates held Side release failures and retries only the f
       });
     }
     (service as any).logger = logger;
-    const release = (service as any).turnCoordinator.releaseHeldTerminalResults.bind((service as any).turnCoordinator);
-    (service as any).turnCoordinator.releaseHeldTerminalResults = async (chatId: string, sessionId: string) => {
-      releaseAttempts.push(sessionId);
-      if (sessionId === first.sessionId) throw new Error("first parent delivery unavailable");
-      return release(chatId, sessionId);
+    const terminalDeps = (service as any).turnCoordinator.deps;
+    const sendTerminalHtml = terminalDeps.safeSendHtmlMessageResult;
+    terminalDeps.safeSendHtmlMessageResult = async (chatId: string, html: string, replyMarkup?: unknown) => {
+      if (html.includes("First held result")) return null;
+      return sendTerminalHtml(chatId, html, replyMarkup);
+    };
+    BridgeStateStore.prototype.createRuntimeNotice = function (options) {
+      if (options.turnId === `turn-${first.sessionId}`) throw new Error("first parent notice persistence unavailable");
+      return createRuntimeNotice.call(this, options);
     };
 
     await service.run();
     assert.equal(pollerRuns, 1);
-    assert.deepEqual(releaseAttempts, [first.sessionId, second.sessionId]);
     assert.equal(((service as any).store as BridgeStateStore).countHeldTerminalResults(first.sessionId), 1);
     assert.equal(((service as any).store as BridgeStateStore).countHeldTerminalResults(second.sessionId), 0);
     assert.equal(delivered.filter((text) => text.includes("Second held result")).length, 1);
     assert.equal(warn.some((entry) => entry.message === "held Side result release failed"), true);
     await service.stop({ source: "release_retry" });
+    BridgeStateStore.prototype.createRuntimeNotice = createRuntimeNotice;
 
     retryService = new BridgeService(paths, testConfig, deps);
     await retryService.run();
@@ -1054,6 +1058,7 @@ test("service startup isolates held Side release failures and retries only the f
     assert.equal(delivered.filter((text) => text.includes("First held result")).length, 1);
     assert.equal(delivered.filter((text) => text.includes("Second held result")).length, 1);
   } finally {
+    BridgeStateStore.prototype.createRuntimeNotice = createRuntimeNotice;
     await retryService?.stop({ source: "test_complete" });
     await cleanup();
   }

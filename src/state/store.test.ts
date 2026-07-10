@@ -839,6 +839,33 @@ test("held Side result parents become releasable only after their regular sessio
   }
 });
 
+test("a claimed pending Side result can be atomically requeued without overwriting visible delivery", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    store.saveTerminalResultView({
+      answerId: "requeue-held-answer",
+      chatId: "chat-requeue-held",
+      sessionId: "session-requeue-held",
+      threadId: "thread-requeue-held",
+      turnId: "turn-requeue-held",
+      deliveryState: "held_for_side",
+      previewHtml: "held",
+      pages: ["held"]
+    });
+    store.claimHeldTerminalResults("session-requeue-held");
+
+    assert.equal(store.requeuePendingTerminalResultForSide("requeue-held-answer"), true);
+    assert.equal(store.getTerminalResultView("requeue-held-answer", "chat-requeue-held")?.deliveryState, "held_for_side");
+    assert.equal(store.requeuePendingTerminalResultForSide("requeue-held-answer"), false);
+    store.claimHeldTerminalResults("session-requeue-held");
+    store.setTerminalResultDeliveryState("requeue-held-answer", "visible");
+    assert.equal(store.requeuePendingTerminalResultForSide("requeue-held-answer"), false);
+    assert.equal(store.getTerminalResultView("requeue-held-answer", "chat-requeue-held")?.deliveryState, "visible");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("two store connections claim each held terminal result exactly once", async () => {
   const { paths, store, cleanup } = await openStore();
   let second: BridgeStateStore | null = null;

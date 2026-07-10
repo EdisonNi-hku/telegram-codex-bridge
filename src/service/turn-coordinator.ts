@@ -1045,13 +1045,29 @@ export class TurnCoordinator {
     if (store.getSessionById(sessionId)?.chatId !== chatId) return 0;
     const held = store.claimHeldTerminalResults(sessionId);
     const deliveries: TerminalDeliveryResult[] = [];
+    const failures: unknown[] = [];
     for (const saved of held) {
-      deliveries.push(await this.deliverPersistedTerminalResult(saved));
+      try {
+        deliveries.push(await this.deliverPersistedTerminalResult(saved));
+      } catch (error) {
+        failures.push(error);
+        try {
+          store.requeuePendingTerminalResultForSide(saved.answerId);
+        } catch (requeueError) {
+          failures.push(requeueError);
+        }
+      }
     }
-    if (held.length > 0 && deliveries.every((delivery) => delivery.visible)) {
+    if (held.length > 0 && failures.length === 0 && deliveries.every((delivery) => delivery.visible)) {
       const pending = this.pendingTerminalRuntimeHandoffsBySessionId.get(sessionId);
       if (pending) await this.completePendingTerminalRuntimeHandoff(pending);
       else await this.deps.finalizeTerminalRuntimeHandoff(chatId, sessionId);
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        `failed to release ${failures.length} held Side result(s): ${failures.map((error) => `${error}`).join("; ")}`
+      );
     }
     return held.length;
   }
@@ -1253,8 +1269,18 @@ export class TurnCoordinator {
       sendHtmlMessage: this.deps.safeSendHtmlMessageResult
     });
     if (sent.outcome === "sent") {
-      store?.setTerminalResultMessageId(saved.answerId, sent.deliveryRef.messageId);
-      store?.setTerminalResultDeliveryState(saved.answerId, "visible");
+      try {
+        store?.setTerminalResultMessageId(saved.answerId, sent.deliveryRef.messageId);
+        store?.setTerminalResultDeliveryState(saved.answerId, "visible");
+      } catch (error) {
+        await this.deps.logger.error("visible terminal result metadata persistence failed", {
+          answerId: saved.answerId,
+          chatId: saved.chatId,
+          sessionId: saved.sessionId,
+          messageId: sent.deliveryRef.messageId,
+          error: `${error}`
+        }).catch(() => {});
+      }
       return { answerId: saved.answerId, kind: saved.kind, visible: true, resultVisible: true, deferredNoticeVisible: false };
     }
     const deferredNoticeResult = await this.sendDeferredTerminalNotice(saved);
