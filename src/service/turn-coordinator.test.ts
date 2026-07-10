@@ -2604,3 +2604,62 @@ test("TurnCoordinator fails the active turn when the app-server exits mid-run", 
     await cleanup();
   }
 });
+
+test("TurnCoordinator holds a parent app-server-exit failure until side return and releases it once", async () => {
+  let holdParent = true;
+  const {
+    coordinator, store, safeMessages, sentHtmlMessages, currentSessionCardSyncs, finalizedHandoffs, cleanup
+  } = await createCoordinatorContext({ shouldHoldTerminalOutput: () => holdParent });
+  try {
+    const parent = store.createSession({
+      chatId: "chat-1", projectName: "Parent Project", projectPath: "/tmp/parent-project"
+    });
+    await coordinator.beginActiveTurn("chat-1", parent, "thread-parent-exit", "turn-parent-exit", "inProgress");
+    await coordinator.handleActiveTurnAppServerExit();
+
+    assert.equal(store.getSessionById(parent.sessionId)?.status, "failed");
+    assert.equal(store.getSessionById(parent.sessionId)?.failureReason, "app_server_lost");
+    const held = store.listTerminalResultViews("chat-1");
+    assert.equal(held.length, 1);
+    assert.equal(held[0]?.deliveryState, "held_for_side");
+    assert.match(held[0]?.pages[0] ?? "", /Codex 服务暂时不可用，请稍后重试。/u);
+    assert.deepEqual(safeMessages, []);
+    assert.deepEqual(sentHtmlMessages, []);
+    assert.deepEqual(finalizedHandoffs, []);
+    assert.deepEqual(currentSessionCardSyncs, [
+      { sessionId: parent.sessionId, reason: "terminal_output_held_for_side" }
+    ]);
+
+    holdParent = false;
+    assert.equal(await coordinator.releaseHeldTerminalResults("chat-1", parent.sessionId), 1);
+    assert.equal(sentHtmlMessages.length, 1);
+    assert.match(sentHtmlMessages[0]?.html ?? "", /Codex 服务暂时不可用，请稍后重试。/u);
+    assert.deepEqual(finalizedHandoffs, [{ chatId: "chat-1", sessionId: parent.sessionId }]);
+    assert.equal(await coordinator.releaseHeldTerminalResults("chat-1", parent.sessionId), 0);
+    assert.equal(sentHtmlMessages.length, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator keeps immediate app-server-exit failure behavior for the active side turn", async () => {
+  const { coordinator, store, safeMessages, sentHtmlMessages, currentSessionCardSyncs, cleanup } =
+    await createCoordinatorContext({ shouldHoldTerminalOutput: () => false });
+  try {
+    store.upsertPendingAuthorization({ userId: "user-chat-1", chatId: "chat-1", displayName: null });
+    store.confirmPendingAuthorization(store.listPendingAuthorizations().find((row) => row.chatId === "chat-1")!);
+    const parent = store.createSession({ chatId: "chat-1", projectName: "Parent", projectPath: "/tmp/parent" });
+    store.setActiveSession("chat-1", parent.sessionId);
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-side-exit" });
+    await coordinator.beginActiveTurn("chat-1", side, "thread-side-exit", "turn-side-exit", "inProgress");
+    await coordinator.handleActiveTurnAppServerExit();
+
+    assert.equal(store.getSessionById(side.sessionId)?.status, "failed");
+    assert.deepEqual(safeMessages, ["Codex 服务暂时不可用，请稍后重试。"]);
+    assert.deepEqual(sentHtmlMessages, []);
+    assert.deepEqual(currentSessionCardSyncs, []);
+    assert.equal(store.countHeldTerminalResults(side.sessionId), 0);
+  } finally {
+    await cleanup();
+  }
+});

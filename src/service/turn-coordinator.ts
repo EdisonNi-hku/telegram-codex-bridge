@@ -1016,12 +1016,19 @@ export class TurnCoordinator {
         }
       );
       this.unregisterActiveTurn(runningTurn);
-      this.deps.disposeRuntimeCards(runningTurn);
       store.updateSessionStatus(runningTurn.sessionId, "failed", {
         failureReason: "app_server_lost",
         lastTurnId: runningTurn.turnId,
         lastTurnStatus: "failed"
       });
+      if (this.deps.shouldHoldTerminalOutput(runningTurn.sessionId)) {
+        runningTurn.terminalDeliveryPending = true;
+        this.pendingTerminalRuntimeHandoffsBySessionId.set(runningTurn.sessionId, runningTurn);
+        await this.sendFinalAnswer(runningTurn, "Codex 服务暂时不可用，请稍后重试。");
+        await this.deps.syncCurrentSessionCardForSession(runningTurn.sessionId, "terminal_output_held_for_side");
+        continue;
+      }
+      this.deps.disposeRuntimeCards(runningTurn);
       await this.deps.safeSendMessage(runningTurn.chatId, "Codex 服务暂时不可用，请稍后重试。");
     }
   }
