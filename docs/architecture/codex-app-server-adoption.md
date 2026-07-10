@@ -69,11 +69,15 @@ Used directly by the current bridge:
 - `thread/archive`
 - `thread/unarchive`
 - `thread/fork`
+- `thread/inject_items`
+- `thread/unsubscribe`
 - `thread/name/set`
 - `thread/metadata/update`
 - `thread/rollback`
 - `thread/compact/start`
 - `thread/backgroundTerminals/clean`
+
+Telegram Side uses `thread/fork` with `ephemeral: true`, injects an explicit post-fork safety boundary through `thread/inject_items`, and calls `thread/unsubscribe` when the user returns. The ephemeral thread is persisted only as a transient bridge relationship and is never offered in normal session history. After a bridge restart the old app-server process is gone, so startup deletes the transient Side relationship without trying to unsubscribe its stale thread id, restores the regular parent or fallback, and does not offer Side resume. This Side UX is Telegram-only and has no `/btw` alias.
 
 Primary owners:
 

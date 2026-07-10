@@ -821,6 +821,112 @@ test("service startup restores and pins the current session card for the active 
   }
 });
 
+test("service startup closes active Side before generic recovery and releases parent output exactly once", async () => {
+  const deliveries: Array<{ text: string; replyMarkup?: unknown }> = [];
+  const pins: number[] = [];
+  const recoveryOrder: string[] = [];
+  const originalRecoverSides = BridgeStateStore.prototype.recoverSideSessionsAfterRestart;
+  const originalMarkRunningFailed = BridgeStateStore.prototype.markRunningSessionsFailedWithNotices;
+  BridgeStateStore.prototype.recoverSideSessionsAfterRestart = function (...args) {
+    recoveryOrder.push("side");
+    return originalRecoverSides.apply(this, args);
+  };
+  BridgeStateStore.prototype.markRunningSessionsFailedWithNotices = function (...args) {
+    recoveryOrder.push("generic");
+    return originalMarkRunningFailed.apply(this, args);
+  };
+  let nextMessageId = 1800;
+  const deps: ConstructorParameters<typeof BridgeService>[2] = {
+    probeReadiness: async () => ({
+      snapshot: createReadinessSnapshot({ details: { authorizedUserBound: true } }),
+      appServer: null
+    }),
+    createTelegramApi: () => ({
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        deliveries.push({ text, replyMarkup: options?.replyMarkup });
+        return createFakeTelegramMessage(++nextMessageId, text);
+      },
+      pinChatMessage: async (_chatId: string, messageId: number) => {
+        pins.push(messageId);
+        return true;
+      },
+      unpinChatMessage: async () => true,
+      deleteMessage: async () => true,
+      setMyCommands: async () => {}
+    }) as any,
+    createPoller: () => ({ run: async () => {}, stop: () => {} }) as any
+  };
+  const { service, store, cleanup } = await createServiceContext(deps);
+  const paths = (service as any).paths as BridgePaths;
+  let firstRuntimeStore: BridgeStateStore | null = null;
+  let secondRuntimeStore: BridgeStateStore | null = null;
+
+  try {
+    authorizeChat(store, "chat-side-restart");
+    const parent = createSession(store, "chat-side-restart");
+    store.updateSessionThreadId(parent.sessionId, "thread-parent");
+    store.updateSessionStatus(parent.sessionId, "running", {
+      lastTurnId: "turn-parent",
+      lastTurnStatus: "running"
+    });
+    const interaction = store.createPendingInteraction({
+      chatId: parent.chatId,
+      sessionId: parent.sessionId,
+      threadId: "thread-parent",
+      turnId: "turn-parent",
+      requestId: "approval-before-restart",
+      requestMethod: "item/commandExecution/requestApproval",
+      interactionKind: "approval",
+      promptJson: JSON.stringify({ kind: "approval", title: "Stale approval" })
+    });
+    const side = store.createSideSession({
+      parentSessionId: parent.sessionId,
+      threadId: "ephemeral-side-thread"
+    });
+    store.saveTerminalResultView({
+      answerId: "held-parent-answer",
+      chatId: parent.chatId,
+      sessionId: parent.sessionId,
+      threadId: "thread-parent",
+      turnId: "turn-parent",
+      deliveryState: "held_for_side",
+      previewHtml: "Held parent result",
+      pages: ["Held parent result"]
+    });
+
+    await service.run();
+    firstRuntimeStore = (service as any).store as BridgeStateStore;
+
+    assert.equal(firstRuntimeStore.getSessionById(side.sessionId), null);
+    assert.equal(firstRuntimeStore.getActiveSession(parent.chatId)?.sessionId, parent.sessionId);
+    assert.equal(firstRuntimeStore.getCurrentSessionCard(parent.chatId)?.sessionId, parent.sessionId);
+    assert.equal(firstRuntimeStore.getPendingInteraction(interaction.interactionId)?.state, "failed");
+    assert.equal(firstRuntimeStore.countHeldTerminalResults(parent.sessionId), 0);
+    assert.deepEqual(recoveryOrder.slice(0, 2), ["side", "generic"]);
+    assert.equal(deliveries.filter((entry) => entry.text === "Side 已因服务重启关闭。").length, 1);
+    assert.equal(deliveries.filter((entry) => entry.text.includes("Held parent result")).length, 1);
+    assert.equal(deliveries.some((entry) => String(JSON.stringify(entry.replyMarkup)).includes("approval-before-restart")), false);
+    assert.ok(pins.length > 0);
+
+    await service.stop({ source: "test_restart" });
+    firstRuntimeStore = null;
+    const secondService = new BridgeService(paths, testConfig, deps);
+    await secondService.run();
+    secondRuntimeStore = (secondService as any).store as BridgeStateStore;
+
+    assert.equal(deliveries.filter((entry) => entry.text === "Side 已因服务重启关闭。").length, 1);
+    assert.equal(deliveries.filter((entry) => entry.text.includes("Held parent result")).length, 1);
+    await secondService.stop({ source: "test_complete" });
+    secondRuntimeStore = null;
+  } finally {
+    BridgeStateStore.prototype.recoverSideSessionsAfterRestart = originalRecoverSides;
+    BridgeStateStore.prototype.markRunningSessionsFailedWithNotices = originalMarkRunningFailed;
+    firstRuntimeStore?.close();
+    secondRuntimeStore?.close();
+    await cleanup();
+  }
+});
+
 test("bot-authored private service messages do not trigger unauthorized replies", async () => {
   const sent: Array<{ chatId: string; text: string }> = [];
   const { service, store, cleanup } = await createServiceContext();

@@ -959,6 +959,13 @@ export class BridgeService {
       throw error;
     }
     const recovered = this.store.recoveredFromCorruption;
+    const sideRecoveries = this.store.recoverSideSessionsAfterRestart();
+    const recoveredSideParents = new Map(sideRecoveries.flatMap((recovery) => {
+      const active = this.store?.getActiveSession(recovery.chatId);
+      return active?.sessionKind === "regular"
+        ? [[active.sessionId, { chatId: recovery.chatId, sessionId: active.sessionId }] as const]
+        : [];
+    })).values();
     const recoverySessions = this.store.listRunningSessions();
     const recoveryInteractions = this.store.listPendingInteractionsForRunningSessions();
     const recoveryNotices = this.store.markRunningSessionsFailedWithNotices("bridge_restart");
@@ -1025,6 +1032,10 @@ export class BridgeService {
     await this.syncTelegramCommands();
     await this.restoreCurrentSessionCardsAtStartup();
     await this.logger.info("bridge service started", { readiness: snapshot.state });
+    await this.flushRuntimeNotices();
+    for (const parent of recoveredSideParents) {
+      await this.turnCoordinator.releaseHeldTerminalResults(parent.chatId, parent.sessionId);
+    }
     if (recoverySessions.length > 0) {
       const recoveryChatId = recoverySessions[0]?.chatId;
       if (recoveryChatId) {
@@ -1034,7 +1045,6 @@ export class BridgeService {
         );
       }
     }
-    await this.flushRuntimeNotices();
     await this.maybeStartWebChatHttpServerFromEnv();
     await this.poller.run();
   }

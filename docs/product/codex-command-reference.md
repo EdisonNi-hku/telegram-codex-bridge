@@ -24,6 +24,7 @@ This file covers:
 - model, skills, plugins, apps, MCP, and account commands
 - review, fork, rollback, compact, and thread metadata commands
 - Telegram file retrieval
+- Telegram Side conversations
 - structured rich inputs such as skill, local image, mention, and attach
 
 When implementation detail matters, verify against:
@@ -223,6 +224,21 @@ Behavior:
 - calls `thread/backgroundTerminals/clean`
 - keeps the response compact at the thread level instead of exposing terminal-session internals
 - success copy names the affected session explicitly
+
+### `/side [question]` and `/side back`
+
+Availability:
+- Telegram only; Side is not advertised or supported on Feishu
+- there is no `/btw` alias
+
+Behavior:
+- `/side [question]` forks the active regular Codex thread into a separate ephemeral Side conversation; an inline question starts its first turn, while bare `/side` opens it idle
+- Side stays active across multiple messages until `/side back` or the persistent Side card's return action is used; nested Side conversations are rejected
+- the persistent card identifies Side and shows parent status, held results, and the currently valid status, return, or interrupt actions
+- ordinary text and rich inputs, leading-`!` shell commands, `/status`, `/where`, `/inspect`, `/retrieve`, `/interrupt`, and `/side back` are allowed in Side; other slash commands are refused until returning to the parent
+- `/side back` returns immediately when Side is idle; when a Side turn is running, the bridge requires a single-use two-minute confirmation before interrupting that exact turn and returning
+- pending parent approvals are not surfaced inside Side, and parent terminal results are held; after return, the bridge restores the parent card, surfaces its pending interaction, and releases held results once
+- Side threads are intentionally non-resumable: a bridge restart deletes the ephemeral Side, restores its regular parent or fallback, sends `Side 已因服务重启关闭。` once, applies normal bridge-restart failure handling to stale parent interactions, and releases held parent results once
 
 ### `/retrieve <file path>`
 

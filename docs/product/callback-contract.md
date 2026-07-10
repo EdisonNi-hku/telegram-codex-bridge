@@ -41,6 +41,7 @@ Versioned callback families currently emitted by the bridge:
 - `v8` command-panel callbacks: `cp:o`, `cp:h`, `cp:r:{command}`, `ce:o`, `ce:p:{token}:{page36}`, `ce:t:{token}:{command}`, `ce:s|r|c:{token}`
 - `v9` native user-shell confirmation callbacks: `sh:y|n:{token}`
 - `v10` Telegram file-retrieval confirmation callbacks: `rt:y|n:{token}`
+- `v11` Telegram Side callbacks: `v11:sd:s|b|i|y|n:{token}` for parent status, return, Side interrupt, confirmed return, and canceled return
 
 Rules:
 - `project_key` is a stable short hash of the project path, never the raw path
@@ -50,6 +51,7 @@ Rules:
 - compact callback indexes use base36 encoding to stay within Telegram size limits
 - `v9` shell and `v10` retrieval confirmations use opaque bridge-owned tokens; both are single-use and expire after two minutes; replacement or a later click after consumption returns stale feedback, a click after expiry but before timer cleanup returns expired feedback, and timer-pruned post-expiry clicks may return stale/invalid feedback because the pending token no longer exists; a binding mismatch returns a surface-specific refusal while consuming the token
 - retrieval confirmation tokens are bound to the authorized chat, active session, project, and resolved target path; `y` confirms sending and `n` cancels without sending
+- Side card and return-confirmation tokens are memory-only and bound to the authorized chat plus the active Side relationship; running-turn return confirmations are single-use, expire after two minutes, and stale or replaced Side actions return `这个 Side 操作已失效。`
 - bridge-emitted callback payloads must stay within Telegram's 64-byte `callback_data` limit; interaction callbacks are the tightest budget
 - duplicate clicks on persisted interaction callbacks must be idempotent and return `这个操作已处理。`; single-use `v9` and `v10` confirmations instead return their compact stale/expired feedback
 - stale callbacks must return a compact expiry notice; generic interaction flows use `这个按钮已过期，请重新操作。`, while surface-specific flows may ask the user to re-send `/browse`, `/runtime`, `/inspect`, or `/rollback`

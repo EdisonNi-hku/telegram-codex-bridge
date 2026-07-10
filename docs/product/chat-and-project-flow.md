@@ -47,7 +47,8 @@ Use for:
 - `/plan`, `/model`, `/skills`, `/skill`
 - `/plugins`, `/plugin`, `/apps`, `/mcp`, `/account`
 - `/review`, `/fork`, `/rollback`, `/compact`
-- `/thread`, `/local_image`, `/mention`, and `/attach`
+- `/thread`, `/side`, `/retrieve`, `/local_image`, `/mention`, and `/attach`
+- persistent Telegram Side conversations, their restricted command set, safe return confirmation, parent-output holding, and non-resumable restart behavior
 
 ### Runtime surfaces, inspect, status, and final-answer delivery
 Read:
@@ -64,7 +65,7 @@ Read:
 - `docs/product/callback-contract.md`
 
 Use for:
-- callback namespace families such as `v1` through `v6`
+- callback namespace families such as `v1` through `v11`
 - compact callback encoding rules
 - stale and duplicate callback behavior
 
