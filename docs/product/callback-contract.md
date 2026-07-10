@@ -48,7 +48,7 @@ Rules:
 - decision and question selectors are compact bridge-local indexes, not raw `decision_key` or `question_id` values
 - runtime field selectors use short bridge-owned codes such as `mn`, `mw`, `pm`, and `fr`
 - compact callback indexes use base36 encoding to stay within Telegram size limits
-- `v9` shell and `v10` retrieval confirmations use opaque bridge-owned tokens; both are single-use, expire after two minutes, and return compact stale/expired feedback after consumption, replacement, expiry, or a binding mismatch
+- `v9` shell and `v10` retrieval confirmations use opaque bridge-owned tokens; both are single-use and expire after two minutes; replacement or a later click after consumption returns stale feedback, expiry returns expired feedback, and a binding mismatch returns a surface-specific refusal while consuming the token
 - retrieval confirmation tokens are bound to the authorized chat, active session, project, and resolved target path; `y` confirms sending and `n` cancels without sending
 - bridge-emitted callback payloads must stay within Telegram's 64-byte `callback_data` limit; interaction callbacks are the tightest budget
 - duplicate clicks on persisted interaction callbacks must be idempotent and return `这个操作已处理。`; single-use `v9` and `v10` confirmations instead return their compact stale/expired feedback
