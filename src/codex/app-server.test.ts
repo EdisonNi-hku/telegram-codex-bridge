@@ -221,6 +221,26 @@ test("readConfig sends cwd and includeLayers when requested", async () => {
   });
 });
 
+test("runThreadShellCommand sends the native thread shell request", async () => {
+  const client = new CodexAppServerClient("codex", "/tmp/app-server.log", testLogger);
+  let captured: { method: string; params: unknown } | null = null;
+
+  (client as any).request = async (method: string, params: unknown) => {
+    captured = { method, params };
+    return {};
+  };
+
+  await client.runThreadShellCommand("thread-1", "ls -la");
+
+  assert.deepEqual(captured, {
+    method: "thread/shellCommand",
+    params: {
+      threadId: "thread-1",
+      command: "ls -la"
+    }
+  });
+});
+
 test("handleMessage routes method-plus-id frames to server request handlers", () => {
   const client = new CodexAppServerClient("codex", "/tmp/app-server.log", testLogger);
   const requests: unknown[] = [];

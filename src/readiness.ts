@@ -19,7 +19,7 @@ import { readRepoPackageJson } from "./util/package-json.js";
 
 const NODE_ENGINE_FALLBACK = ">=24.0.0";
 const MIN_CODEX_VERSION = [0, 114, 0] as const;
-const REQUIRED_CLIENT_REQUESTS = [
+const BASE_REQUIRED_CLIENT_REQUESTS = [
   "thread/list",
   "thread/read",
   "thread/start",
@@ -29,6 +29,7 @@ const REQUIRED_CLIENT_REQUESTS = [
   "turn/start",
   "turn/interrupt"
 ] as const;
+const TELEGRAM_REQUIRED_CLIENT_REQUESTS = ["thread/shellCommand"] as const;
 const REQUIRED_SERVER_NOTIFICATIONS = [
   "thread/started",
   "thread/name/updated",
@@ -44,10 +45,19 @@ const REQUIRED_SERVER_NOTIFICATIONS = [
   "error"
 ] as const;
 const CAPABILITY_CACHE_FORMAT_VERSION = 1;
-const CAPABILITY_REQUIREMENTS_FINGERPRINT = JSON.stringify({
-  clientRequests: [...REQUIRED_CLIENT_REQUESTS],
-  serverNotifications: [...REQUIRED_SERVER_NOTIFICATIONS]
-});
+function getRequiredClientRequests(activePack: BridgeConfig["activePack"]): string[] {
+  return [
+    ...BASE_REQUIRED_CLIENT_REQUESTS,
+    ...(activePack === "telegram" ? TELEGRAM_REQUIRED_CLIENT_REQUESTS : [])
+  ];
+}
+
+function getCapabilityRequirementsFingerprint(activePack: BridgeConfig["activePack"]): string {
+  return JSON.stringify({
+    clientRequests: getRequiredClientRequests(activePack),
+    serverNotifications: [...REQUIRED_SERVER_NOTIFICATIONS]
+  });
+}
 
 type ServiceManagerHealth = "ok" | "warning" | "error";
 type CapabilityCheckSource = "cache" | "generated_schema" | "unknown";
@@ -109,6 +119,7 @@ interface ReadinessDependencies {
   evaluateCapabilities?: (options: {
     codexBin: string;
     codexVersionText: string;
+    activePack: BridgeConfig["activePack"];
     paths: BridgePaths;
     runCommand: typeof runCommand;
   }) => Promise<CapabilityCheckSummary>;
@@ -305,14 +316,17 @@ function extractMethodsFromSchema(schema: unknown): string[] {
   });
 }
 
-async function loadCapabilityCache(cacheFilePath: string): Promise<CapabilityCheckSummary | null> {
+async function loadCapabilityCache(
+  cacheFilePath: string,
+  requirementsFingerprint: string
+): Promise<CapabilityCheckSummary | null> {
   try {
     const parsed = JSON.parse(await readFile(cacheFilePath, "utf8")) as CapabilityCheckCacheEntry;
     if (
       !parsed
       || typeof parsed !== "object"
       || parsed.version !== CAPABILITY_CACHE_FORMAT_VERSION
-      || parsed.requirementsFingerprint !== CAPABILITY_REQUIREMENTS_FINGERPRINT
+      || parsed.requirementsFingerprint !== requirementsFingerprint
     ) {
       return null;
     }
@@ -337,11 +351,15 @@ async function loadCapabilityCache(cacheFilePath: string): Promise<CapabilityChe
   }
 }
 
-async function writeCapabilityCache(cacheFilePath: string, summary: CapabilityCheckSummary): Promise<void> {
+async function writeCapabilityCache(
+  cacheFilePath: string,
+  requirementsFingerprint: string,
+  summary: CapabilityCheckSummary
+): Promise<void> {
   await mkdir(dirname(cacheFilePath), { recursive: true }).catch(() => {});
   const entry: CapabilityCheckCacheEntry = {
     version: CAPABILITY_CACHE_FORMAT_VERSION,
-    requirementsFingerprint: CAPABILITY_REQUIREMENTS_FINGERPRINT,
+    requirementsFingerprint,
     summary
   };
   await writeFile(cacheFilePath, `${JSON.stringify(entry, null, 2)}\n`, "utf8");
@@ -350,14 +368,17 @@ async function writeCapabilityCache(cacheFilePath: string, summary: CapabilityCh
 async function defaultEvaluateCapabilities(options: {
   codexBin: string;
   codexVersionText: string;
+  activePack: BridgeConfig["activePack"];
   paths: BridgePaths;
   runCommand: typeof runCommand;
 }): Promise<CapabilityCheckSummary> {
+  const requiredClientRequests = getRequiredClientRequests(options.activePack);
+  const requirementsFingerprint = getCapabilityRequirementsFingerprint(options.activePack);
   const cacheFilePath = join(
     options.paths.cacheDir,
     `codex-capabilities-${normalizeVersionLabel(options.codexVersionText)}.json`
   );
-  const cached = await loadCapabilityCache(cacheFilePath);
+  const cached = await loadCapabilityCache(cacheFilePath, requirementsFingerprint);
   if (cached) {
     return cached;
   }
@@ -386,7 +407,7 @@ async function defaultEvaluateCapabilities(options: {
     const notifications = new Set(extractMethodsFromSchema(serverNotificationSchema));
 
     const issues = [
-      ...REQUIRED_CLIENT_REQUESTS
+      ...requiredClientRequests
         .filter((method) => !clientRequests.has(method))
         .map((method) => `missing request: ${method}`),
       ...REQUIRED_SERVER_NOTIFICATIONS
@@ -399,7 +420,7 @@ async function defaultEvaluateCapabilities(options: {
       issues
     } satisfies CapabilityCheckSummary;
     await mkdir(options.paths.cacheDir, { recursive: true });
-    await writeCapabilityCache(cacheFilePath, summary);
+    await writeCapabilityCache(cacheFilePath, requirementsFingerprint, summary);
     return summary;
   } catch (error) {
     return {
@@ -611,6 +632,7 @@ export async function probeReadiness(options: {
   const capabilitySummary = await deps.evaluateCapabilities({
     codexBin: config.codexBin,
     codexVersionText: versionResult.stdout,
+    activePack: config.activePack,
     paths,
     runCommand: deps.runCommand
   });

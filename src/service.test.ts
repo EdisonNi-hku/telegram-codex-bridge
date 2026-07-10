@@ -856,6 +856,99 @@ test("bot-authored private service messages do not trigger unauthorized replies"
   }
 });
 
+test("bang shell ingress requires the first message character and forwards callbacks and notifications", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const shellInputs: string[] = [];
+  const normalPrompts: string[] = [];
+  const decisions: Array<{ chatId: string; token: string; approved: boolean }> = [];
+  const notifications: Array<{ method: string; params: unknown }> = [];
+  const callbackAnswers: string[] = [];
+
+  try {
+    const session = authorizeNumericChatWithSession(store, "1");
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1, text),
+      answerCallbackQuery: async (_callbackId: string, text?: string) => {
+        callbackAnswers.push(text ?? "");
+      }
+    };
+    (service as any).shellCommandCoordinator = {
+      handleBangCommand: async (_chatId: string, command: string) => {
+        shellInputs.push(command);
+      },
+      handleDecision: async (chatId: string, token: string, approved: boolean) => {
+        decisions.push({ chatId, token, approved });
+        return "decision handled";
+      },
+      handleNotification: async (method: string, params: unknown) => {
+        notifications.push({ method, params });
+      }
+    };
+    (service as any).handleNormalText = async (_chatId: string, text: string) => {
+      normalPrompts.push(text);
+    };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 1901, "!ls"));
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 1902, " !ls"));
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 1903, "please !ls"));
+
+    assert.deepEqual(shellInputs, ["ls"]);
+    assert.deepEqual(normalPrompts, ["!ls", "please !ls"]);
+
+    await (service as any).handleCallback({
+      id: "shell-confirm-callback",
+      from: { id: 1, is_bot: false, first_name: "Tester" },
+      message: { message_id: 1904, chat: { id: 1, type: "private" } },
+      data: "v9:sh:y:token-1"
+    });
+    assert.deepEqual(decisions, [{ chatId: "1", token: "token-1", approved: true }]);
+    assert.deepEqual(callbackAnswers, ["decision handled"]);
+
+    const params = { threadId: "thread-1", item: { id: "item-1", source: "userShell" } };
+    await (service as any).handleAppServerNotification("item/started", params);
+    assert.deepEqual(notifications, [{ method: "item/started", params }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("bang shell ingress remains Telegram-only", async () => {
+  const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
+  const shellInputs: string[] = [];
+  const normalPrompts: string[] = [];
+
+  try {
+    authorizeFeishuChat(store, "feishu-chat", "feishu-user");
+    const session = createSession(store, "feishu-chat");
+    store.setActiveSession("feishu-chat", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1, text)
+    };
+    (service as any).shellCommandCoordinator = {
+      handleBangCommand: async (_chatId: string, command: string) => {
+        shellInputs.push(command);
+      }
+    };
+    (service as any).handleNormalText = async (_chatId: string, text: string) => {
+      normalPrompts.push(text);
+    };
+
+    await (service as any).handleMessage({
+      message_id: 1905,
+      from: { id: "feishu-user", is_bot: false, first_name: "Tester" },
+      chat: { id: "feishu-chat", type: "private" },
+      date: 0,
+      text: "!ls"
+    });
+
+    assert.deepEqual(shellInputs, []);
+    assert.deepEqual(normalPrompts, ["!ls"]);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("service starts and stops perf sampling when monitoring is enabled", async () => {
   const samplerCalls: string[] = [];
   const samplerOptions: Array<{ getAppServerPid: () => number | null }> = [];

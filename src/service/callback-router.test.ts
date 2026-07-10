@@ -192,9 +192,31 @@ function createHandlers(calls: Call[]) {
     },
     handleHubSelect: async (token: string, version: number, slot: number) => {
       calls.push({ name: "handleHubSelect", args: [token, version, slot] });
+    },
+    handleShellDecision: async (token: string, approved: boolean) => {
+      calls.push({ name: "handleShellDecision", args: [token, approved] });
     }
   };
 }
+
+test("shell confirmation callbacks delegate a single decision", async () => {
+  const cases: Array<{ parsed: ParsedCallbackData; expected: Call }> = [
+    {
+      parsed: { kind: "shell_confirm", token: "tok-confirm" },
+      expected: { name: "handleShellDecision", args: ["tok-confirm", true] }
+    },
+    {
+      parsed: { kind: "shell_cancel", token: "tok-cancel" },
+      expected: { name: "handleShellDecision", args: ["tok-cancel", false] }
+    }
+  ];
+
+  for (const { parsed, expected } of cases) {
+    const calls: Call[] = [];
+    await routeBridgeCallback(parsed, createHandlers(calls));
+    assert.deepEqual(calls, [expected]);
+  }
+});
 
 test("command-panel callbacks delegate without extra acknowledgement", async () => {
   const cases: Array<{ parsed: ParsedCallbackData; expected: Call[] }> = [

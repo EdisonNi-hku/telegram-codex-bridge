@@ -39,6 +39,8 @@ import {
   buildSessionsText,
   buildCollapsibleFinalAnswerView,
   buildCurrentSessionCardText,
+  encodeShellCancelCallback,
+  encodeShellConfirmCallback,
   parseCallbackData,
   renderFinalAnswerHtmlChunks
 } from "./ui.js";
@@ -1647,6 +1649,16 @@ test("parseCallbackData understands compact and legacy v3 interaction callbacks"
     answerId: "answer-1",
     page: 2
   });
+});
+
+test("shell confirmation callbacks round-trip through compact callback data", () => {
+  const confirm = encodeShellConfirmCallback("tok123");
+  const cancel = encodeShellCancelCallback("tok123");
+
+  assert.ok(Buffer.byteLength(confirm, "utf8") <= 64);
+  assert.ok(Buffer.byteLength(cancel, "utf8") <= 64);
+  assert.deepEqual(parseCallbackData(confirm), { kind: "shell_confirm", token: "tok123" });
+  assert.deepEqual(parseCallbackData(cancel), { kind: "shell_cancel", token: "tok123" });
 });
 
 test("interaction cards render approval and questionnaire flows without leaking raw protocol fields", () => {

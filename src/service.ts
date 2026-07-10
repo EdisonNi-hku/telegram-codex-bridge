@@ -23,6 +23,8 @@ import {
 } from "./service/interaction-broker.js";
 import { MediaIngressService } from "./service/media-ingress.js";
 import { SafeMessenger } from "./service/safe-messenger.js";
+import { ShellCommandCoordinator } from "./service/shell-command-coordinator.js";
+import { parseBangShellCommand } from "./service/shell-command-policy.js";
 import { RichInputAdapter } from "./service/rich-input-adapter.js";
 import { ProjectBrowserCoordinator } from "./service/project-browser-coordinator.js";
 import { RuntimeNoticeBroadcaster } from "./service/runtime-notice-broadcaster.js";
@@ -277,6 +279,7 @@ export class BridgeService {
   private readonly runtimeSurfaceTraceSink: RuntimeSurfaceTraceSink;
   private readonly currentSessionCardController: CurrentSessionCardController;
   private readonly sessionProjectCoordinator: SessionProjectCoordinator;
+  private readonly shellCommandCoordinator: ShellCommandCoordinator;
   private readonly subagentIdentityBackfiller: SubagentIdentityBackfiller;
   private readonly threadArchiveReconciler: ThreadArchiveReconciler;
   private readonly turnCoordinator: TurnCoordinator;
@@ -531,6 +534,13 @@ export class BridgeService {
         this.safeSendHtmlMessageResult(chatId, html, replyMarkup),
       handleGlobalRuntimeNotice: async (notification) => this.runtimeNoticeBroadcaster.broadcast(notification),
       handleThreadArchiveNotification: async (classified) => this.threadArchiveReconciler.handleNotification(classified)
+    });
+    this.shellCommandCoordinator = new ShellCommandCoordinator({
+      getStore: () => this.store,
+      ensureAppServerAvailable: async () => this.ensureAppServerAvailable(),
+      ensureSessionThread: async (session) => this.turnCoordinator.ensureSessionThread(session),
+      getAppServer: () => this.appServer,
+      safeSendMessage: async (chatId, text, replyMarkup) => this.safeSendMessage(chatId, text, replyMarkup)
     });
     this.mediaIngressService = new MediaIngressService({
       logger: this.loggerAdapter,
@@ -1275,6 +1285,14 @@ export class BridgeService {
       return;
     }
 
+    const shellCommand =
+      this.config.activePack === "telegram" ? parseBangShellCommand(message.text ?? "") : null;
+    if (shellCommand !== null) {
+      this.richInputAdapter.clearPendingAutoAttach(chatId);
+      await this.shellCommandCoordinator.handleBangCommand(chatId, shellCommand);
+      return;
+    }
+
     if (this.shouldOpenCommandPanelFromText(text)) {
       this.richInputAdapter.clearPendingAutoAttach(chatId);
       await this.openCommandPanel(chatId);
@@ -1324,6 +1342,10 @@ export class BridgeService {
 
     await routeBridgeCallback(parsed, {
       answer: async (text) => this.safeAnswerCallbackQuery(callbackQuery.id, text),
+      handleShellDecision: async (token, approved) => {
+        const result = await this.shellCommandCoordinator.handleDecision(chatId, token, approved);
+        await this.safeAnswerCallbackQuery(callbackQuery.id, result);
+      },
       openCommandPanel: async () => this.handleCommandPanelOpenCallback(callbackQuery.id, chatId),
       sendHelpFromPanel: async () => this.handleCommandPanelHelpCallback(callbackQuery.id, chatId),
       runCommandFromPanel: async (command) => this.handleCommandPanelRunCallback(callbackQuery.id, chatId, command),
@@ -2992,6 +3014,7 @@ export class BridgeService {
   }
 
   private async handleAppServerNotification(method: string, params: unknown): Promise<void> {
+    await this.shellCommandCoordinator.handleNotification(method, params);
     await this.turnCoordinator.handleAppServerNotification(method, params);
   }
 
@@ -3108,6 +3131,7 @@ export class BridgeService {
     }
 
     await this.threadArchiveReconciler.clearOnAppServerExit();
+    await this.shellCommandCoordinator.handleAppServerReset();
     await this.logger.warn("app-server exit observed", { error: `${error}` });
 
     await this.turnCoordinator.handleActiveTurnAppServerExit();
@@ -3172,6 +3196,8 @@ export class BridgeService {
     await this.logger.warn("health guard recycling app-server", {
       pid: existing.pid ?? null
     });
+
+    await this.shellCommandCoordinator.handleAppServerReset();
 
     await existing.stop().catch(async (error) => {
       await this.logger.warn("health guard failed to stop app-server before recycle", {
