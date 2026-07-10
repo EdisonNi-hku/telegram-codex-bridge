@@ -195,6 +195,9 @@ function createHandlers(calls: Call[]) {
     },
     handleShellDecision: async (token: string, approved: boolean) => {
       calls.push({ name: "handleShellDecision", args: [token, approved] });
+    },
+    handleRetrieveDecision: async (token: string, approved: boolean) => {
+      calls.push({ name: "handleRetrieveDecision", args: [token, approved] });
     }
   };
 }
@@ -208,6 +211,25 @@ test("shell confirmation callbacks delegate a single decision", async () => {
     {
       parsed: { kind: "shell_cancel", token: "tok-cancel" },
       expected: { name: "handleShellDecision", args: ["tok-cancel", false] }
+    }
+  ];
+
+  for (const { parsed, expected } of cases) {
+    const calls: Call[] = [];
+    await routeBridgeCallback(parsed, createHandlers(calls));
+    assert.deepEqual(calls, [expected]);
+  }
+});
+
+test("retrieve confirmation callbacks delegate a single decision", async () => {
+  const cases = [
+    {
+      parsed: { kind: "retrieve_confirm", token: "retrieve-confirm" } as ParsedCallbackData,
+      expected: { name: "handleRetrieveDecision", args: ["retrieve-confirm", true] }
+    },
+    {
+      parsed: { kind: "retrieve_cancel", token: "retrieve-cancel" } as ParsedCallbackData,
+      expected: { name: "handleRetrieveDecision", args: ["retrieve-cancel", false] }
     }
   ];
 

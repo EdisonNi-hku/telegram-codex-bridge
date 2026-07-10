@@ -949,6 +949,141 @@ test("bang shell ingress remains Telegram-only", async () => {
   }
 });
 
+test("retrieve sends a contained project report once with its staged content, name, and caption", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const documents: Array<{
+    chatId: string;
+    bytes: string;
+    fileName: string | undefined;
+    caption: string | undefined;
+    uploadedPath: string;
+  }> = [];
+
+  try {
+    const projectPath = join((service as any).paths.homeDir, "retrieve-project");
+    await mkdir(join(projectPath, "reports"), { recursive: true });
+    await writeFile(join(projectPath, "reports", "audit.html"), "<h1>audit result</h1>", "utf8");
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Retrieve Project", projectPath });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1, text),
+      sendDocument: async (chatId: string, filePath: string, options?: { fileName?: string; caption?: string }) => {
+        documents.push({
+          chatId,
+          bytes: await readFile(filePath, "utf8"),
+          fileName: options?.fileName,
+          caption: options?.caption,
+          uploadedPath: filePath
+        });
+        return createFakeTelegramMessage(2, "document");
+      }
+    };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2001, "/retrieve reports/audit.html"));
+
+    assert.equal(documents.length, 1);
+    assert.equal(documents[0]?.chatId, "1");
+    assert.equal(documents[0]?.bytes, "<h1>audit result</h1>");
+    assert.equal(documents[0]?.fileName, "audit.html");
+    assert.equal(documents[0]?.caption, "Retrieved: reports/audit.html\nSize: 21 B");
+    assert.notEqual(documents[0]?.uploadedPath, join(projectPath, "reports", "audit.html"));
+  } finally {
+    await cleanup();
+  }
+});
+
+test("retrieve requires opaque callback approval before sending an external report", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const documents: Array<{ bytes: string; fileName: string | undefined; caption: string | undefined }> = [];
+  const sentMessages: Array<{ text: string; replyMarkup?: any }> = [];
+  const callbackAnswers: string[] = [];
+
+  try {
+    const homeDir = (service as any).paths.homeDir as string;
+    const projectPath = join(homeDir, "retrieve-project");
+    const externalPath = join(homeDir, "external report.html");
+    await mkdir(projectPath, { recursive: true });
+    await writeFile(externalPath, "external report bytes", "utf8");
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Retrieve Project", projectPath });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        sentMessages.push({ text, replyMarkup: options?.replyMarkup });
+        return createFakeTelegramMessage(10, text);
+      },
+      sendDocument: async (_chatId: string, filePath: string, options?: { fileName?: string; caption?: string }) => {
+        documents.push({ bytes: await readFile(filePath, "utf8"), fileName: options?.fileName, caption: options?.caption });
+        return createFakeTelegramMessage(11, "document");
+      },
+      answerCallbackQuery: async (_callbackId: string, text?: string) => {
+        callbackAnswers.push(text ?? "");
+      }
+    };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2002, `/retrieve ${externalPath}`));
+    assert.equal(documents.length, 0);
+
+    const callbackData = sentMessages.at(-1)?.replyMarkup?.inline_keyboard?.[0]?.[0]?.callback_data;
+    assert.equal(typeof callbackData, "string");
+    assert.match(callbackData, /^v10:rt:y:[A-Za-z0-9_-]+$/u);
+    assert.equal(callbackData.includes(externalPath), false);
+
+    await (service as any).handleCallback({
+      id: "retrieve-confirm-callback",
+      from: { id: 1, is_bot: false, first_name: "Tester" },
+      message: { message_id: 2003, chat: { id: 1, type: "private" } },
+      data: callbackData
+    });
+
+    assert.deepEqual(documents, [{
+      bytes: "external report bytes",
+      fileName: "external report.html",
+      caption: `Retrieved: ${externalPath}\nSize: 21 B`
+    }]);
+    assert.deepEqual(callbackAnswers, ["文件已发送。"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("retrieve remains unsupported on Feishu and never delivers a document", async () => {
+  const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
+  const sent: string[] = [];
+  let documentCalls = 0;
+
+  try {
+    authorizeFeishuChat(store, "feishu-chat", "feishu-user");
+    const session = createSession(store, "feishu-chat");
+    store.setActiveSession("feishu-chat", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        sent.push(text);
+        return createFakeTelegramMessage(20, text);
+      },
+      sendDocument: async () => {
+        documentCalls += 1;
+        return createFakeTelegramMessage(21, "document");
+      }
+    };
+
+    await (service as any).handleMessage({
+      message_id: 2004,
+      from: { id: "feishu-user", is_bot: false, first_name: "Tester" },
+      chat: { id: "feishu-chat", type: "private" },
+      date: 0,
+      text: "/retrieve /tmp/report.html"
+    });
+
+    assert.equal(documentCalls, 0);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0], "这个命令还没开放。");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("service starts and stops perf sampling when monitoring is enabled", async () => {
   const samplerCalls: string[] = [];
   const samplerOptions: Array<{ getAppServerPid: () => number | null }> = [];

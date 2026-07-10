@@ -24,6 +24,7 @@ import {
 import { MediaIngressService } from "./service/media-ingress.js";
 import { SafeMessenger } from "./service/safe-messenger.js";
 import { ShellCommandCoordinator } from "./service/shell-command-coordinator.js";
+import { RetrieveFileCoordinator } from "./service/retrieve-file-coordinator.js";
 import { parseBangShellCommand } from "./service/shell-command-policy.js";
 import { RichInputAdapter } from "./service/rich-input-adapter.js";
 import { ProjectBrowserCoordinator } from "./service/project-browser-coordinator.js";
@@ -280,6 +281,7 @@ export class BridgeService {
   private readonly currentSessionCardController: CurrentSessionCardController;
   private readonly sessionProjectCoordinator: SessionProjectCoordinator;
   private readonly shellCommandCoordinator: ShellCommandCoordinator;
+  private readonly retrieveFileCoordinator: RetrieveFileCoordinator;
   private readonly subagentIdentityBackfiller: SubagentIdentityBackfiller;
   private readonly threadArchiveReconciler: ThreadArchiveReconciler;
   private readonly turnCoordinator: TurnCoordinator;
@@ -541,6 +543,15 @@ export class BridgeService {
       ensureSessionThread: async (session) => this.turnCoordinator.ensureSessionThread(session),
       getAppServer: () => this.appServer,
       safeSendMessage: async (chatId, text, replyMarkup) => this.safeSendMessage(chatId, text, replyMarkup)
+    });
+    this.retrieveFileCoordinator = new RetrieveFileCoordinator({
+      homeDir: this.paths.homeDir,
+      logger: this.loggerAdapter,
+      getStore: () => this.store,
+      safeSendMessage: async (chatId, text, replyMarkup) => this.safeSendMessage(chatId, text, replyMarkup),
+      sendDocument: async (chatId, filePath, options) => Boolean(
+        await this.safeSendDocumentResult(chatId, filePath, options)
+      )
     });
     this.mediaIngressService = new MediaIngressService({
       logger: this.loggerAdapter,
@@ -1346,6 +1357,10 @@ export class BridgeService {
         const result = await this.shellCommandCoordinator.handleDecision(chatId, token, approved);
         await this.safeAnswerCallbackQuery(callbackQuery.id, result);
       },
+      handleRetrieveDecision: async (token, approved) => {
+        const result = await this.retrieveFileCoordinator.handleDecision(chatId, token, approved);
+        await this.safeAnswerCallbackQuery(callbackQuery.id, result);
+      },
       openCommandPanel: async () => this.handleCommandPanelOpenCallback(callbackQuery.id, chatId),
       sendHelpFromPanel: async () => this.handleCommandPanelHelpCallback(callbackQuery.id, chatId),
       runCommandFromPanel: async (command) => this.handleCommandPanelRunCallback(callbackQuery.id, chatId, command),
@@ -2047,6 +2062,13 @@ export class BridgeService {
       },
       handleBrowse: async () => {
         await this.handleBrowse(chatId);
+      },
+      handleRetrieve: async () => {
+        if (this.config.activePack !== "telegram") {
+          await this.safeSendMessage(chatId, buildUnsupportedCommandText());
+          return;
+        }
+        await this.retrieveFileCoordinator.handleCommand(chatId, args);
       },
       handleCancel: async () => {
         await this.handleCancelCommand(chatId);

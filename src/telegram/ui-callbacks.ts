@@ -3,6 +3,8 @@ import type { ReasoningEffort, RuntimeStatusField, UiLanguage } from "../types.j
 export type ParsedCallbackData =
   | { kind: "shell_confirm"; token: string }
   | { kind: "shell_cancel"; token: string }
+  | { kind: "retrieve_confirm"; token: string }
+  | { kind: "retrieve_cancel"; token: string }
   | { kind: "commands_open" }
   | { kind: "commands_help" }
   | { kind: "commands_run"; command: string }
@@ -500,6 +502,18 @@ export function encodeHubSelectCallback(token: string, version: number, slot: nu
 
 export function parseCallbackData(data: string): ParsedCallbackData | null {
   const parts = data.split(":");
+  if (parts[0] === "v10" && parts[1] === "rt" && parts[3]) {
+    if (parts[2] === "y") {
+      return { kind: "retrieve_confirm", token: parts[3] };
+    }
+
+    if (parts[2] === "n") {
+      return { kind: "retrieve_cancel", token: parts[3] };
+    }
+
+    return null;
+  }
+
   if (parts[0] === "v9" && parts[1] === "sh" && parts[3]) {
     if (parts[2] === "y") {
       return { kind: "shell_confirm", token: parts[3] };

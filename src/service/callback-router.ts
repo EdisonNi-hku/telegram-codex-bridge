@@ -4,6 +4,7 @@ import type { ReasoningEffort, RuntimeStatusField, UiLanguage } from "../types.j
 export interface BridgeCallbackRouterHandlers {
   answer(text?: string): Promise<void>;
   handleShellDecision(token: string, approved: boolean): Promise<void>;
+  handleRetrieveDecision(token: string, approved: boolean): Promise<void>;
   openCommandPanel(): Promise<void>;
   sendHelpFromPanel(): Promise<void>;
   runCommandFromPanel(command: string): Promise<void>;
@@ -84,6 +85,12 @@ export async function routeBridgeCallback(
       return;
     case "shell_cancel":
       await handlers.handleShellDecision(parsed.token, false);
+      return;
+    case "retrieve_confirm":
+      await handlers.handleRetrieveDecision(parsed.token, true);
+      return;
+    case "retrieve_cancel":
+      await handlers.handleRetrieveDecision(parsed.token, false);
       return;
     case "commands_open":
       await handlers.openCommandPanel();

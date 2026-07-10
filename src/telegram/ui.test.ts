@@ -1663,7 +1663,7 @@ test("shell confirmation callbacks round-trip through compact callback data", ()
   assert.deepEqual(parseCallbackData(cancel), { kind: "shell_cancel", token: "tok123" });
 });
 
-test("retrieve callback encoders stay compact and enforce Telegram's byte limit", () => {
+test("retrieve callbacks round-trip compact opaque tokens and reject invalid actions", () => {
   const confirm = encodeRetrieveConfirmCallback("tok123");
   const cancel = encodeRetrieveCancelCallback("tok123");
 
@@ -1671,6 +1671,9 @@ test("retrieve callback encoders stay compact and enforce Telegram's byte limit"
   assert.equal(cancel, "v10:rt:n:tok123");
   assert.ok(Buffer.byteLength(confirm, "utf8") <= 64);
   assert.ok(Buffer.byteLength(cancel, "utf8") <= 64);
+  assert.deepEqual(parseCallbackData(confirm), { kind: "retrieve_confirm", token: "tok123" });
+  assert.deepEqual(parseCallbackData(cancel), { kind: "retrieve_cancel", token: "tok123" });
+  assert.equal(parseCallbackData("v10:rt:z:tok123"), null);
   assert.throws(() => encodeRetrieveConfirmCallback("x".repeat(56)), /exceeds 64 bytes/u);
   assert.throws(() => encodeRetrieveCancelCallback("界".repeat(19)), /exceeds 64 bytes/u);
 });
