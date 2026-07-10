@@ -1361,6 +1361,9 @@ export class BridgeService {
         const result = await this.retrieveFileCoordinator.handleDecision(chatId, token, approved);
         await this.safeAnswerCallbackQuery(callbackQuery.id, result);
       },
+      handleSideAction: async () => {
+        await this.safeAnswerCallbackQuery(callbackQuery.id, "这个 Side 操作已失效。");
+      },
       openCommandPanel: async () => this.handleCommandPanelOpenCallback(callbackQuery.id, chatId),
       sendHelpFromPanel: async () => this.handleCommandPanelHelpCallback(callbackQuery.id, chatId),
       runCommandFromPanel: async (command) => this.handleCommandPanelRunCallback(callbackQuery.id, chatId, command),
@@ -2069,6 +2072,9 @@ export class BridgeService {
           return;
         }
         await this.retrieveFileCoordinator.handleCommand(chatId, args);
+      },
+      handleSide: async () => {
+        await this.safeSendMessage(chatId, buildUnsupportedCommandText());
       },
       handleCancel: async () => {
         await this.handleCancelCommand(chatId);
@@ -3949,7 +3955,7 @@ export class BridgeService {
     }
 
     try {
-      await syncTelegramCommands(this.api, this.getUiLanguage());
+      await syncTelegramCommands(this.api, this.getUiLanguage(), this.config.activePack);
     } catch (error) {
       await this.logger.warn("telegram command menu sync failed", {
         error: `${error}`

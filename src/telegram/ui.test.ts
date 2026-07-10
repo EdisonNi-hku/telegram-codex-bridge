@@ -102,6 +102,7 @@ test("side callback codecs round trip and reject malformed payloads", () => {
   }
   assert.equal(parseCallbackData("v11:sd:z:tok"), null);
   assert.equal(parseCallbackData("v11:sd:s:"), null);
+  assert.throws(() => encodeSideStatusCallback("界".repeat(19)), /exceeds 64 bytes/u);
 });
 
 async function withMockedNow<T>(nowIso: string, callback: () => Promise<T> | T): Promise<T> {

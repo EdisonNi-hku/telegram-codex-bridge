@@ -81,7 +81,7 @@ export interface BridgeCallbackRouterHandlers {
 
 export async function routeBridgeCallback(
   parsed: ParsedCallbackData,
-  handlers: BridgeCallbackRouterHandlers | Omit<BridgeCallbackRouterHandlers, "handleSideAction">
+  handlers: BridgeCallbackRouterHandlers
 ): Promise<void> {
   switch (parsed.kind) {
     case "side_status":
@@ -89,7 +89,7 @@ export async function routeBridgeCallback(
     case "side_interrupt":
     case "side_return_confirm":
     case "side_return_cancel":
-      await ("handleSideAction" in handlers ? handlers.handleSideAction(parsed) : Promise.resolve());
+      await handlers.handleSideAction(parsed);
       return;
     case "shell_confirm":
       await handlers.handleShellDecision(parsed.token, true);
