@@ -107,6 +107,8 @@ export class SideConversationCoordinator {
     if (!persistedSide || persistedSide.sessionKind !== "side" || !parent
       || persistedSide.parentSessionId !== parent.sessionId || persistedSide.chatId !== parent.chatId
       || persistedSide.projectPath !== parent.projectPath || parent.sessionKind !== "regular") return null;
+    const activeSide = store?.getActiveSession(persistedSide.chatId);
+    if (activeSide?.sessionId !== persistedSide.sessionId) return null;
 
     let binding = this.cardBindings.get(persistedSide.sessionId);
     if (!binding || binding.chatId !== persistedSide.chatId) {
@@ -182,7 +184,12 @@ export class SideConversationCoordinator {
       }]);
       const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: forkedThreadId });
       sideCreated = true;
-      this.getCardView(side);
+      if (!this.getCardView(side)) {
+        await this.deps.safeSendMessage(chatId, this.en(
+          "Side is open, but its card could not be validated. Use /side to refresh it.",
+          "Side 已开启，但卡片验证失败。请使用 /side 刷新。"));
+        return;
+      }
       await this.deps.syncCurrentSessionCard(chatId, "side_entered");
       const question = args.trim();
       if (question) {

@@ -4,7 +4,6 @@ import test from "node:test";
 import type { SessionRow } from "../types.js";
 import {
   SIDE_ALLOWED_COMMANDS,
-  SIDE_BOUNDARY_PROMPT,
   SideConversationCoordinator
 } from "./side-conversation-coordinator.js";
 
@@ -150,9 +149,21 @@ test("config instructions and effective model/effort are passed to fork; boundar
   h.client.readConfig = async () => ({ config: { model: "fallback", model_reasoning_effort: "low" as const,
     developer_instructions: "existing" }, origins: {} });
   await h.coordinator.handleCommand("chat", "");
-  assert.deepEqual(h.forkOptions[0], { threadId: "parent-thread", cwd: "/project", model: "selected",
-    reasoningEffort: "high", developerInstructions: `existing\n\n${(h.forkOptions[0] as any).developerInstructions.split("\n\n").at(-1)}` });
-  assert.deepEqual(h.injections[0], [{ type: "message", role: "user", content: [{ type: "input_text", text: SIDE_BOUNDARY_PROMPT }] }]);
+  const fork = h.forkOptions[0] as any;
+  assert.equal(fork.threadId, "parent-thread"); assert.equal(fork.cwd, "/project");
+  assert.equal(fork.model, "selected"); assert.equal(fork.reasoningEffort, "high");
+  assert.ok(fork.developerInstructions.startsWith("existing\n\nSIDE CONVERSATION SAFETY POLICY:"));
+  for (const phrase of [/inherited history.*reference context only/i, /only post-boundary messages are active/i,
+    /do not continue inherited tasks, plans, tool calls, or approvals/i, /separate side assistant.*lightweight exploration/i,
+    /do not use subagents|subagents are off-limits/i, /do not make mutations unless explicitly requested/i,
+    /do not escalate unless an explicit mutation/i]) assert.match(fork.developerInstructions, phrase);
+  const rawItem = (h.injections[0] as any[])[0];
+  assert.equal(rawItem.type, "message"); assert.equal(rawItem.role, "user");
+  const boundary = rawItem.content[0].text as string;
+  for (const phrase of [/inherited history.*reference context only/i, /only messages after this boundary are active/i,
+    /do not continue inherited tasks, plans, tool calls, or approvals/i, /separate side assistant.*lightweight exploration/i,
+    /subagents are off-limits|do not use subagents/i, /do not mutate anything unless explicitly requested/i,
+    /do not escalate unless an explicit mutation/i]) assert.match(boundary, phrase);
   const fallback = harness();
   fallback.client.readConfig = async () => ({ config: { model: "fallback", model_reasoning_effort: "low" as const, developer_instructions: "  " }, origins: {} });
   await fallback.coordinator.handleCommand("chat", "");
@@ -199,6 +210,22 @@ test("token or card sync failure after persistence keeps the active side and doe
   assert.match(sync.messages.at(-1) ?? "", /side is open.*card/i);
 });
 
+test("null card validation after persistence stops sync and inline turn while preserving side", async () => {
+  const h = harness();
+  const originalCreate = h.store.createSideSession;
+  h.store.createSideSession = (options) => {
+    const side = originalCreate(options);
+    h.store.getSessionById = (id: string) => id === side.sessionId ? null : h.rows.get(id) ?? null;
+    return side;
+  };
+  await h.coordinator.handleCommand("chat", "do not submit");
+  assert.equal(h.active?.sessionKind, "side");
+  assert.equal(h.events.includes("sync:side_entered"), false);
+  assert.equal(h.events.some((event) => event.startsWith("start:")), false);
+  assert.equal(h.events.includes("unsubscribe"), false);
+  assert.match(h.messages.at(-1) ?? "", /side is open.*card/i);
+});
+
 test("protocol errors are classified as side-only update requirements", async () => {
   for (const error of [Object.assign(new Error("rpc"), { code: -32601 }), new Error("unsupported parameter ephemeral")]) {
     const h = harness({ version: null }); h.client.forkSideThread = async () => { throw error; };
@@ -221,6 +248,58 @@ test("per-chat queue permits at most one fork", async () => {
   await new Promise((resolve) => setImmediate(resolve));
   const second = h.coordinator.handleCommand("chat", ""); release(); await Promise.all([first, second]);
   assert.equal(h.events.filter((event) => event === "fork").length, 1);
+});
+
+test("same-chat queue continues after the first creation attempt fails", async () => {
+  const h = harness(); let attempts = 0;
+  h.client.forkSideThread = async (options: unknown) => {
+    attempts += 1; h.events.push("fork"); h.forkOptions.push(options);
+    if (attempts === 1) throw new Error("first failed");
+    return { thread: { id: "side-thread", turns: [] }, cwd: "/project", model: "m" };
+  };
+  await Promise.all([h.coordinator.handleCommand("chat", ""), h.coordinator.handleCommand("chat", "")]);
+  assert.equal(attempts, 2); assert.equal(h.active?.sessionKind, "side");
+});
+
+test("different chat queues progress independently", async () => {
+  const first = session({ chatId: "chat-1", telegramChatId: "chat-1", sessionId: "p1", threadId: "t1", projectPath: "/one" });
+  const second = session({ chatId: "chat-2", telegramChatId: "chat-2", sessionId: "p2", threadId: "t2", projectPath: "/two" });
+  const active = new Map([["chat-1", first], ["chat-2", second]]);
+  const rows = new Map([[first.sessionId, first], [second.sessionId, second]]);
+  let release!: () => void; let firstReadStarted!: () => void;
+  const started = new Promise<void>((resolve) => { firstReadStarted = resolve; });
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const completed: string[] = [];
+  const store = {
+    getActiveSession: (chatId: string) => active.get(chatId) ?? null,
+    getSessionById: (id: string) => rows.get(id) ?? null,
+    getSideParent: (id: string) => { const side = rows.get(id); return side?.parentSessionId ? rows.get(side.parentSessionId) ?? null : null; },
+    getActiveSideForParent: (id: string) => [...active.values()].find((row) => row.sessionKind === "side" && row.parentSessionId === id) ?? null,
+    createSideSession: ({ parentSessionId, threadId }: { parentSessionId: string; threadId: string }) => {
+      const parent = rows.get(parentSessionId)!; const side = session({ ...parent, sessionId: `s-${parentSessionId}`,
+        sessionKind: "side", parentSessionId, threadId }); rows.set(side.sessionId, side); active.set(parent.chatId, side); return side;
+    }
+  };
+  const coordinator = new SideConversationCoordinator({
+    getStore: () => store,
+    ensureAppServerAvailable: async () => ({
+      readConfig: async ({ cwd } = {}) => { if (cwd === "/one") { firstReadStarted(); await blocked; } return { config: {}, origins: {} }; },
+      forkSideThread: async ({ threadId }) => ({ thread: { id: `side-${threadId}`, turns: [] }, cwd: "", model: "m" }),
+      injectThreadItems: async () => undefined, unsubscribeThread: async () => undefined, interruptTurn: async () => undefined
+    }),
+    getCodexVersion: () => "codex-cli 0.144.1", getRunningTurnCapacity: () => ({ allowed: true, limit: 2, running: 0 }),
+    getActiveTurn: () => null, startTextTurn: async () => undefined,
+    syncCurrentSessionCard: async (chatId) => { completed.push(chatId); },
+    surfacePendingInteractions: async () => undefined, expireSideInteractions: async () => undefined,
+    clearSideTransientInput: () => undefined, releaseHeldTerminalResults: async () => 0,
+    getParentStatus: () => "idle", parentNeedsAction: () => false, countHeldResults: () => 0,
+    getUiLanguage: () => "en", safeSendMessage: async () => true, safeSendHtmlMessage: async () => true,
+    nowMs: () => 0, createToken: () => Math.random().toString(36)
+  });
+  const one = coordinator.handleCommand("chat-1", ""); await started;
+  const two = coordinator.handleCommand("chat-2", ""); await two;
+  assert.deepEqual(completed, ["chat-2"]); release(); await one;
+  assert.deepEqual(completed, ["chat-2", "chat-1"]);
 });
 
 test("allowlist, parent hold, and stable validated card view", async () => {
@@ -251,6 +330,13 @@ test("card view rejects corrupt persisted side-parent project relation", async (
   const h = harness(); await h.coordinator.handleCommand("chat", "");
   h.rows.set("side", session({ ...h.active!, projectPath: "/corrupt" }));
   assert.equal(h.coordinator.getCardView(h.active!), null);
+});
+
+test("card view does not mint a token for a valid but nonactive historical side", async () => {
+  const h = harness(); await h.coordinator.handleCommand("chat", ""); const historical = h.active!;
+  h.setActive(session());
+  const coordinator = new SideConversationCoordinator({ ...h.deps, createToken: () => { throw new Error("must not mint"); } });
+  assert.equal(coordinator.getCardView(historical), null);
 });
 
 test("parent surface hold validates the complete active side relationship", () => {
