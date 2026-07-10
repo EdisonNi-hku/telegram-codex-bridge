@@ -542,6 +542,9 @@ export class BridgeStateStore {
   getActiveSideForParent(parentSessionId: string): SessionRow | null { return this.sideSessions.getActiveSideForParent(parentSessionId); }
   listSideSessions(): SessionRow[] { return this.sideSessions.listSideSessions(); }
   restoreParentAndDeleteSide(sideSessionId: string): { side: SessionRow; parent: SessionRow } | null { return this.sideSessions.restoreParentAndDeleteSide(sideSessionId); }
+  restoreFallbackAndDeleteOrphanedSide(sideSessionId: string): { side: SessionRow; fallback: SessionRow | null } | null {
+    return this.sideSessions.restoreFallbackAndDeleteOrphanedSide(sideSessionId);
+  }
   recoverSideSessionsAfterRestart(): SideRestartRecovery[] { return this.sideSessions.recoverSideSessionsAfterRestart(); }
 
   setActiveSession(chatId: string, sessionId: string): void {

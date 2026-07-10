@@ -684,6 +684,63 @@ test("stale side restore returns null and preserves the side row", async () => {
   }
 });
 
+test("orphaned active side atomically restores the most recent visible regular fallback", async () => {
+  const { paths, store, cleanup } = await openStore();
+  try {
+    authorizeTestChat(store, "chat-side-orphan-fallback");
+    const parent = store.createSession({ chatId: "chat-side-orphan-fallback", projectName: "Parent", projectPath: "/tmp/orphan-parent" });
+    const older = store.createSession({ chatId: parent.chatId, projectName: "Older", projectPath: "/tmp/older" });
+    const newer = store.createSession({ chatId: parent.chatId, projectName: "Newer", projectPath: "/tmp/newer" });
+    store.setActiveSession(parent.chatId, parent.sessionId);
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-orphan" });
+    const raw = new DatabaseSync(paths.dbPath);
+    raw.prepare("UPDATE session SET archived = 1 WHERE session_id = ?").run(parent.sessionId);
+    raw.prepare("UPDATE session SET last_used_at = ? WHERE session_id = ?").run("2026-01-02T00:00:00.000Z", older.sessionId);
+    raw.prepare("UPDATE session SET last_used_at = ? WHERE session_id = ?").run("2026-01-03T00:00:00.000Z", newer.sessionId);
+    raw.close();
+
+    const restored = store.restoreFallbackAndDeleteOrphanedSide(side.sessionId);
+    assert.equal(restored?.fallback?.sessionId, newer.sessionId);
+    assert.equal(store.getActiveSession(parent.chatId)?.sessionId, newer.sessionId);
+    assert.equal(store.getSessionById(side.sessionId), null);
+  } finally { await cleanup(); }
+});
+
+test("orphaned active side without fallback clears the binding for new-session state", async () => {
+  const { paths, store, cleanup } = await openStore();
+  try {
+    authorizeTestChat(store, "chat-side-orphan-new");
+    const parent = store.createSession({ chatId: "chat-side-orphan-new", projectName: "Parent", projectPath: "/tmp/orphan-new" });
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-orphan-new" });
+    const raw = new DatabaseSync(paths.dbPath);
+    raw.prepare("UPDATE session SET archived = 1 WHERE session_id = ?").run(parent.sessionId); raw.close();
+
+    const restored = store.restoreFallbackAndDeleteOrphanedSide(side.sessionId);
+    assert.equal(restored?.fallback, null);
+    assert.equal(store.getActiveSession(parent.chatId), null);
+    assert.equal(store.getChatBinding(parent.chatId)?.activeSessionId, null);
+    assert.equal(store.getSessionById(side.sessionId), null);
+  } finally { await cleanup(); }
+});
+
+test("orphaned side fallback restore uses active-side CAS and makes no partial mutation", async () => {
+  const { paths, store, cleanup } = await openStore();
+  try {
+    authorizeTestChat(store, "chat-side-orphan-cas");
+    const parent = store.createSession({ chatId: "chat-side-orphan-cas", projectName: "Parent", projectPath: "/tmp/orphan-cas" });
+    const fallback = store.createSession({ chatId: parent.chatId, projectName: "Fallback", projectPath: "/tmp/fallback-cas" });
+    store.setActiveSession(parent.chatId, parent.sessionId);
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-orphan-cas" });
+    const raw = new DatabaseSync(paths.dbPath);
+    raw.prepare("UPDATE session SET archived = 1 WHERE session_id = ?").run(parent.sessionId); raw.close();
+    store.setActiveSession(parent.chatId, fallback.sessionId);
+
+    assert.equal(store.restoreFallbackAndDeleteOrphanedSide(side.sessionId), null);
+    assert.equal(store.getActiveSession(parent.chatId)?.sessionId, fallback.sessionId);
+    assert.equal(store.getSessionById(side.sessionId)?.sessionId, side.sessionId);
+  } finally { await cleanup(); }
+});
+
 test("createSideSession rejects empty and blank thread ids", async () => {
   const { store, cleanup } = await openStore();
   try {

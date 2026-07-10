@@ -17,6 +17,7 @@ export interface StoreSideSessions {
   getActiveSideForParent(parentSessionId: string): SessionRow | null;
   listSideSessions(): SessionRow[];
   restoreParentAndDeleteSide(sideSessionId: string): { side: SessionRow; parent: SessionRow } | null;
+  restoreFallbackAndDeleteOrphanedSide(sideSessionId: string): { side: SessionRow; fallback: SessionRow | null } | null;
   recoverSideSessionsAfterRestart(): SideRestartRecovery[];
 }
 
@@ -196,6 +197,57 @@ export function createStoreSideSessions(db: DatabaseSync): StoreSideSessions {
         }
         db.exec("COMMIT");
         return { side, parent };
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    },
+
+    restoreFallbackAndDeleteOrphanedSide(sideSessionId) {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const side = getSession(sideSessionId);
+        if (!side) { db.exec("ROLLBACK"); return null; }
+        if (side.sessionKind !== "side") throw new Error("session is not a side session");
+
+        const parent = side.parentSessionId ? getSession(side.parentSessionId) : null;
+        const parentIsVisible = parent?.sessionKind === "regular"
+          && !parent.archived
+          && parent.chatId === side.chatId
+          && parent.projectPath === side.projectPath;
+        if (parentIsVisible) { db.exec("ROLLBACK"); return null; }
+
+        const fallbackRow = db
+          .prepare(
+            `
+              SELECT
+                ${sessionSelectColumns("s", "rp")}
+              FROM session s
+              LEFT JOIN recent_project rp ON rp.project_path = s.project_path
+              WHERE s.chat_id = ? AND s.session_kind = 'regular' AND s.archived = 0
+              ORDER BY s.last_used_at DESC, s.created_at DESC, s.rowid DESC
+              LIMIT 1
+            `
+          )
+          .get(side.chatId) as SessionRecord | undefined;
+        const fallback = fallbackRow ? mapSession(fallbackRow) : null;
+        const bindingUpdate = db
+          .prepare(
+            `
+              UPDATE chat_binding
+              SET active_session_id = ?, updated_at = ?
+              WHERE chat_id = ? AND active_session_id = ?
+            `
+          )
+          .run(fallback?.sessionId ?? null, nowIso(), side.chatId, side.sessionId);
+        if (Number(bindingUpdate.changes ?? 0) !== 1) { db.exec("ROLLBACK"); return null; }
+
+        const deleted = db
+          .prepare("DELETE FROM session WHERE session_id = ? AND session_kind = 'side'")
+          .run(side.sessionId);
+        if (Number(deleted.changes ?? 0) !== 1) throw new Error("active orphaned side disappeared before delete");
+        db.exec("COMMIT");
+        return { side, fallback };
       } catch (error) {
         db.exec("ROLLBACK");
         throw error;
