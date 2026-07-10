@@ -1236,7 +1236,8 @@ export class TurnCoordinator {
     saved: TerminalResultViewRow
   ): Promise<TerminalDeliveryResult> {
     const store = this.deps.getStore();
-    const directDelivery = createTerminalResultDeliveryView(saved, saved.pages.length > 1);
+    const previewIsCollapsed = saved.previewHtml !== (saved.pages[0] ?? saved.previewHtml);
+    const directDelivery = createTerminalResultDeliveryView(saved, previewIsCollapsed);
     const directMarkup = this.buildTerminalResultReplyMarkup(saved, directDelivery.controls);
     const sent = await executeTelegramHtmlSurfaceOperation({
       intent: "terminal_result",

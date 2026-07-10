@@ -1827,6 +1827,77 @@ test("TurnCoordinator holds parent final answers while side mode is active and r
   }
 });
 
+test("TurnCoordinator keeps collapse controls for a one-page truncated normal final answer", async () => {
+  const answer = "Compact paragraph ".repeat(35);
+  const { coordinator, store, sentHtmlMessages, cleanup } = await createCoordinatorContext({
+    appServer: {
+      resumeThread: async () => ({
+        thread: {
+          id: "thread-one-page-collapsed",
+          turns: [{
+            id: "turn-one-page-collapsed",
+            items: [{ type: "agentMessage", phase: "final_answer", text: answer }]
+          }]
+        }
+      })
+    }
+  });
+  try {
+    const session = store.createSession({ chatId: "chat-1", projectName: "P", projectPath: "/tmp/p" });
+    await coordinator.beginActiveTurn("chat-1", session, "thread-one-page-collapsed", "turn-one-page-collapsed", "inProgress");
+    await coordinator.handleAppServerNotification("turn/completed", {
+      threadId: "thread-one-page-collapsed", turnId: "turn-one-page-collapsed", status: "completed"
+    });
+
+    const saved = store.listTerminalResultViews("chat-1")[0];
+    assert.equal(saved?.pages.length, 1);
+    assert.notEqual(saved?.previewHtml, saved?.pages[0]);
+    assert.match(sentHtmlMessages[0]?.html ?? "", /已折叠/u);
+    assert.equal(sentHtmlMessages[0]?.replyMarkup?.inline_keyboard[0]?.[0]?.text, "展开全文");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator restores collapse controls when releasing a held one-page truncated answer", async () => {
+  const answer = "Held compact paragraph ".repeat(30);
+  let hold = true;
+  const { coordinator, store, sentHtmlMessages, cleanup } = await createCoordinatorContext({
+    shouldHoldTerminalOutput: () => hold,
+    appServer: {
+      resumeThread: async () => ({
+        thread: {
+          id: "thread-held-one-page-collapsed",
+          turns: [{
+            id: "turn-held-one-page-collapsed",
+            items: [{ type: "agentMessage", phase: "final_answer", text: answer }]
+          }]
+        }
+      })
+    }
+  });
+  try {
+    const session = store.createSession({ chatId: "chat-1", projectName: "P", projectPath: "/tmp/p" });
+    await coordinator.beginActiveTurn(
+      "chat-1", session, "thread-held-one-page-collapsed", "turn-held-one-page-collapsed", "inProgress"
+    );
+    await coordinator.handleAppServerNotification("turn/completed", {
+      threadId: "thread-held-one-page-collapsed", turnId: "turn-held-one-page-collapsed", status: "completed"
+    });
+    const saved = store.listTerminalResultViews("chat-1")[0];
+    assert.equal(saved?.pages.length, 1);
+    assert.notEqual(saved?.previewHtml, saved?.pages[0]);
+    assert.equal(sentHtmlMessages.length, 0);
+
+    hold = false;
+    assert.equal(await coordinator.releaseHeldTerminalResults("chat-1", session.sessionId), 1);
+    assert.match(sentHtmlMessages[0]?.html ?? "", /已折叠/u);
+    assert.equal(sentHtmlMessages[0]?.replyMarkup?.inline_keyboard[0]?.[0]?.text, "展开全文");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("TurnCoordinator holds parent plan results but side results still deliver immediately", async () => {
   const heldSessions = new Set<string>();
   const { coordinator, store, sentHtmlMessages, cleanup } = await createCoordinatorContext({
