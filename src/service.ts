@@ -16,6 +16,7 @@ import { routeBridgeCallback } from "./service/callback-router.js";
 import { CodexCommandCoordinator } from "./service/codex-command-coordinator.js";
 import { routeBridgeCommand } from "./service/command-router.js";
 import { CurrentSessionCardController } from "./service/current-session-card-controller.js";
+import { SideConversationCoordinator, type SideCardAction } from "./service/side-conversation-coordinator.js";
 import {
   InteractionBroker,
   type InteractionResolutionSource,
@@ -90,6 +91,7 @@ import type { JsonRpcServerRequest, UserInput } from "./codex/app-server.js";
 import { parseAgentMessagePhase } from "./codex/protocol-truth.js";
 import {
   buildBridgeCommandReplyMarkup,
+  buildCurrentSessionCardText,
   buildCommandPanelEditMessage,
   buildCommandPanelMessage,
   buildHelpReplyMarkup,
@@ -107,6 +109,7 @@ import {
   parseCommand,
   type RuntimeCommandEntryView
 } from "./telegram/ui.js";
+import { buildSideSessionCardMessage } from "./telegram/ui-side.js";
 import {
   buildHelpText,
   getDefaultCommandPanelCommands,
@@ -285,6 +288,7 @@ export class BridgeService {
   private readonly subagentIdentityBackfiller: SubagentIdentityBackfiller;
   private readonly threadArchiveReconciler: ThreadArchiveReconciler;
   private readonly turnCoordinator: TurnCoordinator;
+  private readonly sideConversationCoordinator: SideConversationCoordinator;
   private poller: TelegramPoller | null = null;
   private api: TelegramApi | null = null;
   private safeMessenger: SafeMessenger | null = null;
@@ -359,13 +363,21 @@ export class BridgeService {
         warn: async (message, meta) => this.logger.warn(message, meta)
       },
       getStore: () => this.store,
-      getUiLanguage: () => this.getUiLanguage(),
-      safeSendHtmlMessageResult: async (chatId, html) => this.safeSendHtmlMessageResult(chatId, html),
-      safeEditHtmlMessageText: async (chatId, messageId, html) => this.safeEditHtmlMessageText(chatId, messageId, html),
+      renderSessionCard: async (session) => {
+        if (session.sessionKind === "side") {
+          const view = this.sideConversationCoordinator.getCardView(session);
+          if (!view) throw new Error("active side relationship is no longer valid");
+          const rendered = buildSideSessionCardMessage(view);
+          return { html: rendered.text, replyMarkup: rendered.replyMarkup };
+        }
+        const modelState = await this.resolveSessionModelState(session);
+        return { html: buildCurrentSessionCardText(session, this.getUiLanguage(), modelState) };
+      },
+      safeSendHtmlMessageResult: async (chatId, html, replyMarkup) => this.safeSendHtmlMessageResult(chatId, html, replyMarkup),
+      safeEditHtmlMessageText: async (chatId, messageId, html, replyMarkup) => this.safeEditHtmlMessageText(chatId, messageId, html, replyMarkup),
       safeDeleteMessage: async (chatId, messageId) => this.safeDeleteMessageResult(chatId, messageId),
       safePinChatMessage: async (chatId, messageId) => this.safePinChatMessage(chatId, messageId),
       safeUnpinChatMessage: async (chatId, messageId) => this.safeUnpinChatMessage(chatId, messageId),
-      resolveSessionModelState: async (session) => this.resolveSessionModelState(session)
     });
     this.sessionProjectCoordinator = new SessionProjectCoordinator({
       logger: {
@@ -634,6 +646,54 @@ export class BridgeService {
       safeEditHtmlMessageText: async (chatId, messageId, text, replyMarkup) =>
         this.safeEditHtmlMessageText(chatId, messageId, text, replyMarkup),
       safeAnswerCallbackQuery: async (callbackQueryId, text) => this.safeAnswerCallbackQuery(callbackQueryId, text)
+    });
+    this.sideConversationCoordinator = new SideConversationCoordinator({
+      getStore: () => this.store,
+      ensureAppServerAvailable: async () => this.requireAppServer(),
+      getCodexVersion: () => this.snapshot?.details.codexVersion ?? null,
+      getRunningTurnCapacity: (chatId) => {
+        const capacity = this.turnCoordinator.getRunningTurnCapacity(chatId);
+        return { allowed: capacity.allowed, limit: capacity.limit, running: capacity.runningCount };
+      },
+      getActiveTurn: (sessionId) => {
+        const turn = this.turnCoordinator.getActiveTurnBySessionId(sessionId);
+        return turn ? { threadId: turn.threadId, turnId: turn.turnId } : null;
+      },
+      startTextTurn: async (chatId, session, text) => this.turnCoordinator.startTextTurn(chatId, session, text),
+      syncCurrentSessionCard: async (chatId, reason) => this.currentSessionCardController.syncForChat(chatId, reason),
+      surfacePendingInteractions: async () => undefined,
+      expireSideInteractions: async (chatId, sessionId, reason) =>
+        this.interactionBroker.resolveActionablePendingInteractionsForSession(chatId, sessionId, {
+          state: "expired", reason, resolutionSource: "turn_expired"
+        }),
+      clearSideTransientInput: (chatId, sessionId) => {
+        const active = this.store?.getActiveSession(chatId);
+        if (active?.sessionKind === "side" && active.sessionId === sessionId) {
+          this.richInputAdapter.resetPendingTransientState(chatId);
+        }
+      },
+      releaseHeldTerminalResults: async () => 0,
+      getParentStatus: (parent) => {
+        const pending = this.store?.listPendingInteractionsByChat(parent.chatId, ["pending", "awaiting_text"])
+          .filter((row) => row.sessionId === parent.sessionId) ?? [];
+        if (pending.some((row) => row.interactionKind === "questionnaire" || row.interactionKind === "elicitation")) {
+          return "waiting_input";
+        }
+        if (pending.length > 0) return "waiting_approval";
+        if ((this.store?.countHeldTerminalResults(parent.sessionId) ?? 0) > 0) return "completed";
+        if (this.turnCoordinator.getActiveTurnBySessionId(parent.sessionId)) return "running";
+        return parent.status === "running" ? "running" : parent.status;
+      },
+      parentNeedsAction: (chatId, parentSessionId) =>
+        (this.store?.listPendingInteractionsByChat(chatId, ["pending", "awaiting_text"])
+          .some((row) => row.sessionId === parentSessionId) ?? false),
+      countHeldResults: (parentSessionId) => this.store?.countHeldTerminalResults(parentSessionId) ?? 0,
+      getUiLanguage: () => this.getUiLanguage(),
+      safeSendMessage: async (chatId, text, replyMarkup) => this.safeSendMessage(chatId, text, replyMarkup),
+      safeSendHtmlMessage: async (chatId, html, replyMarkup) => this.safeSendHtmlMessage(chatId, html, replyMarkup),
+      nowMs: () => Date.now(),
+      createToken: () => randomUUID().replaceAll("-", ""),
+      logger: { warn: (message, details) => { void this.logger.warn(message, { details }); } }
     });
   }
 
@@ -1236,6 +1296,12 @@ export class BridgeService {
 
     const chatId = `${message.chat.id}`;
     const text = (message.text ?? "").trim();
+    const earlyCommand = parseCommand(text);
+
+    if (earlyCommand?.name === "side") {
+      await this.handleSideCommand(chatId, earlyCommand.args);
+      return;
+    }
 
     if (this.isAwaitingRename(chatId)) {
       const command = parseCommand(text);
@@ -1361,8 +1427,15 @@ export class BridgeService {
         const result = await this.retrieveFileCoordinator.handleDecision(chatId, token, approved);
         await this.safeAnswerCallbackQuery(callbackQuery.id, result);
       },
-      handleSideAction: async () => {
-        await this.safeAnswerCallbackQuery(callbackQuery.id, "这个 Side 操作已失效。");
+      handleSideAction: async (sideAction) => {
+        const actionByKind: Record<typeof sideAction.kind, SideCardAction> = {
+          side_status: "status", side_back: "back", side_interrupt: "interrupt",
+          side_return_confirm: "return_confirm", side_return_cancel: "return_cancel"
+        };
+        const result = await this.sideConversationCoordinator.handleCardAction(
+          chatId, actionByKind[sideAction.kind], sideAction.token
+        );
+        await this.safeAnswerCallbackQuery(callbackQuery.id, result ?? undefined);
       },
       openCommandPanel: async () => this.handleCommandPanelOpenCallback(callbackQuery.id, chatId),
       sendHelpFromPanel: async () => this.handleCommandPanelHelpCallback(callbackQuery.id, chatId),
@@ -2042,6 +2115,11 @@ export class BridgeService {
   }
 
   private async routeCommand(chatId: string, commandName: string, args: string): Promise<void> {
+    const activeSession = this.store?.getActiveSession(chatId);
+    if (activeSession?.sessionKind === "side" && !this.sideConversationCoordinator.isCommandAllowed(commandName)) {
+      await this.safeSendMessage(chatId, "Side 模式中不能使用这个命令，请先返回主会话。");
+      return;
+    }
     await routeBridgeCommand(commandName, {
       sendHelp: async () => {
         await this.sendHelp(chatId);
@@ -2074,7 +2152,7 @@ export class BridgeService {
         await this.retrieveFileCoordinator.handleCommand(chatId, args);
       },
       handleSide: async () => {
-        await this.safeSendMessage(chatId, buildUnsupportedCommandText());
+        await this.handleSideCommand(chatId, args);
       },
       handleCancel: async () => {
         await this.handleCancelCommand(chatId);
@@ -2204,6 +2282,19 @@ export class BridgeService {
         await this.safeSendMessage(chatId, buildUnsupportedCommandText());
       }
     });
+  }
+
+  private async handleSideCommand(chatId: string, args: string): Promise<void> {
+    if (this.config.activePack !== "telegram") {
+      await this.safeSendMessage(chatId, buildUnsupportedCommandText());
+      return;
+    }
+    if (this.isAwaitingRename(chatId) || this.isAwaitingManualProjectPath(chatId)
+      || this.richInputAdapter.hasPendingRichInputComposer(chatId)) {
+      await this.safeSendMessage(chatId, "当前有待完成的输入，请先发送 /cancel，再开启 Side。");
+      return;
+    }
+    await this.sideConversationCoordinator.handleCommand(chatId, args);
   }
 
   private async handleCancelCommand(chatId: string): Promise<void> {
@@ -3934,7 +4025,8 @@ export class BridgeService {
     }
 
     const activeSession = this.store?.getActiveSession(session.chatId);
-    if (!activeSession || activeSession.sessionId !== sessionId) {
+    if (!activeSession || (activeSession.sessionId !== sessionId
+      && !(activeSession.sessionKind === "side" && activeSession.parentSessionId === sessionId))) {
       return;
     }
 

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { BridgePaths } from "../paths.js";
 import { BridgeStateStore } from "../state/store.js";
 import { CurrentSessionCardController } from "./current-session-card-controller.js";
+import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 
 function createTestPaths(root: string): BridgePaths {
   const logsDir = join(root, "logs");
@@ -55,25 +56,29 @@ async function createControllerContext() {
     warn: async () => {},
     error: async () => {}
   });
-  const sent: Array<{ chatId: string; text: string }> = [];
-  const edited: Array<{ chatId: string; messageId: number; text: string }> = [];
+  const sent: Array<{ chatId: string; text: string; replyMarkup?: TelegramInlineKeyboardMarkup }> = [];
+  const edited: Array<{ chatId: string; messageId: number; text: string; replyMarkup?: TelegramInlineKeyboardMarkup }> = [];
   const deleted: Array<{ chatId: string; messageId: number }> = [];
   const pinned: Array<{ chatId: string; messageId: number }> = [];
   const unpinned: Array<{ chatId: string; messageId: number }> = [];
   let nextMessageId = 700;
   let editOutcome: "edited" | "failed" = "edited";
 
+  const sideMarkup = { inline_keyboard: [[{ text: "返回", callback_data: "v11:sd:b:token" }]] };
+  let renderSide = false;
   const controller = new CurrentSessionCardController({
     logger: { warn: async () => {} },
     getStore: () => store,
-    getUiLanguage: () => "zh",
-    safeSendHtmlMessageResult: async (chatId, text) => {
+    renderSessionCard: async (session) => renderSide
+      ? { html: `Side: ${session.displayName}`, replyMarkup: sideMarkup }
+      : { html: `${session.projectName} / ${session.displayName}` },
+    safeSendHtmlMessageResult: async (chatId, text, replyMarkup) => {
       const messageId = nextMessageId++;
-      sent.push({ chatId, text });
+      sent.push({ chatId, text, ...(replyMarkup ? { replyMarkup } : {}) });
       return { messageId };
     },
-    safeEditHtmlMessageText: async (chatId, messageId, text) => {
-      edited.push({ chatId, messageId, text });
+    safeEditHtmlMessageText: async (chatId, messageId, text, replyMarkup) => {
+      edited.push({ chatId, messageId, text, ...(replyMarkup ? { replyMarkup } : {}) });
       return editOutcome === "edited" ? { outcome: "edited" } : { outcome: "failed" };
     },
     safeDeleteMessage: async (chatId, messageId) => {
@@ -88,12 +93,6 @@ async function createControllerContext() {
       unpinned.push({ chatId, messageId });
       return true;
     },
-    resolveSessionModelState: async (session) => ({
-      configuredModel: session.selectedModel,
-      configuredReasoningEffort: session.selectedReasoningEffort,
-      effectiveModel: session.selectedModel,
-      effectiveReasoningEffort: session.selectedReasoningEffort
-    })
   });
 
   return {
@@ -107,6 +106,8 @@ async function createControllerContext() {
     setEditOutcome: (outcome: "edited" | "failed") => {
       editOutcome = outcome;
     },
+    setRenderSide: (value: boolean) => { renderSide = value; },
+    sideMarkup,
     cleanup: async () => {
       store.close();
       await rm(root, { recursive: true, force: true });
@@ -150,6 +151,21 @@ test("CurrentSessionCardController sends and pins a new card for the active sess
   } finally {
     await cleanup();
   }
+});
+
+test("CurrentSessionCardController forwards side controls unchanged on send and edit", async () => {
+  const { controller, store, sent, edited, sideMarkup, setRenderSide, cleanup } = await createControllerContext();
+  try {
+    authorizeChat(store, "chat-1");
+    const session = store.createSession({ chatId: "chat-1", projectName: "Project", projectPath: "/repo", displayName: "Side" });
+    store.setActiveSession("chat-1", session.sessionId);
+    setRenderSide(true);
+
+    await controller.syncForChat("chat-1", "side_entered");
+    assert.strictEqual(sent[0]?.replyMarkup, sideMarkup);
+    await controller.syncForChat("chat-1", "parent_status_changed");
+    assert.strictEqual(edited[0]?.replyMarkup, sideMarkup);
+  } finally { await cleanup(); }
 });
 
 test("CurrentSessionCardController edits the existing card in place when possible", async () => {

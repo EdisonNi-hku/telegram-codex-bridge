@@ -1,7 +1,7 @@
 import type { Logger } from "../logger.js";
 import type { BridgeStateStore } from "../state/store.js";
-import { buildCurrentSessionCardText } from "../telegram/ui.js";
-import type { ReasoningEffort, SessionRow, UiLanguage } from "../types.js";
+import type { SessionRow } from "../types.js";
+import type { TelegramInlineKeyboardMarkup } from "../telegram/api.js";
 import type { EgressMessageSendResult } from "../packs/contract.js";
 import {
   isTelegramDeleteCommitted,
@@ -13,18 +13,12 @@ import {
 interface CurrentSessionCardControllerDeps {
   logger: Pick<Logger, "warn">;
   getStore: () => BridgeStateStore | null;
-  getUiLanguage: () => UiLanguage;
-  safeSendHtmlMessageResult: (chatId: string, html: string) => Promise<EgressMessageSendResult | null>;
-  safeEditHtmlMessageText: (chatId: string, messageId: number, html: string) => Promise<EgressEditResult>;
+  renderSessionCard: (session: SessionRow) => Promise<{ html: string; replyMarkup?: TelegramInlineKeyboardMarkup }>;
+  safeSendHtmlMessageResult: (chatId: string, html: string, replyMarkup?: TelegramInlineKeyboardMarkup) => Promise<EgressMessageSendResult | null>;
+  safeEditHtmlMessageText: (chatId: string, messageId: number, html: string, replyMarkup?: TelegramInlineKeyboardMarkup) => Promise<EgressEditResult>;
   safeDeleteMessage: (chatId: string, messageId: number) => Promise<EgressDeleteResult>;
   safePinChatMessage: (chatId: string, messageId: number) => Promise<boolean>;
   safeUnpinChatMessage: (chatId: string, messageId: number) => Promise<boolean>;
-  resolveSessionModelState: (session: SessionRow) => Promise<{
-    configuredModel: string | null;
-    configuredReasoningEffort: ReasoningEffort | null;
-    effectiveModel: string | null;
-    effectiveReasoningEffort: ReasoningEffort | null;
-  }>;
 }
 
 export class CurrentSessionCardController {
@@ -49,21 +43,20 @@ export class CurrentSessionCardController {
       return;
     }
 
-    const modelState = await this.deps.resolveSessionModelState(activeSession);
-    const html = buildCurrentSessionCardText(activeSession, this.deps.getUiLanguage(), modelState);
+    const { html, replyMarkup } = await this.deps.renderSessionCard(activeSession);
     let nextMessageId = existingMessageId;
     const shouldRecreate = this.shouldRecreateCard(existing?.sessionId ?? null, activeSession.sessionId, reason);
 
     if (existingMessageId && existingMessageId > 0 && !shouldRecreate) {
-      const result = await this.deps.safeEditHtmlMessageText(chatId, existingMessageId, html);
+      const result = await this.deps.safeEditHtmlMessageText(chatId, existingMessageId, html, replyMarkup);
       if (isTelegramEditCommitted(result)) {
         nextMessageId = existingMessageId;
       } else {
-        const sent = await this.deps.safeSendHtmlMessageResult(chatId, html);
+        const sent = await this.deps.safeSendHtmlMessageResult(chatId, html, replyMarkup);
         nextMessageId = sent?.messageId ?? null;
       }
     } else {
-      const sent = await this.deps.safeSendHtmlMessageResult(chatId, html);
+      const sent = await this.deps.safeSendHtmlMessageResult(chatId, html, replyMarkup);
       nextMessageId = sent?.messageId ?? null;
     }
 

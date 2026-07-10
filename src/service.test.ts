@@ -856,6 +856,58 @@ test("bot-authored private service messages do not trigger unauthorized replies"
   }
 });
 
+test("Telegram /side is intercepted before pending interaction text mode", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const events: string[] = [];
+  try {
+    authorizeNumericChatWithSession(store, "1");
+    (service as any).api = { sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1, text) };
+    (service as any).interactionBroker.getPendingTextMode = () => ({ interactionId: "pending" });
+    (service as any).interactionBroker.handlePendingInteractionTextAnswer = async () => { events.push("interaction"); };
+    (service as any).sideConversationCoordinator = {
+      handleCommand: async (chatId: string, args: string) => { events.push(`side:${chatId}:${args}`); },
+      isCommandAllowed: () => true
+    };
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 1900, "/side explain"));
+    assert.deepEqual(events, ["side:1:explain"]);
+  } finally { await cleanup(); }
+});
+
+test("side mode blocks structural slash commands before their handlers", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const sent: string[] = [];
+  let handlerRan = false;
+  try {
+    const parent = authorizeNumericChatWithSession(store, "1");
+    store.updateSessionThreadId(parent.sessionId, "parent-thread");
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
+    assert.equal(store.getActiveSession("1")?.sessionId, side.sessionId);
+    (service as any).api = { sendMessage: async (_chatId: string, text: string) => { sent.push(text); return createFakeTelegramMessage(1, text); } };
+    (service as any).sideConversationCoordinator = { isCommandAllowed: () => false };
+    (service as any).sessionProjectCoordinator.handleNew = async () => { handlerRan = true; };
+    await (service as any).routeCommand("1", "new", "");
+    assert.equal(handlerRan, false);
+    assert.equal(sent.at(-1), "Side 模式中不能使用这个命令，请先返回主会话。");
+  } finally { await cleanup(); }
+});
+
+test("side callbacks delegate to the lifecycle coordinator and answer its result", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const calls: unknown[] = [];
+  const answers: Array<string | undefined> = [];
+  try {
+    authorizeNumericChatWithSession(store, "1");
+    (service as any).api = { answerCallbackQuery: async (_id: string, text?: string) => { answers.push(text); } };
+    (service as any).sideConversationCoordinator = {
+      handleCardAction: async (...args: unknown[]) => { calls.push(args); return "done"; }
+    };
+    await (service as any).handleCallback({ id: "cb", from: { id: 1, is_bot: false, first_name: "Tester" },
+      message: { message_id: 1, chat: { id: 1, type: "private" } }, data: "v11:sd:s:token" });
+    assert.deepEqual(calls, [["1", "status", "token"]]);
+    assert.deepEqual(answers, ["done"]);
+  } finally { await cleanup(); }
+});
+
 test("bang shell ingress requires the first message character and forwards callbacks and notifications", async () => {
   const { service, store, cleanup } = await createServiceContext();
   const shellInputs: string[] = [];
