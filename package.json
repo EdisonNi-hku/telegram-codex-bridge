@@ -31,7 +31,17 @@
     "ctb": "./dist/cli.js"
   },
   "dependencies": {
-    "@larksuiteoapi/node-sdk": "^1.60.0"
+    "@larksuiteoapi/node-sdk": "^1.70.0"
+  },
+  "overrides": {
+    "@protobufjs/utf8": "1.1.2",
+    "axios": "1.18.1",
+    "esbuild": "0.28.1",
+    "follow-redirects": "1.16.0",
+    "form-data": "4.0.6",
+    "protobufjs": "7.6.5",
+    "qs": "6.15.3",
+    "ws": "8.21.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
