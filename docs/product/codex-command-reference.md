@@ -5,7 +5,7 @@ parent: docs/product/README.md
 children: []
 summary: current Telegram UX contract for Codex-backed commands and structured rich-input submission
 read_when:
-  - the task is about model, skills, plugins, apps, MCP, account, review, fork, rollback, compact, thread metadata, or rich-input commands
+  - the task is about model, skills, plugins, apps, MCP, account, review, fork, rollback, compact, thread metadata, file retrieval, or rich-input commands
 skip_when:
   - the task is only about raw protocol capability with no Telegram command UX
 source_of_truth:
@@ -23,6 +23,7 @@ Current intended behavior for Telegram commands that adapt stable Codex control-
 This file covers:
 - model, skills, plugins, apps, MCP, and account commands
 - review, fork, rollback, compact, and thread metadata commands
+- Telegram file retrieval
 - structured rich inputs such as skill, local image, mention, and attach
 
 When implementation detail matters, verify against:
@@ -222,6 +223,53 @@ Behavior:
 - calls `thread/backgroundTerminals/clean`
 - keeps the response compact at the thread level instead of exposing terminal-session internals
 - success copy names the affected session explicitly
+
+### `/retrieve <file path>`
+
+Availability:
+- Telegram only; the command is not advertised or supported on Feishu
+- requires an active, non-archived session; otherwise the bridge asks the user to select a project with `/new`
+
+Path handling:
+- resolves a relative path against the active session's project directory
+- accepts an absolute path or a home-relative `~/...` path
+- accepts a whole path wrapped in matching single or double quotes, which is useful for spaces in file names
+- resolves the project directory and requested file through `realpath` before deciding containment
+- sends a file whose resolved path is contained by the resolved project directory directly
+- treats an external absolute or `~/...` path, `..` traversal outside the project, and a project-local symlink that resolves outside the project as external
+
+External-file confirmation:
+- shows the resolved file path, size, and current project before sending
+- requires an inline confirmation that is single-use and expires after two minutes
+- binds the confirmation to the authorized chat, active session, project, and resolved target path; a newer external-file request for the same session replaces the older pending confirmation
+- consumes the confirmation on the first decision, including cancellation or an invalid decision
+- on approval, resolves the path again and revalidates the current file's readability, regular-file type, and size; a changed session, project, or resolved target path prevents delivery and requires a new `/retrieve`
+
+File rules and delivery:
+- sends exactly one readable regular file; directories and special files are rejected
+- rejects files larger than 50 MiB; a file of exactly 50 MiB is allowed
+- stages a private immutable snapshot before upload and removes it afterward, so Telegram receives the validated bytes even if the source changes after staging
+- aborts if the source changes while the snapshot is being copied
+- preserves the resolved file name and includes the resolved project-relative path, or external real path, plus file size in the Telegram caption
+
+Examples:
+- `/retrieve reports/audit.html` sends a contained project file without confirmation
+- `/retrieve "reports/final report.pdf"` supports a contained path with spaces
+- `/retrieve ~/Downloads/report.pdf` requires confirmation unless the resolved home path is inside the project
+- `/retrieve /tmp/report.html` requires confirmation
+- `/retrieve links/latest-report` requires confirmation when that project-local symlink resolves outside the project
+
+Common errors:
+- no active session: `请先发送 /new 选择项目。`
+- missing path: `请提供要取回的文件路径。`
+- inaccessible active project: `当前项目路径不存在或无法访问。`
+- no file at the resolved path: `找不到指定的文件。`
+- directory or special file: `指定路径不是普通文件，无法发送。`
+- unreadable file: `无法读取该文件，请检查文件权限。`
+- over the limit: reports the observed size and `超过 50 MiB 限制。`
+- changed resolved path or source mutation during staging: `文件路径已改变，请重新使用 /retrieve。`
+- changed active session or project during confirmation: `当前会话或项目已改变，未发送文件。`
+- expired or already-used confirmation: `这个确认已失效。` or `这个确认已过期。`
 
 ### `/local_image <path> :: <prompt>`
 
