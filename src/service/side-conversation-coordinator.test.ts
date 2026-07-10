@@ -20,7 +20,8 @@ function session(overrides: Partial<SessionRow> = {}): SessionRow {
   };
 }
 
-function harness(options: { active?: SessionRow | null; version?: string | null; capacity?: boolean } = {}) {
+function harness(options: { active?: SessionRow | null; version?: string | null; capacity?: boolean;
+  parentNeedsAction?: boolean } = {}) {
   let active = options.active === undefined ? session() : options.active;
   const rows = new Map<string, SessionRow>();
   if (active) rows.set(active.sessionId, active);
@@ -66,7 +67,8 @@ function harness(options: { active?: SessionRow | null; version?: string | null;
     syncCurrentSessionCard: async (_chatId: string, reason: string) => { events.push(`sync:${reason}`); },
     surfacePendingInteractions: async () => undefined, expireSideInteractions: async () => undefined,
     clearSideTransientInput: () => undefined, releaseHeldTerminalResults: async () => 0,
-    getParentStatus: () => "idle" as const, parentNeedsAction: () => false, countHeldResults: () => 0,
+    getParentStatus: () => options.parentNeedsAction ? "waiting_approval" as const : "idle" as const,
+    parentNeedsAction: () => options.parentNeedsAction ?? false, countHeldResults: () => 0,
     getUiLanguage: () => "en" as const,
     safeSendMessage: async (_chatId: string, text: string) => { messages.push(text); return true; },
     safeSendHtmlMessage: async (_chatId: string, text: string) => { messages.push(text); return true; },
@@ -111,12 +113,23 @@ test("version gate rejects old and malformed explicit versions, accepts minimum 
   }
 });
 
+test("version parser accepts only recognized whole Codex version output", async () => {
+  for (const version of ["codex-cli 0.144.1", "codex 0.144.1", "  codex-cli 1.2.3\n"]) {
+    const h = harness({ version }); await h.coordinator.handleCommand("chat", "");
+    assert.ok(h.events.includes("fork"));
+  }
+  for (const version of ["garbage 1.0.0 garbage", "codex-cli 0.144.1 suffix", "prefix codex 0.144.1"]) {
+    const h = harness({ version }); await h.coordinator.handleCommand("chat", "");
+    assert.deepEqual(h.events, []); assert.match(h.messages[0] ?? "", /update codex/i);
+  }
+});
+
 test("capacity refuses before config or fork", async () => {
   const h = harness({ capacity: false }); await h.coordinator.handleCommand("chat", "");
   assert.deepEqual(h.events, []); assert.match(h.messages[0] ?? "", /capacity|running/i);
 });
 
-test("idle, running, and blocked parents create; bare waits and inline starts after activation", async () => {
+test("idle, running, and failed parents create; bare waits and inline starts after activation", async () => {
   for (const status of ["idle", "running", "failed"] as const) {
     const h = harness({ active: session({ status }) });
     await h.coordinator.handleCommand("chat", status === "running" ? " explain this failure " : "");
@@ -124,6 +137,12 @@ test("idle, running, and blocked parents create; bare waits and inline starts af
       ? ["read-config", "fork", "inject", "create-side", "sync:side_entered", "start:explain this failure"]
       : ["read-config", "fork", "inject", "create-side", "sync:side_entered"]);
   }
+});
+
+test("blocked parent waiting for approval still creates a side", async () => {
+  const h = harness({ active: session({ status: "running" }), parentNeedsAction: true });
+  await h.coordinator.handleCommand("chat", "");
+  assert.ok(h.events.includes("create-side"));
 });
 
 test("config instructions and effective model/effort are passed to fork; boundary is injected", async () => {
@@ -159,6 +178,25 @@ test("store invariant failure is clear and does not change active parent", async
   await h.coordinator.handleCommand("chat", "");
   assert.equal(h.active?.sessionId, "parent"); assert.equal(h.rows.has("side"), false);
   assert.ok(h.events.includes("unsubscribe")); assert.match(h.messages.at(-1) ?? "", /already open|session changed/i);
+});
+
+test("generic persistence failure unsubscribes fork and preserves parent", async () => {
+  const h = harness(); h.store.createSideSession = () => { throw new Error("disk unavailable"); };
+  await h.coordinator.handleCommand("chat", "");
+  assert.equal(h.active?.sessionId, "parent"); assert.equal(h.rows.has("side"), false);
+  assert.ok(h.events.includes("unsubscribe")); assert.match(h.messages.at(-1) ?? "", /could not create/i);
+});
+
+test("token or card sync failure after persistence keeps the active side and does not unsubscribe", async () => {
+  const token = harness(); token.deps.createToken = () => { throw new Error("token failed"); };
+  await new SideConversationCoordinator(token.deps).handleCommand("chat", "");
+  assert.equal(token.active?.sessionKind, "side"); assert.equal(token.events.includes("unsubscribe"), false);
+  assert.match(token.messages.at(-1) ?? "", /side is open.*card/i);
+
+  const sync = harness(); sync.deps.syncCurrentSessionCard = async () => { throw new Error("sync failed"); };
+  await new SideConversationCoordinator(sync.deps).handleCommand("chat", "");
+  assert.equal(sync.active?.sessionKind, "side"); assert.equal(sync.events.includes("unsubscribe"), false);
+  assert.match(sync.messages.at(-1) ?? "", /side is open.*card/i);
 });
 
 test("protocol errors are classified as side-only update requirements", async () => {
@@ -198,4 +236,38 @@ test("allowlist, parent hold, and stable validated card view", async () => {
     heldResultCount: first.heldResultCount }, { language: "en", projectName: "Project", parentSessionName: "Main",
     sideStatus: "idle", parentStatus: "idle", parentNeedsAction: false, heldResultCount: 0 });
   assert.equal(h.coordinator.getCardView(session({ sessionId: "fake", sessionKind: "side", parentSessionId: "parent", chatId: "other" })), null);
+});
+
+test("card view treats caller as an id only and derives all fields from persisted state", async () => {
+  const h = harness(); await h.coordinator.handleCommand("chat", "");
+  const forged = session({ ...h.active!, projectName: "FORGED", status: "failed", chatId: "wrong-chat",
+    telegramChatId: "wrong-chat", projectPath: "/wrong", selectedModel: "wrong" });
+  const view = h.coordinator.getCardView(forged);
+  assert.equal(view?.projectName, "Project"); assert.equal(view?.sideStatus, "idle");
+  assert.equal(view?.token, "token-1");
+});
+
+test("card view rejects corrupt persisted side-parent project relation", async () => {
+  const h = harness(); await h.coordinator.handleCommand("chat", "");
+  h.rows.set("side", session({ ...h.active!, projectPath: "/corrupt" }));
+  assert.equal(h.coordinator.getCardView(h.active!), null);
+});
+
+test("parent surface hold validates the complete active side relationship", () => {
+  const parent = session();
+  const malformedSide = session({ sessionId: "bad-side", sessionKind: "regular", parentSessionId: parent.sessionId });
+  const h = harness({ active: parent }); h.rows.set(malformedSide.sessionId, malformedSide);
+  const malformedStore = { ...h.store, getActiveSideForParent: () => malformedSide };
+  assert.equal(new SideConversationCoordinator({ ...h.deps, getStore: () => malformedStore }).isParentSurfaceHeld(parent.sessionId), false);
+
+  const wrongParentSide = session({ sessionId: "side", sessionKind: "side", parentSessionId: "other" });
+  h.rows.set(wrongParentSide.sessionId, wrongParentSide);
+  const staleStore = { ...h.store, getActiveSideForParent: () => wrongParentSide, getSideParent: () => parent };
+  assert.equal(new SideConversationCoordinator({ ...h.deps, getStore: () => staleStore }).isParentSurfaceHeld(parent.sessionId), false);
+
+  const wrongScopeSide = session({ sessionId: "scoped-side", sessionKind: "side", parentSessionId: parent.sessionId,
+    chatId: "other-chat", projectPath: "/other" });
+  h.rows.set(wrongScopeSide.sessionId, wrongScopeSide);
+  const wrongScopeStore = { ...h.store, getActiveSideForParent: () => wrongScopeSide, getSideParent: () => parent };
+  assert.equal(new SideConversationCoordinator({ ...h.deps, getStore: () => wrongScopeStore }).isParentSurfaceHeld(parent.sessionId), false);
 });

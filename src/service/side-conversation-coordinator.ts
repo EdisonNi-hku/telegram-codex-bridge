@@ -87,33 +87,41 @@ export class SideConversationCoordinator {
   }
 
   isParentSurfaceHeld(sessionId: string): boolean {
-    return Boolean(this.deps.getStore()?.getActiveSideForParent(sessionId));
+    const store = this.deps.getStore();
+    const parent = store?.getSessionById(sessionId);
+    const side = store?.getActiveSideForParent(sessionId);
+    if (!store || !parent || parent.sessionKind !== "regular" || !side
+      || side.sessionKind !== "side" || side.parentSessionId !== parent.sessionId) return false;
+    const resolvedParent = store.getSideParent(side.sessionId);
+    return Boolean(resolvedParent
+      && resolvedParent.sessionId === parent.sessionId
+      && resolvedParent.sessionKind === "regular"
+      && side.chatId === parent.chatId
+      && side.projectPath === parent.projectPath);
   }
 
   getCardView(sideSession: SessionRow): SideCardViewModel | null {
-    if (sideSession.sessionKind !== "side" || !sideSession.parentSessionId) return null;
     const store = this.deps.getStore();
     const persistedSide = store?.getSessionById(sideSession.sessionId);
     const parent = store?.getSideParent(sideSession.sessionId);
     if (!persistedSide || persistedSide.sessionKind !== "side" || !parent
       || persistedSide.parentSessionId !== parent.sessionId || persistedSide.chatId !== parent.chatId
-      || parent.sessionKind !== "regular" || parent.sessionId !== sideSession.parentSessionId
-      || parent.chatId !== sideSession.chatId || parent.projectPath !== sideSession.projectPath) return null;
+      || persistedSide.projectPath !== parent.projectPath || parent.sessionKind !== "regular") return null;
 
-    let binding = this.cardBindings.get(sideSession.sessionId);
-    if (!binding || binding.chatId !== sideSession.chatId) {
-      binding = { chatId: sideSession.chatId, sideSessionId: sideSession.sessionId,
+    let binding = this.cardBindings.get(persistedSide.sessionId);
+    if (!binding || binding.chatId !== persistedSide.chatId) {
+      binding = { chatId: persistedSide.chatId, sideSessionId: persistedSide.sessionId,
         generation: ++this.generation, kind: "card", token: this.deps.createToken() };
-      this.cardBindings.set(sideSession.sessionId, binding);
+      this.cardBindings.set(persistedSide.sessionId, binding);
     }
     return {
       token: binding.token,
       language: this.deps.getUiLanguage(),
-      projectName: sideSession.projectName,
+      projectName: persistedSide.projectName,
       parentSessionName: parent.displayName,
-      sideStatus: sideSession.status,
+      sideStatus: persistedSide.status,
       parentStatus: this.deps.getParentStatus(parent),
-      parentNeedsAction: this.deps.parentNeedsAction(sideSession.chatId, parent.sessionId),
+      parentNeedsAction: this.deps.parentNeedsAction(persistedSide.chatId, parent.sessionId),
       heldResultCount: this.deps.countHeldResults(parent.sessionId)
     };
   }
@@ -225,7 +233,7 @@ function appendPolicy(existing: string | null | undefined): string {
 }
 
 function meetsMinimumVersion(output: string): boolean {
-  const match = output.match(/(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/u);
+  const match = output.trim().match(/^codex(?:-cli)?\s+(\d+)\.(\d+)\.(\d+)$/u);
   if (!match) return false;
   const actual = match.slice(1).map(Number);
   for (let index = 0; index < SIDE_MIN_CODEX_VERSION.length; index += 1) {
