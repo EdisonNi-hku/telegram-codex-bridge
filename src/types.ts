@@ -10,6 +10,7 @@ import type {
   PendingInteractionKind,
   PendingInteractionState,
   RuntimeNoticeType,
+  SessionKind,
   SessionStatus,
   TerminalDeliveryState,
   TerminalResultKind
@@ -20,6 +21,7 @@ export type {
   PendingInteractionKind,
   PendingInteractionState,
   RuntimeNoticeType,
+  SessionKind,
   SessionStatus,
   TerminalDeliveryState,
   TerminalResultKind
@@ -356,6 +358,8 @@ export type SessionDisplayNameSource = "auto" | "manual";
 
 export interface SessionRow {
   sessionId: string;
+  sessionKind: SessionKind;
+  parentSessionId: string | null;
   chatId: string;
   /** @deprecated Use `chatId`. */
   telegramChatId: string;

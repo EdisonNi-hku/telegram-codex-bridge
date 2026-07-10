@@ -57,6 +57,8 @@ export interface ChatBindingRecord {
 
 export interface SessionRecord {
   session_id: string;
+  session_kind: "regular" | "side";
+  parent_session_id: string | null;
   chat_id?: string | null;
   telegram_chat_id: string;
   thread_id: string | null;
@@ -180,6 +182,8 @@ export function mapSession(record: SessionRecord): SessionRow {
   });
   return {
     sessionId: record.session_id,
+    sessionKind: record.session_kind,
+    parentSessionId: record.parent_session_id,
     chatId: chatRef.chatId,
     telegramChatId: record.telegram_chat_id ?? chatRef.chatId,
     threadId: record.thread_id,
@@ -240,6 +244,8 @@ export function mapSessionProjectStats(record: SessionProjectStatsRecord): Sessi
 export function sessionSelectColumns(sessionAlias: string, recentAlias: string): string {
   return [
     `${sessionAlias}.session_id AS session_id`,
+    `${sessionAlias}.session_kind AS session_kind`,
+    `${sessionAlias}.parent_session_id AS parent_session_id`,
     `${sessionAlias}.chat_id AS chat_id`,
     `${sessionAlias}.telegram_chat_id AS telegram_chat_id`,
     `${sessionAlias}.thread_id AS thread_id`,

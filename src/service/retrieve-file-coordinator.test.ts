@@ -28,6 +28,8 @@ import { RetrieveFileCoordinator } from "./retrieve-file-coordinator.js";
 function createSession(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
     sessionId: "session-1",
+    sessionKind: "regular",
+    parentSessionId: null,
     chatId: "chat-1",
     telegramChatId: "chat-1",
     threadId: "thread-1",

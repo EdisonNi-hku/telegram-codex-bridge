@@ -1,4 +1,5 @@
 export type SessionStatus = "idle" | "running" | "interrupted" | "failed";
+export type SessionKind = "regular" | "side";
 
 export type FailureReason =
   | "bridge_restart"
@@ -8,6 +9,7 @@ export type FailureReason =
 
 export type RuntimeNoticeType =
   | "bridge_restart_recovery"
+  | "side_restart_recovery"
   | "app_server_notice"
   | "terminal_delivery_deferred";
 
@@ -27,4 +29,4 @@ export type PendingInteractionState =
 
 export type TerminalResultKind = "final_answer" | "plan_result";
 
-export type TerminalDeliveryState = "pending" | "visible" | "deferred_notice_visible";
+export type TerminalDeliveryState = "pending" | "held_for_side" | "visible" | "deferred_notice_visible";

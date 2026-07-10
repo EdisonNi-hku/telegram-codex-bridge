@@ -135,7 +135,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
         `
           SELECT session_id
           FROM session
-          WHERE chat_id = ? AND archived = 0
+          WHERE chat_id = ? AND archived = 0 AND session_kind = 'regular'
           ORDER BY last_used_at DESC, created_at DESC, rowid DESC
           LIMIT 1
         `
@@ -171,7 +171,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
               ${sessionSelectColumns("s", "rp")}
             FROM session s
             LEFT JOIN recent_project rp ON rp.project_path = s.project_path
-            WHERE s.chat_id = ? AND s.archived = ?
+            WHERE s.chat_id = ? AND s.archived = ? AND s.session_kind = 'regular'
             ORDER BY s.last_used_at DESC, s.created_at DESC, s.rowid DESC
             LIMIT ?
           `
@@ -207,7 +207,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
               ${sessionSelectColumns("s", "rp")}
             FROM session s
             LEFT JOIN recent_project rp ON rp.project_path = s.project_path
-            WHERE s.thread_id IS NOT NULL
+            WHERE s.thread_id IS NOT NULL AND s.session_kind = 'regular'
             ORDER BY s.last_used_at DESC, s.created_at DESC, s.rowid DESC
           `
         )
@@ -239,6 +239,8 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
       const sessionId = randomUUID();
       const session: SessionRow = {
         sessionId,
+        sessionKind: "regular",
+        parentSessionId: null,
         chatId,
         telegramChatId: chatId,
         threadId: options.threadId ?? null,
@@ -317,8 +319,9 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
 
         deps.auth.setChatBindingActiveSession(session.chatId, session.sessionId, timestamp);
 
-        db
-          .prepare(
+        if (session.sessionKind !== "side") {
+          db
+            .prepare(
             `
               INSERT INTO recent_project (
                 project_path,
@@ -341,6 +344,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
             `
           )
           .run(session.projectPath, session.projectName, session.lastUsedAt, session.sessionId);
+        }
 
         db.exec("COMMIT");
         return session;
@@ -370,6 +374,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
       if (!session) {
         return null;
       }
+      if (session.sessionKind === "side") throw new Error("cannot archive a side session");
 
       if (session.status === "running") {
         throw new Error("cannot archive a running session");
@@ -404,6 +409,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
       if (!session) {
         return null;
       }
+      if (session.sessionKind === "side") throw new Error("cannot unarchive a side session");
 
       if (session.status === "running") {
         throw new Error("cannot unarchive a running session");
@@ -439,6 +445,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
     },
 
     renameSession(sessionId, displayName) {
+      if (getSessionById(sessionId)?.sessionKind === "side") throw new Error("cannot rename a side session");
       db
         .prepare(
           `
@@ -452,7 +459,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
 
     autoRenameSession(sessionId, displayName) {
       const session = getSessionById(sessionId);
-      if (!session || session.displayNameSource !== "auto" || session.displayName === displayName) {
+      if (!session || session.sessionKind === "side" || session.displayNameSource !== "auto" || session.displayName === displayName) {
         return false;
       }
 
@@ -595,6 +602,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
               COUNT(*) AS session_count,
               MAX(last_used_at) AS last_used_at
             FROM session
+            WHERE session_kind = 'regular'
             GROUP BY project_path, project_name
           `
         )
@@ -821,8 +829,9 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
           )
           .run(timestamp, sessionId);
 
-        db
-          .prepare(
+        if (session.sessionKind !== "side") {
+          db
+            .prepare(
             `
               INSERT INTO recent_project (
                 project_path,
@@ -845,14 +854,15 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
                 END
             `
           )
-          .run(
-            session.projectPath,
-            session.projectName,
-            timestamp,
-            this.isProjectPinned(session.projectPath) ? 1 : 0,
-            sessionId,
-            timestamp
-          );
+            .run(
+              session.projectPath,
+              session.projectName,
+              timestamp,
+              this.isProjectPinned(session.projectPath) ? 1 : 0,
+              sessionId,
+              timestamp
+            );
+        }
 
         db.exec("COMMIT");
       } catch (error) {

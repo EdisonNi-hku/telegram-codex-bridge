@@ -92,6 +92,13 @@ async function openStore(): Promise<{ paths: BridgePaths; store: BridgeStateStor
   };
 }
 
+function authorizeTestChat(store: BridgeStateStore, chatId: string): void {
+  store.upsertPendingAuthorization({ userId: `user-${chatId}`, chatId, username: null, displayName: null });
+  const candidate = store.listPendingAuthorizations().find((row) => row.chatId === chatId);
+  assert.ok(candidate);
+  store.confirmPendingAuthorization(candidate);
+}
+
 async function seedLegacyStore(): Promise<{ paths: BridgePaths; cleanup: () => Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), "ctb-store-legacy-test-"));
   const paths = createTestPaths(root);
@@ -590,6 +597,110 @@ test("confirmPendingAuthorization keeps first-time authorization behavior unchan
   }
 });
 
+test("side sessions are active and persisted without appearing in regular history", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    authorizeTestChat(store, "chat-side");
+    const parent = store.createSession({
+      chatId: "chat-side",
+      projectName: "Side Project",
+      projectPath: "/tmp/side-project",
+      selectedModel: "gpt-side",
+      selectedReasoningEffort: "high",
+      planMode: true
+    });
+    store.setActiveSession(parent.chatId, parent.sessionId);
+
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-side" });
+    assert.equal(side.sessionKind, "side");
+    assert.equal(side.parentSessionId, parent.sessionId);
+    assert.equal(side.chatId, parent.chatId);
+    assert.equal(side.projectPath, parent.projectPath);
+    assert.equal(store.getActiveSession(parent.chatId)?.sessionId, side.sessionId);
+    assert.deepEqual(store.listSessions(parent.chatId).map((row) => row.sessionId), [parent.sessionId]);
+    assert.equal(store.listSessionsWithThreads().some((row) => row.sessionId === side.sessionId), false);
+    assert.equal(store.getSideParent(side.sessionId)?.sessionId, parent.sessionId);
+    assert.equal(store.getActiveSideForParent(parent.sessionId)?.sessionId, side.sessionId);
+
+    const restored = store.restoreParentAndDeleteSide(side.sessionId);
+    assert.equal(restored?.parent.sessionId, parent.sessionId);
+    assert.equal(store.getSessionById(side.sessionId), null);
+    assert.equal(store.getActiveSession(parent.chatId)?.sessionId, parent.sessionId);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("side session invariants reject invalid parents and history mutations", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    authorizeTestChat(store, "chat-side-negative");
+    assert.throws(() => store.createSideSession({ parentSessionId: "missing", threadId: "thread" }), /parent/i);
+    const parent = store.createSession({ chatId: "chat-side-negative", projectName: "P", projectPath: "/tmp/p" });
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-side-negative" });
+    assert.throws(() => store.createSideSession({ parentSessionId: side.sessionId, threadId: "nested" }), /regular parent/i);
+    store.setActiveSession(parent.chatId, parent.sessionId);
+    assert.throws(() => store.createSideSession({ parentSessionId: parent.sessionId, threadId: "duplicate" }), /side session/i);
+    assert.throws(() => store.archiveSession(side.sessionId), /side session/i);
+    assert.throws(() => store.unarchiveSession(side.sessionId), /side session/i);
+    assert.throws(() => store.renameSession(side.sessionId, "No"), /side session/i);
+    assert.equal(store.autoRenameSession(side.sessionId, "No"), false);
+    assert.throws(() => store.restoreParentAndDeleteSide(parent.sessionId), /side session/i);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("held terminal results are claimed once in creation order and mapped to pending", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    for (const answerId of ["held-1", "held-2"]) {
+      store.saveTerminalResultView({
+        answerId,
+        chatId: "chat-held",
+        sessionId: "session-held",
+        threadId: "thread-held",
+        turnId: answerId,
+        deliveryState: "held_for_side",
+        previewHtml: answerId,
+        pages: [answerId]
+      });
+    }
+    assert.equal(store.countHeldTerminalResults("session-held"), 2);
+    const claimed = store.claimHeldTerminalResults("session-held");
+    assert.deepEqual(claimed.map((row) => row.answerId), ["held-1", "held-2"]);
+    assert.ok(claimed.every((row) => row.deliveryState === "pending"));
+    assert.equal(store.countHeldTerminalResults("session-held"), 0);
+    assert.deepEqual(store.claimHeldTerminalResults("session-held"), []);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("restart side recovery restores a regular fallback, notices once, deletes sides, and is idempotent", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    authorizeTestChat(store, "chat-side-recovery");
+    const fallback = store.createSession({ chatId: "chat-side-recovery", projectName: "Fallback", projectPath: "/tmp/fallback" });
+    const parent = store.createSession({ chatId: "chat-side-recovery", projectName: "Parent", projectPath: "/tmp/parent" });
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "thread-recovery" });
+    store.archiveSession(parent.sessionId);
+
+    assert.deepEqual(store.recoverSideSessionsAfterRestart(), [{
+      chatId: "chat-side-recovery",
+      sideSessionId: side.sessionId,
+      parentSessionId: parent.sessionId
+    }]);
+    assert.equal(store.getActiveSession("chat-side-recovery")?.sessionId, fallback.sessionId);
+    assert.equal(store.getSessionById(side.sessionId), null);
+    assert.equal(store.countRuntimeNotices(), 1);
+    assert.deepEqual(store.recoverSideSessionsAfterRestart(), []);
+    assert.equal(store.countRuntimeNotices(), 1);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("archiveSession hides archived sessions by default and reassigns the active session", async () => {
   const { store, cleanup } = await openStore();
 
@@ -687,6 +798,8 @@ test("open migrates legacy session rows to include archive metadata", async () =
     assert.equal(sessions[0]?.sessionId, "session-legacy");
     assert.equal(sessions[0]?.archived, false);
     assert.equal(sessions[0]?.archivedAt, null);
+    assert.equal(sessions[0]?.sessionKind, "regular");
+    assert.equal(sessions[0]?.parentSessionId, null);
 
     const archivedSessions = store.listSessions("chat-legacy", { archived: true, limit: 10 });
     assert.equal(archivedSessions.length, 0);

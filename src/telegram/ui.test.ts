@@ -106,6 +106,8 @@ function createSession(overrides: Partial<SessionRow>): SessionRow {
   const chatId = overrides.chatId ?? "chat-1";
   return {
     sessionId: overrides.sessionId ?? "session-1",
+    sessionKind: overrides.sessionKind ?? "regular",
+    parentSessionId: overrides.parentSessionId ?? null,
     chatId,
     telegramChatId: chatId,
     threadId: overrides.threadId ?? null,

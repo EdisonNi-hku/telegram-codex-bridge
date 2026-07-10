@@ -9,6 +9,8 @@ import { ShellCommandCoordinator } from "./shell-command-coordinator.js";
 function createSession(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
     sessionId: overrides.sessionId ?? "session-1",
+    sessionKind: overrides.sessionKind ?? "regular",
+    parentSessionId: overrides.parentSessionId ?? null,
     chatId: overrides.chatId ?? "chat-1",
     telegramChatId: overrides.telegramChatId ?? overrides.chatId ?? "chat-1",
     threadId: "threadId" in overrides ? overrides.threadId ?? null : "thread-1",

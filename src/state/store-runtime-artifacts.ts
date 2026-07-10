@@ -117,6 +117,8 @@ function mapTerminalResultView(record: TerminalResultViewRecord): TerminalResult
     kind: record.kind === "plan_result" ? "plan_result" : "final_answer",
     deliveryState: record.delivery_state === "visible"
       ? "visible"
+      : record.delivery_state === "held_for_side"
+        ? "held_for_side"
       : record.delivery_state === "deferred_notice_visible"
         ? "deferred_notice_visible"
         : "pending",
@@ -243,6 +245,8 @@ export interface StoreRuntimeArtifacts {
   setTerminalResultDeliveryState(answerId: string, deliveryState: TerminalResultViewRow["deliveryState"]): void;
   setTerminalResultPrimaryActionConsumed(answerId: string, consumed: boolean): void;
   deleteTerminalResultView(answerId: string): void;
+  countHeldTerminalResults(sessionId: string): number;
+  claimHeldTerminalResults(sessionId: string): TerminalResultViewRow[];
   saveFinalAnswerView(options: {
     answerId?: string;
     chatId: string;
@@ -749,6 +753,24 @@ export function createStoreRuntimeArtifacts(db: DatabaseSync): StoreRuntimeArtif
         .all(chatId) as unknown as TerminalResultViewRecord[];
 
       return rows.map(mapTerminalResultView);
+    },
+
+    countHeldTerminalResults(sessionId) {
+      const row = db.prepare("SELECT COUNT(*) AS count FROM final_answer_view WHERE session_id = ? AND delivery_state = 'held_for_side'").get(sessionId) as { count: number | bigint };
+      return Number(row.count);
+    },
+
+    claimHeldTerminalResults(sessionId) {
+      db.exec("BEGIN");
+      try {
+        const rows = db.prepare("SELECT * FROM final_answer_view WHERE session_id = ? AND delivery_state = 'held_for_side' ORDER BY created_at ASC, rowid ASC").all(sessionId) as unknown as TerminalResultViewRecord[];
+        if (rows.length > 0) {
+          const placeholders = buildInClausePlaceholders(rows.length);
+          db.prepare(`UPDATE final_answer_view SET delivery_state = 'pending' WHERE delivery_state = 'held_for_side' AND answer_id IN (${placeholders})`).run(...rows.map((row) => row.answer_id));
+        }
+        db.exec("COMMIT");
+        return rows.map((row) => mapTerminalResultView({ ...row, delivery_state: "pending" }));
+      } catch (error) { db.exec("ROLLBACK"); throw error; }
     },
 
     rebindTerminalResultViewsChatIds(chatId, previousChatIds) {

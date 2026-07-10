@@ -16,6 +16,8 @@ function conversationHandleForSessionId(sessionId: string): string {
 function sessionFixture(patch: Partial<SessionRow> = {}): SessionRow {
   return {
     sessionId: "session-1",
+    sessionKind: "regular",
+    parentSessionId: null,
     chatId: "chat-1",
     telegramChatId: "chat-1",
     threadId: "thread-1",

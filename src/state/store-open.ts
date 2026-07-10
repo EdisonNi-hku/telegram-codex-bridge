@@ -25,7 +25,7 @@ const LEGACY_RUNTIME_STATUS_FIELD_MIGRATIONS: ReadonlyMap<string, RuntimeStatusF
   ["thread_id", "session-id"]
 ]);
 const RUNTIME_STATUS_FIELD_V4_MIGRATION_CUTOFF = "2026-03-17T00:00:00.000Z";
-const CURRENT_SCHEMA_VERSION = 22;
+const CURRENT_SCHEMA_VERSION = 23;
 
 export function parseRuntimeStatusFields(fieldsJson: string): RuntimeStatusField[] {
   try {
@@ -124,6 +124,8 @@ function initialSchema(): string {
 
     CREATE TABLE IF NOT EXISTS session (
       session_id TEXT PRIMARY KEY,
+      session_kind TEXT NOT NULL DEFAULT 'regular',
+      parent_session_id TEXT NULL,
       chat_id TEXT NOT NULL,
       telegram_chat_id TEXT NOT NULL,
       thread_id TEXT NULL,
@@ -1595,6 +1597,19 @@ function applyMigrations(db: DatabaseSync): void {
         `
       );
       recordMigration(db, 22);
+    });
+  }
+
+  if (!applied.has(23)) {
+    runMigrationStep(db, () => {
+      if (!hasColumn(db, "session", "session_kind")) {
+        db.exec("ALTER TABLE session ADD COLUMN session_kind TEXT NOT NULL DEFAULT 'regular'");
+      }
+      if (!hasColumn(db, "session", "parent_session_id")) {
+        db.exec("ALTER TABLE session ADD COLUMN parent_session_id TEXT NULL");
+      }
+      db.exec("CREATE INDEX IF NOT EXISTS idx_session_kind_parent ON session(session_kind, parent_session_id)");
+      recordMigration(db, 23);
     });
   }
 }

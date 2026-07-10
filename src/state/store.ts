@@ -69,6 +69,7 @@ import {
   createStoreSessions,
   type StoreSessions
 } from "./store-sessions.js";
+import { createStoreSideSessions, type SideRestartRecovery, type StoreSideSessions } from "./store-side-sessions.js";
 
 export type StateStoreOpenStage =
   | "open_db"
@@ -122,6 +123,7 @@ export class BridgeStateStore {
   private readonly runtimeArtifacts: StoreRuntimeArtifacts;
   private readonly pendingInteractions: StorePendingInteractions;
   private readonly sessions: StoreSessions;
+  private readonly sideSessions: StoreSideSessions;
 
   private constructor(
     private readonly db: DatabaseSync,
@@ -134,6 +136,7 @@ export class BridgeStateStore {
     this.sessions = createStoreSessions(db, {
       auth: this.auth
     });
+    this.sideSessions = createStoreSideSessions(db);
   }
 
   private updateReadinessSnapshotAuthorization(
@@ -531,6 +534,16 @@ export class BridgeStateStore {
     return this.sessions.createSession(options);
   }
 
+  createSideSession(options: { parentSessionId: string; threadId: string }): SessionRow {
+    return this.sideSessions.createSideSession(options);
+  }
+
+  getSideParent(sideSessionId: string): SessionRow | null { return this.sideSessions.getSideParent(sideSessionId); }
+  getActiveSideForParent(parentSessionId: string): SessionRow | null { return this.sideSessions.getActiveSideForParent(parentSessionId); }
+  listSideSessions(): SessionRow[] { return this.sideSessions.listSideSessions(); }
+  restoreParentAndDeleteSide(sideSessionId: string): { side: SessionRow; parent: SessionRow } | null { return this.sideSessions.restoreParentAndDeleteSide(sideSessionId); }
+  recoverSideSessionsAfterRestart(): SideRestartRecovery[] { return this.sideSessions.recoverSideSessionsAfterRestart(); }
+
   setActiveSession(chatId: string, sessionId: string): void {
     this.sessions.setActiveSession(chatId, sessionId);
   }
@@ -768,6 +781,9 @@ export class BridgeStateStore {
   listTerminalResultViews(chatId: string): TerminalResultViewRow[] {
     return this.runtimeArtifacts.listTerminalResultViews(chatId);
   }
+
+  countHeldTerminalResults(sessionId: string): number { return this.runtimeArtifacts.countHeldTerminalResults(sessionId); }
+  claimHeldTerminalResults(sessionId: string): TerminalResultViewRow[] { return this.runtimeArtifacts.claimHeldTerminalResults(sessionId); }
 
   setTerminalResultMessageId(answerId: string, messageId: number): void {
     this.runtimeArtifacts.setTerminalResultMessageId(answerId, messageId);
