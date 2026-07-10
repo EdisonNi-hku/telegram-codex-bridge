@@ -344,6 +344,80 @@ test("TurnCoordinator starts plan-mode turns with collaborationMode and records 
   }
 });
 
+test("TurnCoordinator sends a selected max effort to app-server turn/start", async () => {
+  const startTurnCalls: unknown[] = [];
+  const { coordinator, store, cleanup } = await createCoordinatorContext({
+    appServer: {
+      startThread: async () => ({ thread: { id: "thread-max" } }),
+      startTurn: async (payload: unknown) => {
+        startTurnCalls.push(payload);
+        return { turn: { id: "turn-max", status: "inProgress" } };
+      }
+    }
+  });
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      selectedReasoningEffort: "max"
+    });
+
+    await coordinator.startTextTurn("chat-1", session, "Use maximum reasoning.");
+
+    assert.deepEqual(startTurnCalls, [{
+      threadId: "thread-max",
+      cwd: "/tmp/project-one",
+      text: "Use maximum reasoning.",
+      effort: "max"
+    }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("TurnCoordinator preserves ultra effort in collaboration-mode settings", async () => {
+  const startTurnCalls: unknown[] = [];
+  const { coordinator, store, cleanup } = await createCoordinatorContext({
+    appServer: {
+      startThread: async () => ({ thread: { id: "thread-ultra-plan" } }),
+      startTurn: async (payload: unknown) => {
+        startTurnCalls.push(payload);
+        return { turn: { id: "turn-ultra-plan", status: "inProgress" } };
+      }
+    }
+  });
+
+  try {
+    const session = store.createSession({
+      chatId: "chat-1",
+      projectName: "Project One",
+      projectPath: "/tmp/project-one",
+      planMode: true,
+      selectedReasoningEffort: "ultra"
+    });
+
+    await coordinator.startTextTurn("chat-1", session, "Plan with ultra reasoning.");
+
+    assert.deepEqual(startTurnCalls, [{
+      threadId: "thread-ultra-plan",
+      cwd: "/tmp/project-one",
+      text: "Plan with ultra reasoning.",
+      collaborationMode: {
+        mode: "plan",
+        settings: {
+          model: "gpt-5-default",
+          developerInstructions: null,
+          reasoningEffort: "ultra"
+        }
+      }
+    }]);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("TurnCoordinator starts structured turns and requests the structured-work hub reanchor", async () => {
   const startTurnCalls: unknown[] = [];
   const { coordinator, store, acceptedTurnStartReanchors, cleanup } = await createCoordinatorContext({

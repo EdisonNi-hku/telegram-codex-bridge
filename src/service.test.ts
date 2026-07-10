@@ -8445,6 +8445,92 @@ test("model command keeps small model lists on one page and supports two-step mo
   }
 });
 
+test("model effort callbacks persist GPT-5.6 max and ultra selections in the active session", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const sent: Array<{ text: string; options?: any }> = [];
+  const edited: Array<{ messageId: number; text: string; options?: any }> = [];
+  const callbackAnswers: string[] = [];
+
+  try {
+    const session = authorizeNumericChatWithSession(store, "1");
+    store.setSessionSelectedModel(session.sessionId, "gpt-5.6");
+    store.setSessionSelectedReasoningEffort(session.sessionId, "xhigh");
+
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string, options?: any) => {
+        sent.push({ text, options });
+        return createFakeTelegramMessage(1250 + sent.length, text);
+      },
+      editMessageText: async (_chatId: string, messageId: number, text: string, options?: any) => {
+        edited.push({ messageId, text, options });
+        return createFakeTelegramMessage(messageId, text);
+      },
+      answerCallbackQuery: async (_callbackQueryId: string, text?: string) => {
+        callbackAnswers.push(text ?? "");
+      }
+    };
+
+    (service as any).appServer = {
+      isRunning: true,
+      listModels: async () => ({
+        data: [{
+          id: "gpt-5.6",
+          model: "gpt-5.6",
+          displayName: "GPT-5.6",
+          isDefault: true,
+          hidden: false,
+          description: "frontier",
+          defaultReasoningEffort: "max",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "max", description: "maximum" },
+            { reasoningEffort: "ultra", description: "automatic delegation" }
+          ]
+        }],
+        nextCursor: null
+      })
+    };
+
+    await (service as any).routeCommand("1", "model", "");
+    const modelCallbackData = getCallbackData(sent[0], 1, 0);
+
+    for (const [index, effort] of (["max", "ultra"] as const).entries()) {
+      await (service as any).handleCallback({
+        id: `cb-model-pick-gpt-5.6-${effort}`,
+        from: { id: 1, is_bot: false, first_name: "Tester" },
+        message: {
+          message_id: 1251,
+          chat: { id: 1, type: "private" },
+          date: 0,
+          text: sent[0]?.text ?? ""
+        },
+        data: modelCallbackData
+      });
+
+      const picker = edited.at(-1);
+      assert.match(picker?.text ?? "", /选择思考强度/u);
+      assert.equal(picker?.options?.replyMarkup?.inline_keyboard?.[1]?.[index]?.text, effort === "max" ? "Max" : "Ultra");
+
+      await (service as any).handleCallback({
+        id: `cb-effort-${effort}`,
+        from: { id: 1, is_bot: false, first_name: "Tester" },
+        message: {
+          message_id: 1251,
+          chat: { id: 1, type: "private" },
+          date: 0,
+          text: picker?.text ?? ""
+        },
+        data: getCallbackData(picker, 1, index)
+      });
+
+      assert.equal(store.getActiveSession("1")?.selectedModel, "gpt-5.6");
+      assert.equal(store.getActiveSession("1")?.selectedReasoningEffort, effort);
+      assert.equal(callbackAnswers.at(-1), "");
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
 test("legacy result-send callbacks answer with a deprecation hint instead of attempting artifact discovery", async () => {
   const { service, store, cleanup } = await createServiceContext();
   const callbackAnswers: string[] = [];
