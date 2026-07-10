@@ -22,9 +22,23 @@ interface CurrentSessionCardControllerDeps {
 }
 
 export class CurrentSessionCardController {
+  private readonly chatQueues = new Map<string, Promise<void>>();
+
   constructor(private readonly deps: CurrentSessionCardControllerDeps) {}
 
   async syncForChat(chatId: string, reason: string): Promise<void> {
+    const previous = this.chatQueues.get(chatId) ?? Promise.resolve();
+    const execution = previous.catch(() => undefined).then(() => this.syncForChatSerialized(chatId, reason));
+    const tail = execution.then(() => undefined, () => undefined);
+    this.chatQueues.set(chatId, tail);
+    try {
+      await execution;
+    } finally {
+      if (this.chatQueues.get(chatId) === tail) this.chatQueues.delete(chatId);
+    }
+  }
+
+  private async syncForChatSerialized(chatId: string, reason: string): Promise<void> {
     const store = this.deps.getStore();
     if (!store) {
       return;
@@ -44,6 +58,10 @@ export class CurrentSessionCardController {
     }
 
     const { html, replyMarkup } = await this.deps.renderSessionCard(activeSession);
+    if (store.getActiveSession(chatId)?.sessionId !== activeSession.sessionId) {
+      await this.syncForChatSerialized(chatId, reason);
+      return;
+    }
     let nextMessageId = existingMessageId;
     const shouldRecreate = this.shouldRecreateCard(existing?.sessionId ?? null, activeSession.sessionId, reason);
 
@@ -62,6 +80,14 @@ export class CurrentSessionCardController {
 
     if (!nextMessageId || nextMessageId <= 0) {
       await this.deps.logger.warn("current session card sync failed to deliver", { chatId, reason });
+      return;
+    }
+
+    if (store.getActiveSession(chatId)?.sessionId !== activeSession.sessionId) {
+      if (nextMessageId !== existingMessageId) {
+        await this.deps.safeDeleteMessage(chatId, nextMessageId);
+      }
+      await this.syncForChatSerialized(chatId, reason);
       return;
     }
 

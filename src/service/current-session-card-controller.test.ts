@@ -66,12 +66,19 @@ async function createControllerContext() {
 
   const sideMarkup = { inline_keyboard: [[{ text: "返回", callback_data: "v11:sd:b:token" }]] };
   let renderSide = false;
+  let sideRenderGate: Promise<void> | null = null;
+  let failNextRender = false;
   const controller = new CurrentSessionCardController({
     logger: { warn: async () => {} },
     getStore: () => store,
-    renderSessionCard: async (session) => renderSide
-      ? { html: `Side: ${session.displayName}`, replyMarkup: sideMarkup }
-      : { html: `${session.projectName} / ${session.displayName}` },
+    renderSessionCard: async (session) => {
+      if (failNextRender) { failNextRender = false; throw new Error("render failed"); }
+      if (renderSide && session.sessionKind === "side") {
+        await sideRenderGate;
+        return { html: `Side: ${session.displayName}`, replyMarkup: sideMarkup };
+      }
+      return { html: `${session.projectName} / ${session.displayName}` };
+    },
     safeSendHtmlMessageResult: async (chatId, text, replyMarkup) => {
       const messageId = nextMessageId++;
       sent.push({ chatId, text, ...(replyMarkup ? { replyMarkup } : {}) });
@@ -107,6 +114,12 @@ async function createControllerContext() {
       editOutcome = outcome;
     },
     setRenderSide: (value: boolean) => { renderSide = value; },
+    blockSideRender: () => {
+      let release!: () => void;
+      sideRenderGate = new Promise<void>((resolve) => { release = resolve; });
+      return () => { sideRenderGate = null; release(); };
+    },
+    failNextRender: () => { failNextRender = true; },
     sideMarkup,
     cleanup: async () => {
       store.close();
@@ -153,12 +166,61 @@ test("CurrentSessionCardController sends and pins a new card for the active sess
   }
 });
 
+test("CurrentSessionCardController queue isolates rejection and does not block another chat", async () => {
+  const { controller, store, sent, setRenderSide, blockSideRender, failNextRender, cleanup } = await createControllerContext();
+  try {
+    authorizeChat(store, "chat-1");
+    const parent = store.createSession({ chatId: "chat-1", projectName: "One", projectPath: "/one", displayName: "Parent" });
+    store.setActiveSession("chat-1", parent.sessionId);
+    store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
+    authorizeChat(store, "chat-2");
+    const other = store.createSession({ chatId: "chat-2", projectName: "Two", projectPath: "/two", displayName: "Other" });
+    store.setActiveSession("chat-2", other.sessionId);
+    setRenderSide(true);
+    const release = blockSideRender();
+    const blocked = controller.syncForChat("chat-1", "blocked");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await controller.syncForChat("chat-2", "independent");
+    assert.match(sent.at(-1)?.text ?? "", /Other/u);
+    release();
+    await blocked;
+
+    failNextRender();
+    await assert.rejects(controller.syncForChat("chat-2", "fails"), /render failed/u);
+    await controller.syncForChat("chat-2", "retry");
+    assert.equal(store.getCurrentSessionCard("chat-2")?.sessionId, other.sessionId);
+  } finally { await cleanup(); }
+});
+
+test("CurrentSessionCardController cannot let a stale side sync overwrite a concurrent parent return", async () => {
+  const { controller, store, sent, deleted, setRenderSide, blockSideRender, cleanup } = await createControllerContext();
+  try {
+    authorizeChat(store, "chat-1");
+    const parent = store.createSession({ chatId: "chat-1", projectName: "Project", projectPath: "/repo", displayName: "Parent" });
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
+    setRenderSide(true);
+    const release = blockSideRender();
+    const staleSync = controller.syncForChat("chat-1", "side_parent_changed");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    store.restoreParentAndDeleteSide(side.sessionId);
+    setRenderSide(false);
+    const parentSync = controller.syncForChat("chat-1", "side_returned");
+    release();
+    await Promise.all([staleSync, parentSync]);
+
+    assert.equal(store.getCurrentSessionCard("chat-1")?.sessionId, parent.sessionId);
+    assert.match(sent.at(-1)?.text ?? "", /Parent/u);
+    assert.doesNotMatch(sent.at(-1)?.text ?? "", /Side:/u);
+    assert.equal(deleted.some(({ messageId }) => messageId === store.getCurrentSessionCard("chat-1")?.messageId), false);
+  } finally { await cleanup(); }
+});
+
 test("CurrentSessionCardController forwards side controls unchanged on send and edit", async () => {
   const { controller, store, sent, edited, sideMarkup, setRenderSide, cleanup } = await createControllerContext();
   try {
     authorizeChat(store, "chat-1");
-    const session = store.createSession({ chatId: "chat-1", projectName: "Project", projectPath: "/repo", displayName: "Side" });
-    store.setActiveSession("chat-1", session.sessionId);
+    const parent = store.createSession({ chatId: "chat-1", projectName: "Project", projectPath: "/repo", displayName: "Parent" });
+    store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-thread" });
     setRenderSide(true);
 
     await controller.syncForChat("chat-1", "side_entered");
