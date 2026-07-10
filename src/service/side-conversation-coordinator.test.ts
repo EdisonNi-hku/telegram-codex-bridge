@@ -252,12 +252,22 @@ test("per-chat queue permits at most one fork", async () => {
 
 test("same-chat queue continues after the first creation attempt fails", async () => {
   const h = harness(); let attempts = 0;
+  let messageAttempts = 0;
+  h.deps.safeSendMessage = async () => {
+    messageAttempts += 1;
+    if (messageAttempts === 1) throw new Error("failure report rejected");
+    return true;
+  };
   h.client.forkSideThread = async (options: unknown) => {
     attempts += 1; h.events.push("fork"); h.forkOptions.push(options);
     if (attempts === 1) throw new Error("first failed");
     return { thread: { id: "side-thread", turns: [] }, cwd: "/project", model: "m" };
   };
-  await Promise.all([h.coordinator.handleCommand("chat", ""), h.coordinator.handleCommand("chat", "")]);
+  const results = await Promise.allSettled([
+    h.coordinator.handleCommand("chat", ""), h.coordinator.handleCommand("chat", "")
+  ]);
+  assert.equal(results[0]?.status, "rejected");
+  assert.equal(results[1]?.status, "fulfilled");
   assert.equal(attempts, 2); assert.equal(h.active?.sessionKind, "side");
 });
 
