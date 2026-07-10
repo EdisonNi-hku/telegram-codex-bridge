@@ -68,6 +68,7 @@ The first release does not add Codex's `/btw` alias.
 - If the side is idle, return proceeds immediately.
 - If the side has a running turn, the bridge shows a confirmation with `中断并返回` and `继续 Side`.
 - Confirmed return interrupts the active side turn, unsubscribes the ephemeral thread, restores the parent as the active session, deletes the transient side record, restores and pins the normal current-session card, surfaces pending parent interactions, and releases held parent terminal output.
+- Before unsubscribe, actionable interactions and transient rich-input state owned by the side are expired or cleared so deleting the side cannot leave orphaned input state.
 - If interrupt or unsubscribe fails, the bridge keeps side mode active, retains the held parent output, and reports that return did not complete. It never presents the parent as active before cleanup succeeds.
 - Stale, duplicated, or already-consumed callbacks answer `这个 Side 操作已失效。` and do not change focus.
 
