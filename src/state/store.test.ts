@@ -1000,6 +1000,45 @@ test("archiveSession hides archived sessions by default and reassigns the active
   }
 });
 
+test("listVisibleProjectPaths returns every distinct visible regular-session path without a limit", async () => {
+  const { store, cleanup } = await openStore();
+  try {
+    for (let index = 0; index < 12; index += 1) {
+      store.createSession({
+        chatId: "chat-cleanup",
+        projectName: `Project ${index}`,
+        projectPath: `/tmp/cleanup-${index}`
+      });
+    }
+    store.createSession({
+      chatId: "chat-cleanup",
+      projectName: "Duplicate",
+      projectPath: "/tmp/cleanup-0"
+    });
+    store.createSession({
+      chatId: "chat-cleanup",
+      projectName: "Canonical alias",
+      projectPath: "/tmp/cleanup-alias/../cleanup-0"
+    });
+    const archived = store.createSession({
+      chatId: "chat-cleanup",
+      projectName: "Archived",
+      projectPath: "/tmp/cleanup-archived"
+    });
+    store.archiveSession(archived.sessionId);
+
+    assert.deepEqual(
+      (store as any).listVisibleProjectPaths().sort(),
+      [
+        ...Array.from({ length: 12 }, (_, index) => `/tmp/cleanup-${index}`),
+        "/tmp/cleanup-alias/../cleanup-0"
+      ].sort()
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
 test("unarchiveSession restores a session and makes it active when no active session remains", async () => {
   const { store, cleanup } = await openStore();
 

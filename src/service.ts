@@ -971,11 +971,8 @@ export class BridgeService {
     }
     const recovered = this.store.recoveredFromCorruption;
     this.store.recoverSideSessionsAfterRestart();
-    const uploadCleanupRoots = new Set<string>();
+    const uploadCleanupRoots = new Set(this.store.listVisibleProjectPaths());
     for (const binding of this.store.listChatBindings()) {
-      for (const session of this.store.listSessions(binding.chatId)) {
-        uploadCleanupRoots.add(session.projectPath);
-      }
       const current = this.store.getActiveSession(binding.chatId);
       if (current) uploadCleanupRoots.add(current.projectPath);
     }

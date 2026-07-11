@@ -34,6 +34,7 @@ interface StoreSessionsDeps {
 
 export interface StoreSessions {
   listSessions(chatId: string, limitOrOptions?: number | { archived?: boolean; limit?: number }): SessionRow[];
+  listVisibleProjectPaths(): string[];
   getSessionById(sessionId: string): SessionRow | null;
   getSessionByThreadId(threadId: string): SessionRow | null;
   listSessionsWithThreads(): SessionRow[];
@@ -162,6 +163,12 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
   };
 
   return {
+    listVisibleProjectPaths() {
+      const rows = db.prepare(
+        `SELECT DISTINCT project_path FROM session WHERE session_kind = 'regular' AND archived_at IS NULL`
+      ).all() as unknown as Array<{ project_path: string }>;
+      return rows.map((row) => row.project_path);
+    },
     listSessions(chatId, limitOrOptions) {
       const options = resolveSessionListOptions(limitOrOptions);
       const rows = db

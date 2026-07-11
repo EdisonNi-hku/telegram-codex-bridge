@@ -250,26 +250,45 @@ export class UploadFileCoordinator {
     const visited = new Set<string>();
     for (const root of projectRoots) {
       let canonical: string;
-      try { canonical = await realpath(root); } catch { continue; }
+      try { canonical = await realpath(root); } catch {
+        await this.warnCleanupFailure("realpath");
+        continue;
+      }
       if (visited.has(canonical)) continue;
       visited.add(canonical);
       let names: string[];
-      try { names = await readdir(canonical); } catch { continue; }
+      try { names = await readdir(canonical); } catch {
+        await this.warnCleanupFailure("readdir");
+        continue;
+      }
       for (const name of names) {
         if (!TEMP_FILE_PATTERN.test(name)) continue;
         const path = join(canonical, name);
+        let entry;
         try {
-          const entry = await lstat(path);
-          // This high-entropy namespace is bridge-reserved. Fresh entries may
-          // belong to an in-flight upload and are never startup-cleaned.
-          if (entry.isFile() && this.now() - entry.mtimeMs >= UPLOAD_TEMP_ABANDONMENT_MS) {
-            await rm(path);
-          }
+          entry = await lstat(path);
         } catch {
-          // Best-effort recovery must not prevent startup.
+          await this.warnCleanupFailure("lstat", name);
+          continue;
+        }
+        // This high-entropy namespace is bridge-reserved. Fresh entries may
+        // belong to an in-flight upload and are never startup-cleaned.
+        if (entry.isFile() && this.now() - entry.mtimeMs >= UPLOAD_TEMP_ABANDONMENT_MS) {
+          try {
+            await rm(path);
+          } catch {
+            await this.warnCleanupFailure("rm", name);
+          }
         }
       }
     }
+  }
+
+  private async warnCleanupFailure(stage: "realpath" | "readdir" | "lstat" | "rm", entryName?: string): Promise<void> {
+    await this.deps.logger.warn("upload startup cleanup failed", {
+      stage,
+      ...(entryName ? { entryName: safeFilename(entryName) } : {})
+    }).catch(() => {});
   }
 
   private getPending(chatId: string): PendingUpload | null {

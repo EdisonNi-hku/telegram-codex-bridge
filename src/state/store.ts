@@ -501,6 +501,10 @@ export class BridgeStateStore {
     return this.sessions.listSessions(chatId, limitOrOptions);
   }
 
+  listVisibleProjectPaths(): string[] {
+    return this.sessions.listVisibleProjectPaths();
+  }
+
   getSessionById(sessionId: string): SessionRow | null {
     return this.sessions.getSessionById(sessionId);
   }

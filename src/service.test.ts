@@ -693,6 +693,9 @@ test("flushRuntimeNotices clears notices after a successful Telegram delivery", 
 
 test("service startup cleans abandoned upload temps from stored session roots before polling and is restart-idempotent", async () => {
   const events: string[] = [];
+  let projectRoot = "";
+  let stale = "";
+  let nested = "";
   const deps: ConstructorParameters<typeof BridgeService>[2] = {
     probeReadiness: async () => ({ snapshot: createReadinessSnapshot(), appServer: null }),
     createTelegramApi: () => ({
@@ -701,14 +704,19 @@ test("service startup cleans abandoned upload temps from stored session roots be
       pinChatMessage: async () => true
     }) as any,
     createPoller: () => ({
-      run: async () => { events.push("poll"); },
+      run: async () => {
+        const names = await readdir(projectRoot);
+        assert.equal(names.includes(stale), false);
+        assert.equal(names.includes(nested), false);
+        events.push("poll");
+      },
       stop: () => {}
     }) as any
   };
   const { service, store, cleanup } = await createServiceContext(deps);
-  const projectRoot = join((service as any).paths.homeDir, "project");
-  const stale = ".ctb-upload-123e4567-e89b-42d3-a456-426614174000.tmp";
-  const nested = "..ctb-upload-123e4567-e89b-42d3-a456-426614174001.tmp.123e4567-e89b-42d3-a456-426614174002.tmp";
+  projectRoot = join((service as any).paths.homeDir, "project");
+  stale = ".ctb-upload-123e4567-e89b-42d3-a456-426614174000.tmp";
+  nested = "..ctb-upload-123e4567-e89b-42d3-a456-426614174001.tmp.123e4567-e89b-42d3-a456-426614174002.tmp";
   const fresh = ".ctb-upload-123e4567-e89b-42d3-a456-426614174003.tmp";
   const directory = ".ctb-upload-123e4567-e89b-42d3-a456-426614174004.tmp";
   const link = ".ctb-upload-123e4567-e89b-42d3-a456-426614174005.tmp";
@@ -733,9 +741,17 @@ test("service startup cleans abandoned upload temps from stored session roots be
       utimes(join(projectRoot, directory), old, old)
     ]);
     authorizeChat(store, "chat-1");
-    const visible = store.createSession({ chatId: "chat-1", projectName: "project", projectPath: projectRoot });
-    store.setActiveSession("chat-1", visible.sessionId);
-    store.createSession({ chatId: "chat-1", projectName: "missing", projectPath: join(projectRoot, "inaccessible") });
+    store.createSession({ chatId: "chat-1", projectName: "project", projectPath: projectRoot });
+    let newest: ReturnType<BridgeStateStore["createSession"]> | null = null;
+    for (let index = 0; index < 11; index += 1) {
+      newest = store.createSession({
+        chatId: "chat-1",
+        projectName: `missing-${index}`,
+        projectPath: join(projectRoot, `inaccessible-${index}`)
+      });
+    }
+    assert.ok(newest);
+    store.setActiveSession("chat-1", newest.sessionId);
 
     await service.run();
     runtimeStore = (service as any).store;

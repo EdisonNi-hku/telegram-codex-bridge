@@ -498,6 +498,24 @@ test("startup cleanup removes stale nested Telegram transport temp files only", 
   assert.deepEqual((await readFileNames(f.root)).sort(), [directory, fresh, link, unrelated].sort());
 });
 
+test("startup cleanup warns safely for an inaccessible root and continues with canonical aliases", async () => {
+  const f = await fixture();
+  const alias = `${f.root}-alias`;
+  await symlink(f.root, alias);
+  const stale = ".ctb-upload-123e4567-e89b-42d3-a456-426614174010.tmp";
+  await writeFile(join(f.root, stale), "temp");
+  const old = new Date(Date.now() - UPLOAD_TEMP_ABANDONMENT_MS - 1_000);
+  await utimes(join(f.root, stale), old, old);
+
+  await f.coordinator.cleanupStartup([join(f.root, "missing"), alias, f.root]);
+
+  assert.equal((await readFileNames(f.root)).includes(stale), false);
+  assert.equal(f.logs.length, 1);
+  assert.equal(f.logs[0]?.message, "upload startup cleanup failed");
+  assert.deepEqual(f.logs[0]?.meta, { stage: "realpath" });
+  await rm(alias);
+});
+
 async function readFileNames(root: string): Promise<string[]> {
   return await readdir(root);
 }
