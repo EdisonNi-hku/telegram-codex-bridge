@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,6 +40,139 @@ async function writeCurlStub(binDir: string): Promise<void> {
     await chmod(filePath, 0o755);
   }
 }
+
+async function waitForFileIn(directory: string): Promise<string> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const entries = await readdir(directory);
+    if (entries.length > 0) {
+      return join(directory, entries[0]!);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for a file in ${directory}`);
+}
+
+test("TelegramApi streams fetch downloads before the response completes", async () => {
+  const originalFetch = globalThis.fetch;
+  const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-stream-download-"));
+  const destinationPath = join(root, "download.bin");
+  let releaseSecondChunk!: () => void;
+  const secondChunkReady = new Promise<void>((resolve) => {
+    releaseSecondChunk = resolve;
+  });
+
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    body: new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(Buffer.from("first-chunk"));
+        await secondChunkReady;
+        controller.enqueue(Buffer.from("-second-chunk"));
+        controller.close();
+      }
+    }),
+    arrayBuffer: async () => {
+      throw new Error("download must not buffer with arrayBuffer");
+    }
+  })) as unknown as typeof fetch;
+
+  try {
+    await withEnvironment({
+      HTTPS_PROXY: undefined,
+      https_proxy: undefined,
+      HTTP_PROXY: undefined,
+      http_proxy: undefined,
+      ALL_PROXY: undefined,
+      all_proxy: undefined
+    }, async () => {
+      const api = new TelegramApi("test-token", "https://api.telegram.org");
+      const download = api.downloadFile("file-1", destinationPath, { file_id: "file-1", file_path: "payload.bin" });
+      const tempPath = await waitForFileIn(root);
+
+      assert.notEqual(tempPath, destinationPath);
+      assert.equal(await readFile(tempPath, "utf8"), "first-chunk");
+
+      releaseSecondChunk();
+      assert.equal(await download, destinationPath);
+      assert.equal(await readFile(destinationPath, "utf8"), "first-chunk-second-chunk");
+    });
+  } finally {
+    releaseSecondChunk();
+    globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TelegramApi creates completed downloads with owner-only permissions on POSIX", {
+  skip: process.platform === "win32"
+}, async () => {
+  const originalFetch = globalThis.fetch;
+  const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-download-mode-"));
+  const destinationPath = join(root, "secret.bin");
+  globalThis.fetch = (async () => new Response("secret-bytes")) as typeof fetch;
+
+  try {
+    await withEnvironment({
+      HTTPS_PROXY: undefined,
+      https_proxy: undefined,
+      HTTP_PROXY: undefined,
+      http_proxy: undefined,
+      ALL_PROXY: undefined,
+      all_proxy: undefined
+    }, async () => {
+      const api = new TelegramApi("test-token", "https://api.telegram.org");
+      await api.downloadFile("file-2", destinationPath, { file_id: "file-2", file_path: "secret.bin" });
+      assert.equal((await stat(destinationPath)).mode & 0o777, 0o600);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TelegramApi removes temporary and destination files when fetch and curl downloads fail", async () => {
+  const originalFetch = globalThis.fetch;
+  const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-download-cleanup-"));
+  const binDir = join(root, "bin");
+  const downloadDir = join(root, "downloads");
+  const destinationPath = join(downloadDir, "failed.bin");
+  await mkdir(binDir);
+  await mkdir(downloadDir);
+  await writeCurlStub(binDir);
+  globalThis.fetch = (async () => new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(Buffer.from("partial-download"));
+      controller.error(new Error("fetch stream failed"));
+    }
+  }))) as typeof fetch;
+
+  try {
+    const pathValue = process.platform === "win32"
+      ? `${binDir};${process.env.PATH ?? ""}`
+      : `${binDir}:${process.env.PATH ?? ""}`;
+    await withEnvironment({
+      PATH: pathValue,
+      HTTPS_PROXY: undefined,
+      https_proxy: undefined,
+      HTTP_PROXY: undefined,
+      http_proxy: undefined,
+      ALL_PROXY: undefined,
+      all_proxy: undefined
+    }, async () => {
+      const api = new TelegramApi("test-token", "https://api.telegram.org");
+      await assert.rejects(
+        api.downloadFile("file-3", destinationPath, { file_id: "file-3", file_path: "failed.bin" }),
+        /fetch stream failed.*curl transport failed/isu
+      );
+      assert.deepEqual(await readdir(downloadDir), []);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("TelegramApi surfaces curl transport failures before JSON parsing", async () => {
   const root = await mkdtemp(join(tmpdir(), "ctb-telegram-api-test-"));

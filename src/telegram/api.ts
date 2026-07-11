@@ -1,6 +1,10 @@
 import { openAsBlob } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
+import { randomUUID } from "node:crypto";
+import { basename, dirname, join } from "node:path";
 
 import { BridgeError } from "../errors.js";
 import type { PerformanceRecorder } from "../perf/recorder.js";
@@ -283,16 +287,22 @@ export class TelegramApi {
     }
 
     await mkdir(dirname(destinationPath), { recursive: true });
-    const tempPath = `${destinationPath}.${process.pid}.${Date.now()}.tmp`;
+    const tempPath = join(dirname(destinationPath), `.${basename(destinationPath)}.${randomUUID()}.tmp`);
     const url = this.buildFileUrl(resolvedFile.file_path);
+    let ownsTempFile = false;
 
     if (shouldPreferCurl() && await this.canUseCurl()) {
       try {
+        await (await open(tempPath, "wx", 0o600)).close();
+        ownsTempFile = true;
         await this.downloadWithCurl(url, tempPath, 20_000, "proxy-environment");
+        await chmod(tempPath, 0o600);
         await rename(tempPath, destinationPath);
         return destinationPath;
       } catch (error) {
-        await rm(tempPath, { force: true }).catch(() => {});
+        if (ownsTempFile) {
+          await rm(tempPath, { force: true }).catch(() => {});
+        }
         throw error;
       }
     }
@@ -304,19 +314,35 @@ export class TelegramApi {
       if (!response.ok) {
         throw new Error(`Telegram file download failed: ${response.status} ${response.statusText}`);
       }
+      if (!response.body) {
+        throw new Error("Telegram file download failed: response body is empty");
+      }
 
-      const content = new Uint8Array(await response.arrayBuffer());
-      await writeFile(tempPath, content);
+      const tempFile = await open(tempPath, "wx", 0o600);
+      ownsTempFile = true;
+      await pipeline(
+        Readable.fromWeb(response.body as unknown as NodeReadableStream<Uint8Array>),
+        tempFile.createWriteStream()
+      );
+      await chmod(tempPath, 0o600);
       await rename(tempPath, destinationPath);
       return destinationPath;
     } catch (error) {
-      await rm(tempPath, { force: true }).catch(() => {});
+      if (ownsTempFile) {
+        await rm(tempPath, { force: true }).catch(() => {});
+        ownsTempFile = false;
+      }
       try {
+        await (await open(tempPath, "wx", 0o600)).close();
+        ownsTempFile = true;
         await this.downloadWithCurl(url, tempPath, 20_000, error);
+        await chmod(tempPath, 0o600);
         await rename(tempPath, destinationPath);
         return destinationPath;
       } catch (curlError) {
-        await rm(tempPath, { force: true }).catch(() => {});
+        if (ownsTempFile) {
+          await rm(tempPath, { force: true }).catch(() => {});
+        }
         throw curlError;
       }
     }
