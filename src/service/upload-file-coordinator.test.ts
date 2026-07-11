@@ -88,9 +88,82 @@ test("duplicate begin preserves pending state; cancel, commands, reminders, and 
   assert.equal(f.coordinator.isWaiting("chat-1"), false);
   f.setActive(session(f.root));
   await f.coordinator.begin("chat-1");
-  now += 300_001;
+  now += 300_000;
   assert.equal(f.coordinator.isWaiting("chat-1"), false);
   assert.equal(f.coordinator.cancel("chat-1"), false);
+});
+
+test("concurrent begin calls serialize and preserve the original session binding", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-upload-begin-race-"));
+  const messages: string[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let realpathCalls = 0;
+  let active = session(root);
+  const coordinator = new UploadFileCoordinator({
+    getActiveSession: () => active,
+    hasConflictingInput: () => false,
+    getApi: () => null,
+    safeSendMessage: async (_chatId, text) => { messages.push(text); return true; },
+    logger: { warn: async () => {} },
+    canonicalizeProjectRoot: async (path) => {
+      realpathCalls += 1;
+      if (realpathCalls === 1) await gate;
+      return path;
+    }
+  });
+  const first = coordinator.begin("chat-1");
+  await new Promise((resolve) => setImmediate(resolve));
+  active = session(root, { sessionId: "replacement" });
+  const second = coordinator.begin("chat-1");
+  release();
+  assert.deepEqual(await Promise.all([first, second]), [true, false]);
+  assert.equal(messages.filter((text) => /already waiting/i.test(text)).length, 1);
+  active = session(root);
+  assert.equal(await coordinator.handleDocument("chat-1", doc("original")), true);
+});
+
+test("a rejected per-chat queue operation does not poison its tail", async () => {
+  const f = await fixture();
+  let calls = 0;
+  const coordinator = new UploadFileCoordinator({
+    getActiveSession: () => {
+      calls += 1;
+      if (calls === 1) throw new Error("isolated failure");
+      return session(f.root);
+    },
+    hasConflictingInput: () => false,
+    getApi: () => null,
+    safeSendMessage: async () => true,
+    logger: { warn: async () => {} }
+  });
+  await assert.rejects(coordinator.begin("chat-1"), /isolated failure/);
+  assert.equal(await coordinator.begin("chat-1"), true);
+});
+
+test("cancel and another command invalidate a begin that is awaiting filesystem work", async () => {
+  for (const invalidate of [
+    (coordinator: UploadFileCoordinator) => coordinator.cancel("chat-1"),
+    (coordinator: UploadFileCoordinator) => coordinator.clearForCommand("chat-1", "/status")
+  ]) {
+    const f = await fixture();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const coordinator = new UploadFileCoordinator({
+      getActiveSession: () => session(f.root),
+      hasConflictingInput: () => false,
+      getApi: () => null,
+      safeSendMessage: async () => true,
+      logger: { warn: async () => {} },
+      canonicalizeProjectRoot: async (path) => { await gate; return path; }
+    });
+    const beginning = coordinator.begin("chat-1");
+    await new Promise((resolve) => setImmediate(resolve));
+    invalidate(coordinator);
+    release();
+    assert.equal(await beginning, false);
+    assert.equal(coordinator.isWaiting("chat-1"), false);
+  }
 });
 
 test("validates raw Telegram filenames, including safe dotfiles", async () => {
@@ -188,6 +261,27 @@ test("revalidates exact session and canonical root before download and publish, 
   assert.equal(await failed.coordinator.handleDocument("chat-1", doc("safe.txt")), true);
   assert.deepEqual(await readFileNames(failed.root), []);
   assert.doesNotMatch(JSON.stringify(failed.logs), /secret caption|api\.telegram|TOKEN/);
+
+  const wrongPath = await fixture();
+  await wrongPath.coordinator.begin("chat-1");
+  wrongPath.setDownload(async (_id, path) => {
+    await writeFile(path, "sensitive");
+    return join(wrongPath.root, "different-path");
+  });
+  assert.equal(await wrongPath.coordinator.handleDocument("chat-1", doc("never-published")), true);
+  assert.deepEqual(await readFileNames(wrongPath.root), []);
+});
+
+test("download contract receives an absent UUID destination and publishes its returned path", async () => {
+  const f = await fixture();
+  f.setDownload(async (_id, path) => {
+    await assert.rejects(lstat(path), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+    await writeFile(path, "contract bytes", { flag: "wx", mode: 0o600 });
+    return path;
+  });
+  await f.coordinator.begin("chat-1");
+  assert.equal(await f.coordinator.handleDocument("chat-1", doc("contract")), true);
+  assert.equal(await readFile(join(f.root, "contract"), "utf8"), "contract bytes");
 });
 
 test("one document atomically claims pending state; queues isolate rejection and different chats", async () => {

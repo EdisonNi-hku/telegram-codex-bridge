@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, chmod, link, lstat, open, readdir, realpath, rm, stat } from "node:fs/promises";
+import { access, chmod, link, lstat, readdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, win32 } from "node:path";
 
 import type { TelegramDocument, TelegramFile } from "../telegram/api.js";
@@ -28,6 +28,7 @@ export interface UploadFileCoordinatorDeps {
   logger: UploadLogger;
   now?: () => number;
   createUuid?: () => string;
+  canonicalizeProjectRoot?: (path: string) => Promise<string>;
 }
 
 interface PendingUpload {
@@ -44,15 +45,23 @@ export class UploadFileCoordinator {
   private readonly pending = new Map<string, PendingUpload>();
   private readonly now: () => number;
   private readonly createUuid: () => string;
+  private readonly canonicalizeProjectRoot: (path: string) => Promise<string>;
+  private readonly queues = new Map<string, Promise<void>>();
+  private readonly mutationVersions = new Map<string, number>();
 
   constructor(private readonly deps: UploadFileCoordinatorDeps) {
     this.now = deps.now ?? Date.now;
     this.createUuid = deps.createUuid ?? randomUUID;
+    this.canonicalizeProjectRoot = deps.canonicalizeProjectRoot ?? realpath;
   }
 
   async begin(chatId: string): Promise<boolean> {
+    return await this.enqueue(chatId, async () => await this.beginQueued(chatId));
+  }
+
+  private async beginQueued(chatId: string): Promise<boolean> {
     if (this.getPending(chatId)) {
-      await this.deps.safeSendMessage(chatId, this.waitingText(chatId));
+      await this.deps.safeSendMessage(chatId, `Already waiting. ${this.waitingText(chatId)}`);
       return false;
     }
     if (this.deps.hasConflictingInput(chatId)) {
@@ -66,8 +75,9 @@ export class UploadFileCoordinator {
     }
 
     let projectRoot: string;
+    const mutationVersion = this.mutationVersions.get(chatId) ?? 0;
     try {
-      projectRoot = await realpath(active.projectPath);
+      projectRoot = await this.canonicalizeProjectRoot(active.projectPath);
       const projectStats = await stat(projectRoot);
       if (!projectStats.isDirectory() || (process.platform !== "win32" && (projectStats.mode & 0o222) === 0)) {
         throw new Error("project_not_writable");
@@ -77,6 +87,7 @@ export class UploadFileCoordinator {
       await this.deps.safeSendMessage(chatId, "The active project is not writable.");
       return false;
     }
+    if ((this.mutationVersions.get(chatId) ?? 0) !== mutationVersion) return false;
 
     const createdAt = this.now();
     this.pending.set(chatId, {
@@ -96,6 +107,7 @@ export class UploadFileCoordinator {
   }
 
   cancel(chatId: string): boolean {
+    this.bumpMutationVersion(chatId);
     return this.pending.delete(chatId);
   }
 
@@ -110,10 +122,15 @@ export class UploadFileCoordinator {
   clearForCommand(chatId: string, command: string): boolean {
     const normalized = command.trim().split(/\s+/u, 1)[0]?.toLowerCase();
     if (normalized === "/upload" || normalized === "/cancel") return false;
+    this.bumpMutationVersion(chatId);
     return this.pending.delete(chatId);
   }
 
   async handleDocument(chatId: string, document: TelegramDocument): Promise<boolean> {
+    return await this.enqueue(chatId, async () => await this.handleDocumentQueued(chatId, document));
+  }
+
+  private async handleDocumentQueued(chatId: string, document: TelegramDocument): Promise<boolean> {
     // Claim before the first await so simultaneous updates cannot both consume it.
     const pending = this.getPending(chatId);
     if (!pending) return false;
@@ -143,10 +160,11 @@ export class UploadFileCoordinator {
       }
 
       tempPath = join(pending.projectRoot, `.ctb-upload-${this.createUuid()}.tmp`);
-      await (await open(tempPath, "wx", 0o600)).close();
       const file = await api.getFile(document.file_id);
       const downloaded = await api.downloadFile(document.file_id, tempPath, file);
       if (!downloaded) throw new Error("download_unavailable");
+      if (downloaded !== tempPath) throw new Error("unexpected_download_path");
+      if (!(await lstat(tempPath)).isFile()) throw new Error("invalid_download_entry");
       await chmod(tempPath, 0o600);
       if ((await stat(tempPath)).size > MAX_UPLOAD_FILE_BYTES) throw uploadTooLargeError();
 
@@ -201,7 +219,7 @@ export class UploadFileCoordinator {
 
   private getPending(chatId: string): PendingUpload | null {
     const pending = this.pending.get(chatId) ?? null;
-    if (pending && this.now() > pending.expiresAt) {
+    if (pending && this.now() >= pending.expiresAt) {
       this.pending.delete(chatId);
       return null;
     }
@@ -215,10 +233,25 @@ export class UploadFileCoordinator {
       || active.projectPath !== pending.projectIdentity
       || active.projectPath !== pending.projectPath) return false;
     try {
-      return await realpath(active.projectPath) === pending.projectRoot;
+      return await this.canonicalizeProjectRoot(active.projectPath) === pending.projectRoot;
     } catch {
       return false;
     }
+  }
+
+  private bumpMutationVersion(chatId: string): void {
+    this.mutationVersions.set(chatId, (this.mutationVersions.get(chatId) ?? 0) + 1);
+  }
+
+  private enqueue<T>(chatId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.queues.get(chatId) ?? Promise.resolve();
+    const result = previous.catch(() => {}).then(operation);
+    const tail = result.then(() => {}, () => {});
+    this.queues.set(chatId, tail);
+    void tail.finally(() => {
+      if (this.queues.get(chatId) === tail) this.queues.delete(chatId);
+    });
+    return result;
   }
 }
 
