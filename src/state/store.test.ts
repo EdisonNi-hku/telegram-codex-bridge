@@ -1001,7 +1001,7 @@ test("archiveSession hides archived sessions by default and reassigns the active
 });
 
 test("listVisibleProjectPaths returns every distinct visible regular-session path without a limit", async () => {
-  const { store, cleanup } = await openStore();
+  const { paths, store, cleanup } = await openStore();
   try {
     for (let index = 0; index < 12; index += 1) {
       store.createSession({
@@ -1026,6 +1026,9 @@ test("listVisibleProjectPaths returns every distinct visible regular-session pat
       projectPath: "/tmp/cleanup-archived"
     });
     store.archiveSession(archived.sessionId);
+    const raw = new DatabaseSync(paths.dbPath);
+    raw.prepare("UPDATE session SET archived_at = NULL WHERE session_id = ?").run(archived.sessionId);
+    raw.close();
 
     assert.deepEqual(
       (store as any).listVisibleProjectPaths().sort(),

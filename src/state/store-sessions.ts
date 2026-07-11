@@ -165,7 +165,7 @@ export function createStoreSessions(db: DatabaseSync, deps: StoreSessionsDeps): 
   return {
     listVisibleProjectPaths() {
       const rows = db.prepare(
-        `SELECT DISTINCT project_path FROM session WHERE session_kind = 'regular' AND archived_at IS NULL`
+        `SELECT DISTINCT project_path FROM session WHERE session_kind = 'regular' AND archived = 0`
       ).all() as unknown as Array<{ project_path: string }>;
       return rows.map((row) => row.project_path);
     },
