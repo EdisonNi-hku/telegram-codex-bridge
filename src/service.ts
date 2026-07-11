@@ -1341,17 +1341,24 @@ export class BridgeService {
       return;
     }
 
-    if (earlyCommand) {
+    if (earlyCommand && this.uploadFileCoordinator.isWaiting(chatId)) {
       this.uploadFileCoordinator.clearForCommand(chatId, `/${earlyCommand.name}`);
-    }
-
-    if (earlyCommand?.name === "side") {
-      await this.handleSideCommand(chatId, earlyCommand.args);
+      await this.routeCommand(chatId, earlyCommand.name, earlyCommand.args);
       return;
     }
 
     if (message.document && this.uploadFileCoordinator.isWaiting(chatId)) {
       await this.uploadFileCoordinator.handleDocument(chatId, message.document);
+      return;
+    }
+
+    if (!earlyCommand && message.text !== undefined && this.uploadFileCoordinator.isWaiting(chatId)) {
+      await this.uploadFileCoordinator.handleWaitingText(chatId);
+      return;
+    }
+
+    if (earlyCommand?.name === "side") {
+      await this.handleSideCommand(chatId, earlyCommand.args);
       return;
     }
 
@@ -1405,11 +1412,6 @@ export class BridgeService {
 
     if (message.voice) {
       await this.richInputAdapter.handleVoiceMessage(chatId, message);
-      return;
-    }
-
-    if (!earlyCommand && text && this.uploadFileCoordinator.isWaiting(chatId)) {
-      await this.uploadFileCoordinator.handleWaitingText(chatId);
       return;
     }
 

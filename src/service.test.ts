@@ -1706,6 +1706,149 @@ test("upload command precedes questionnaire mode but explicitly rejects conflict
     (service as any).sessionProjectCoordinator.isAwaitingRename = () => true;
     await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2111, "/upload"));
     assert.match(sent.at(-1) ?? "", /\/cancel/u);
+
+    (service as any).sessionProjectCoordinator.isAwaitingRename = () => false;
+    (service as any).sessionProjectCoordinator.isAwaitingManualProjectPath = () => true;
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2112, "/upload"));
+    assert.match(sent.at(-1) ?? "", /\/cancel/u);
+
+    (service as any).sessionProjectCoordinator.isAwaitingManualProjectPath = () => false;
+    (service as any).richInputAdapter.hasPendingRichInputComposer = () => true;
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2113, "/upload"));
+    assert.match(sent.at(-1) ?? "", /\/cancel/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("late interaction modes cannot consume waiting upload text or slash commands", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const projectRoot = join((service as any).paths.homeDir, "upload-late-mode-project");
+  const sent: string[] = [];
+  let questionnaireAnswers = 0;
+
+  try {
+    await mkdir(projectRoot, { recursive: true });
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Late Mode", projectPath: projectRoot });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        sent.push(text);
+        return createFakeTelegramMessage(100 + sent.length, text);
+      }
+    };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2130, "/upload"));
+    (service as any).interactionBroker.getPendingTextMode = () => ({ interactionId: "late-question" });
+    (service as any).interactionBroker.handlePendingInteractionTextAnswer = async () => { questionnaireAnswers += 1; };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2131, "do not submit this"));
+    assert.equal(questionnaireAnswers, 0);
+    assert.match(sent.at(-1) ?? "", /Waiting for one Telegram Document/u);
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2132, "/help"));
+    assert.equal(questionnaireAnswers, 0);
+    assert.equal((service as any).uploadFileCoordinator.isWaiting("1"), false);
+    assert.match(sent.at(-1) ?? "", /\/help/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("pending upload leaves photo and voice ingress intact and nonpending Documents use rich media ingress", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const projectRoot = join((service as any).paths.homeDir, "upload-media-project");
+  const mediaIds: number[] = [];
+  const richEvents: unknown[] = [];
+  let voiceCalls = 0;
+
+  try {
+    await mkdir(projectRoot, { recursive: true });
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Media Project", projectPath: projectRoot });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(120, text)
+    };
+    (service as any).richInputAdapter.handleVoiceMessage = async () => { voiceCalls += 1; };
+    (service as any).mediaIngressService.resolveMessageMedia = async (message: { message_id: number }) => {
+      mediaIds.push(message.message_id);
+      return { marker: message.message_id };
+    };
+    (service as any).richInputAdapter.handleInboundMediaEvent = async (_chatId: string, event: unknown) => {
+      richEvents.push(event);
+    };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2140, "/upload"));
+    const photoMessage: any = {
+      ...createIncomingUserMessage(1, 1, 2141, ""),
+      photo: [{ file_id: "photo", width: 1, height: 1 }]
+    };
+    delete photoMessage.text;
+    await (service as any).handleMessage(photoMessage);
+    const voiceMessage: any = {
+      ...createIncomingUserMessage(1, 1, 2142, ""),
+      voice: { file_id: "voice", duration: 1 }
+    };
+    delete voiceMessage.text;
+    await (service as any).handleMessage(voiceMessage);
+    assert.equal((service as any).uploadFileCoordinator.isWaiting("1"), true);
+    assert.equal(voiceCalls, 1);
+    assert.deepEqual(mediaIds, [2141]);
+
+    (service as any).uploadFileCoordinator.cancel("1");
+    const documentMessage: any = {
+      ...createIncomingUserMessage(1, 1, 2143, ""),
+      document: { file_id: "normal-document", file_name: "normal.pdf" }
+    };
+    delete documentMessage.text;
+    await (service as any).handleMessage(documentMessage);
+    assert.deepEqual(mediaIds, [2141, 2143]);
+    assert.deepEqual(richEvents, [{ marker: 2141 }, { marker: 2143 }]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("repeated upload preserves its original session binding across an active-project switch", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const firstRoot = join((service as any).paths.homeDir, "upload-first-project");
+  const secondRoot = join((service as any).paths.homeDir, "upload-second-project");
+  const sent: string[] = [];
+  let downloadCalls = 0;
+
+  try {
+    await Promise.all([mkdir(firstRoot, { recursive: true }), mkdir(secondRoot, { recursive: true })]);
+    authorizeNumericChatWithSession(store, "1");
+    const first = store.createSession({ chatId: "1", projectName: "First", projectPath: firstRoot });
+    const second = store.createSession({ chatId: "1", projectName: "Second", projectPath: secondRoot });
+    store.setActiveSession("1", first.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        sent.push(text);
+        return createFakeTelegramMessage(140 + sent.length, text);
+      },
+      getFile: async () => ({ file_id: "switch-file", file_path: "documents/switch-file" }),
+      downloadFile: async (_fileId: string, destinationPath: string) => {
+        downloadCalls += 1;
+        await writeFile(destinationPath, "must-not-move", "utf8");
+        return destinationPath;
+      }
+    };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2150, "/upload"));
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2151, "/upload"));
+    store.setActiveSession("1", second.sessionId);
+    await (service as any).handleMessage({
+      ...createIncomingUserMessage(1, 1, 2152, ""),
+      document: { file_id: "switch-file", file_name: "switch.txt" }
+    });
+
+    assert.equal(downloadCalls, 0);
+    await assert.rejects(readFile(join(firstRoot, "switch.txt")), /ENOENT/u);
+    await assert.rejects(readFile(join(secondRoot, "switch.txt")), /ENOENT/u);
+    assert.match(sent.at(-1) ?? "", /changed/u);
   } finally {
     await cleanup();
   }
@@ -1738,6 +1881,93 @@ test("upload cancellation, repeated command, and unrelated commands preserve rou
     await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2124, "/help"));
     assert.equal((service as any).uploadFileCoordinator.isWaiting("1"), false);
     assert.match(sent.at(-1) ?? "", /\/help/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("cancel clears upload before every other cancellable mode and leaves those modes pending", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const projectRoot = join((service as any).paths.homeDir, "upload-cancel-priority");
+  let projectCancelCalls = 0;
+  let richCancelCalls = 0;
+  let interactionCancelCalls = 0;
+
+  try {
+    await mkdir(projectRoot, { recursive: true });
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Cancel Priority", projectPath: projectRoot });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(160, text)
+    };
+    (service as any).sessionProjectCoordinator.cancelPendingProjectInput = async () => {
+      projectCancelCalls += 1;
+      return true;
+    };
+    (service as any).richInputAdapter.cancelPendingRichInputComposer = async () => {
+      richCancelCalls += 1;
+      return true;
+    };
+    (service as any).interactionBroker.cancelPendingTextInteraction = async () => {
+      interactionCancelCalls += 1;
+      return true;
+    };
+
+    for (const configureLateMode of [
+      () => { (service as any).sessionProjectCoordinator.isAwaitingRename = () => true; },
+      () => { (service as any).sessionProjectCoordinator.isAwaitingRename = () => false; (service as any).sessionProjectCoordinator.isAwaitingManualProjectPath = () => true; },
+      () => { (service as any).sessionProjectCoordinator.isAwaitingManualProjectPath = () => false; (service as any).richInputAdapter.hasPendingRichInputComposer = () => true; },
+      () => { (service as any).richInputAdapter.hasPendingRichInputComposer = () => false; (service as any).interactionBroker.getPendingTextMode = () => ({ interactionId: "late-cancel" }); }
+    ]) {
+      (service as any).sessionProjectCoordinator.isAwaitingRename = () => false;
+      (service as any).sessionProjectCoordinator.isAwaitingManualProjectPath = () => false;
+      (service as any).richInputAdapter.hasPendingRichInputComposer = () => false;
+      (service as any).interactionBroker.getPendingTextMode = () => null;
+      await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2160, "/upload"));
+      configureLateMode();
+      await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2161, "/cancel"));
+      assert.equal((service as any).uploadFileCoordinator.isWaiting("1"), false);
+    }
+
+    assert.equal(projectCancelCalls, 0);
+    assert.equal(richCancelCalls, 0);
+    assert.equal(interactionCancelCalls, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("Side upload saves to the shared project without starting parent or Side turns", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const projectRoot = join((service as any).paths.homeDir, "upload-side-project");
+  const turnCalls: unknown[] = [];
+
+  try {
+    await mkdir(projectRoot, { recursive: true });
+    authorizeNumericChatWithSession(store, "1");
+    const parent = store.createSession({ chatId: "1", projectName: "Shared Side Project", projectPath: projectRoot });
+    const side = store.createSideSession({ parentSessionId: parent.sessionId, threadId: "side-upload-thread" });
+    store.setActiveSession("1", side.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(180, text),
+      getFile: async () => ({ file_id: "side-file", file_path: "documents/side-file" }),
+      downloadFile: async (_fileId: string, destinationPath: string) => {
+        await writeFile(destinationPath, "side-upload-bytes", "utf8");
+        return destinationPath;
+      }
+    };
+    (service as any).turnCoordinator.startTextTurn = async (...args: unknown[]) => { turnCalls.push(args); };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2170, "/upload"));
+    await (service as any).handleMessage({
+      ...createIncomingUserMessage(1, 1, 2171, ""),
+      document: { file_id: "side-file", file_name: "side.txt", file_size: 17 }
+    });
+
+    assert.equal(await readFile(join(projectRoot, "side.txt"), "utf8"), "side-upload-bytes");
+    assert.equal(turnCalls.length, 0);
+    assert.equal(store.getActiveSession("1")?.sessionId, side.sessionId);
   } finally {
     await cleanup();
   }
