@@ -61,8 +61,10 @@ test("upload is localized across Telegram command, help, and sync surfaces", asy
   assert.deepEqual(buildTelegramCommands("en", "telegram").find(({ command }) => command === "upload"), {
     command: "upload", description: "Upload a file to the project root"
   });
-  assert.match(buildHelpText("zh", "telegram"), /\/upload 保存下一份文件到项目根目录，不发送给 Codex/u);
-  assert.match(buildHelpText("en", "telegram"), /\/upload Save the next file to the project root without sending it to Codex/u);
+  assert.equal(buildHelpText("zh", "telegram").split("\n").find((line) => line.startsWith("/upload ")),
+    "/upload 安全保存下一份文件到项目根目录；不会发送给 Codex");
+  assert.equal(buildHelpText("en", "telegram").split("\n").find((line) => line.startsWith("/upload ")),
+    "/upload Safely save the next file to the project root without sending it to Codex");
   assert.doesNotMatch(buildHelpText("zh", "feishu"), /\/upload/u);
   assert.doesNotMatch(buildHelpText("en", "feishu"), /\/upload/u);
 
