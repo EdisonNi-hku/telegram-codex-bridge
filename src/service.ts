@@ -26,6 +26,7 @@ import { MediaIngressService } from "./service/media-ingress.js";
 import { SafeMessenger } from "./service/safe-messenger.js";
 import { ShellCommandCoordinator } from "./service/shell-command-coordinator.js";
 import { RetrieveFileCoordinator } from "./service/retrieve-file-coordinator.js";
+import { UploadFileCoordinator } from "./service/upload-file-coordinator.js";
 import { parseBangShellCommand } from "./service/shell-command-policy.js";
 import { RichInputAdapter } from "./service/rich-input-adapter.js";
 import { ProjectBrowserCoordinator } from "./service/project-browser-coordinator.js";
@@ -285,6 +286,7 @@ export class BridgeService {
   private readonly sessionProjectCoordinator: SessionProjectCoordinator;
   private readonly shellCommandCoordinator: ShellCommandCoordinator;
   private readonly retrieveFileCoordinator: RetrieveFileCoordinator;
+  private readonly uploadFileCoordinator: UploadFileCoordinator;
   private readonly subagentIdentityBackfiller: SubagentIdentityBackfiller;
   private readonly threadArchiveReconciler: ThreadArchiveReconciler;
   private readonly turnCoordinator: TurnCoordinator;
@@ -572,6 +574,15 @@ export class BridgeService {
       sendDocument: async (chatId, filePath, options) => Boolean(
         await this.safeSendDocumentResult(chatId, filePath, options)
       )
+    });
+    this.uploadFileCoordinator = new UploadFileCoordinator({
+      getActiveSession: (chatId) => this.store?.getActiveSession(chatId) ?? null,
+      hasConflictingInput: (chatId) => this.hasConflictingUploadInput(chatId),
+      getApi: () => this.api,
+      safeSendMessage: async (chatId, text) => this.safeSendMessage(chatId, text),
+      logger: this.loggerAdapter,
+      now: () => Date.now(),
+      createUuid: () => randomUUID()
     });
     this.mediaIngressService = new MediaIngressService({
       logger: this.loggerAdapter,
@@ -1320,8 +1331,27 @@ export class BridgeService {
     const text = (message.text ?? "").trim();
     const earlyCommand = parseCommand(text);
 
+    if (earlyCommand?.name === "upload") {
+      await this.handleUploadCommand(chatId);
+      return;
+    }
+
+    if (earlyCommand?.name === "cancel" && this.uploadFileCoordinator.isWaiting(chatId)) {
+      this.uploadFileCoordinator.cancel(chatId);
+      return;
+    }
+
+    if (earlyCommand) {
+      this.uploadFileCoordinator.clearForCommand(chatId, `/${earlyCommand.name}`);
+    }
+
     if (earlyCommand?.name === "side") {
       await this.handleSideCommand(chatId, earlyCommand.args);
+      return;
+    }
+
+    if (message.document && this.uploadFileCoordinator.isWaiting(chatId)) {
+      await this.uploadFileCoordinator.handleDocument(chatId, message.document);
       return;
     }
 
@@ -1375,6 +1405,11 @@ export class BridgeService {
 
     if (message.voice) {
       await this.richInputAdapter.handleVoiceMessage(chatId, message);
+      return;
+    }
+
+    if (!earlyCommand && text && this.uploadFileCoordinator.isWaiting(chatId)) {
+      await this.uploadFileCoordinator.handleWaitingText(chatId);
       return;
     }
 
@@ -2295,13 +2330,8 @@ export class BridgeService {
           await this.handleAttach(chatId, args);
         });
       },
-      // Task 4 replaces this sequencing adapter with the real upload coordinator wiring.
       handleUpload: async () => {
-        if (this.config.activePack !== "telegram") {
-          await this.safeSendMessage(chatId, buildUnsupportedCommandText());
-          return;
-        }
-        await this.safeSendMessage(chatId, "文件上传暂未开放，请稍后再试。");
+        await this.handleUploadCommand(chatId);
       },
       handleThread: async () => {
         await this.runGuardedCommand(chatId, "当前无法更新线程设置，请稍后重试。", async () => {
@@ -2327,7 +2357,33 @@ export class BridgeService {
     await this.sideConversationCoordinator.handleCommand(chatId, args);
   }
 
+  private hasConflictingUploadInput(chatId: string): boolean {
+    if (this.isAwaitingRename(chatId) || this.isAwaitingManualProjectPath(chatId)
+      || this.richInputAdapter.hasPendingRichInputComposer(chatId)) {
+      return true;
+    }
+    return this.interactionBroker.getPendingTextMode(
+      chatId,
+      this.store?.getActiveSession(chatId)?.sessionId ?? null
+    ) !== null;
+  }
+
+  private async handleUploadCommand(chatId: string): Promise<void> {
+    if (this.config.activePack !== "telegram") {
+      await this.safeSendMessage(chatId, buildUnsupportedCommandText());
+      return;
+    }
+    if (this.hasConflictingUploadInput(chatId)) {
+      await this.safeSendMessage(chatId, "当前有待完成的输入，请先发送 /cancel，再上传文件。");
+      return;
+    }
+    await this.uploadFileCoordinator.begin(chatId);
+  }
+
   private async handleCancelCommand(chatId: string): Promise<void> {
+    if (this.uploadFileCoordinator.cancel(chatId)) {
+      return;
+    }
     if (await this.sessionProjectCoordinator.cancelPendingProjectInput(chatId)) {
       return;
     }

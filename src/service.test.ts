@@ -1620,6 +1620,129 @@ test("manual Feishu upload stays unsupported without entering upload or Codex pa
   }
 });
 
+test("pending Telegram upload consumes ordinary text and a Document before Codex ingress", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const projectRoot = join((service as any).paths.homeDir, "upload-project");
+  const sent: string[] = [];
+  const mediaCalls: unknown[] = [];
+  const richCalls: unknown[] = [];
+  const turnCalls: unknown[] = [];
+  const secret = "API_KEY=service-upload-sentinel";
+
+  try {
+    await mkdir(projectRoot, { recursive: true });
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Upload Project", projectPath: projectRoot });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        sent.push(text);
+        return createFakeTelegramMessage(40 + sent.length, text);
+      },
+      getFile: async (fileId: string) => ({ file_id: fileId, file_path: `documents/${fileId}` }),
+      downloadFile: async (_fileId: string, destinationPath: string) => {
+        await writeFile(destinationPath, secret, "utf8");
+        return destinationPath;
+      }
+    };
+    (service as any).mediaIngressService.resolveMessageMedia = async (...args: unknown[]) => {
+      mediaCalls.push(args);
+      return null;
+    };
+    (service as any).richInputAdapter.handleInboundMediaEvent = async (...args: unknown[]) => {
+      richCalls.push(args);
+    };
+    (service as any).richInputAdapter.handleAutoAttachText = async (...args: unknown[]) => {
+      richCalls.push(args);
+      return false;
+    };
+    (service as any).handleNormalText = async (...args: unknown[]) => { turnCalls.push(args); };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2100, "/upload"));
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2101, secret));
+    await (service as any).handleMessage({
+      ...createIncomingUserMessage(1, 1, 2102, ""),
+      document: { file_id: "secret-file-id", file_name: ".env", file_size: secret.length }
+    });
+
+    assert.equal(await readFile(join(projectRoot, ".env"), "utf8"), secret);
+    assert.equal(mediaCalls.length, 0);
+    assert.equal(richCalls.length, 0);
+    assert.equal(turnCalls.length, 0);
+    assert.ok(sent.some((text) => /Waiting for one Document/u.test(text)));
+    assert.doesNotMatch(JSON.stringify(sent), /service-upload-sentinel/u);
+    assert.doesNotMatch(await readFile((service as any).paths.bridgeLogPath, "utf8").catch(() => ""), /service-upload-sentinel/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("upload command precedes questionnaire mode but explicitly rejects conflicting input modes", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const projectRoot = join((service as any).paths.homeDir, "upload-conflict-project");
+  const sent: string[] = [];
+  let questionnaireAnswers = 0;
+
+  try {
+    await mkdir(projectRoot, { recursive: true });
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Conflict Project", projectPath: projectRoot });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        sent.push(text);
+        return createFakeTelegramMessage(60 + sent.length, text);
+      }
+    };
+    (service as any).interactionBroker.getPendingTextMode = () => ({ interactionId: "question-1" });
+    (service as any).interactionBroker.handlePendingInteractionTextAnswer = async () => { questionnaireAnswers += 1; };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2110, "/upload"));
+
+    assert.equal(questionnaireAnswers, 0);
+    assert.match(sent.at(-1) ?? "", /\/cancel/u);
+
+    (service as any).interactionBroker.getPendingTextMode = () => null;
+    (service as any).sessionProjectCoordinator.isAwaitingRename = () => true;
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2111, "/upload"));
+    assert.match(sent.at(-1) ?? "", /\/cancel/u);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("upload cancellation, repeated command, and unrelated commands preserve routing semantics", async () => {
+  const { service, store, cleanup } = await createServiceContext();
+  const projectRoot = join((service as any).paths.homeDir, "upload-command-project");
+  const sent: string[] = [];
+
+  try {
+    await mkdir(projectRoot, { recursive: true });
+    authorizeNumericChatWithSession(store, "1");
+    const session = store.createSession({ chatId: "1", projectName: "Command Project", projectPath: projectRoot });
+    store.setActiveSession("1", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        sent.push(text);
+        return createFakeTelegramMessage(80 + sent.length, text);
+      }
+    };
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2120, "/upload"));
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2121, "/upload"));
+    assert.match(sent.at(-1) ?? "", /Already waiting/u);
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2122, "/cancel"));
+    assert.equal((service as any).uploadFileCoordinator.isWaiting("1"), false);
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2123, "/upload"));
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2124, "/help"));
+    assert.equal((service as any).uploadFileCoordinator.isWaiting("1"), false);
+    assert.match(sent.at(-1) ?? "", /\/help/u);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("retrieve help is advertised on Telegram but hidden from Feishu", async () => {
   const telegram = await createServiceContext();
   const feishu = await createServiceContext({}, feishuTestConfig);
