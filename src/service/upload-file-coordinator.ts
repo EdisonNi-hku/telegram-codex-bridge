@@ -49,6 +49,7 @@ export interface UploadFileCoordinatorDeps {
   afterTempValidated?: (path: string) => Promise<void>;
   afterDestinationLinked?: (path: string) => Promise<void>;
   afterCleanupRootAnchored?: () => Promise<void>;
+  cleanupPlatform?: NodeJS.Platform;
 }
 
 interface PendingUpload {
@@ -272,7 +273,8 @@ export class UploadFileCoordinator {
       }
       if (visited.has(canonical)) continue;
       visited.add(canonical);
-      if (process.platform !== "linux") {
+      const cleanupPlatform = this.deps.cleanupPlatform ?? process.platform;
+      if (cleanupPlatform !== "linux" && cleanupPlatform !== "darwin" && cleanupPlatform !== "win32") {
         await this.warnCleanupFailure("anchored_cleanup_unsupported");
         continue;
       }
@@ -282,8 +284,12 @@ export class UploadFileCoordinator {
         const before = await stat(canonical);
         rootHandle = await open(canonical, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
         const opened = await rootHandle.stat();
-        anchoredRoot = `/proc/self/fd/${rootHandle.fd}`;
-        const anchored = await stat(anchoredRoot);
+        anchoredRoot = cleanupPlatform === "linux"
+          ? `/proc/self/fd/${rootHandle.fd}`
+          : cleanupPlatform === "darwin"
+            ? `/dev/fd/${rootHandle.fd}`
+            : canonical;
+        const anchored = cleanupPlatform === "win32" ? opened : await stat(anchoredRoot);
         if (!opened.isDirectory() || opened.dev !== before.dev || opened.ino !== before.ino
           || anchored.dev !== opened.dev || anchored.ino !== opened.ino) {
           throw new Error("root_inode_mismatch");
@@ -305,6 +311,10 @@ export class UploadFileCoordinator {
         const activePath = join(canonical, name);
         if (ACTIVE_UPLOAD_TEMP_PATHS.has(activePath)) continue;
         const path = join(anchoredRoot, name);
+        if (cleanupPlatform === "win32") {
+          await this.cleanupWindowsCandidate(rootHandle, canonical, path, name);
+          continue;
+        }
         let entry;
         try {
           entry = await lstat(path);
@@ -326,8 +336,40 @@ export class UploadFileCoordinator {
     }
   }
 
+  private async cleanupWindowsCandidate(
+    rootHandle: FileHandle,
+    canonicalRoot: string,
+    path: string,
+    name: string
+  ): Promise<void> {
+    // Windows has no stable user-facing dirfd path. Holding the directory
+    // handle prevents its replacement in the supported runtime; repeated
+    // root and candidate inode checks make a sharing-mode surprise fail safe.
+    let candidate: FileHandle | null = null;
+    try {
+      const rootBefore = await rootHandle.stat();
+      const pathRootBefore = await stat(canonicalRoot);
+      if (rootBefore.dev !== pathRootBefore.dev || rootBefore.ino !== pathRootBefore.ino) return;
+      candidate = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      const opened = await candidate.stat();
+      const linked = await lstat(path);
+      if (!opened.isFile() || !linked.isFile() || opened.dev !== linked.dev || opened.ino !== linked.ino
+        || this.now() - opened.mtimeMs < UPLOAD_TEMP_ABANDONMENT_MS) return;
+      const rootImmediatelyBefore = await stat(canonicalRoot);
+      const heldRoot = await rootHandle.stat();
+      const linkedImmediatelyBefore = await lstat(path);
+      if (rootImmediatelyBefore.dev !== heldRoot.dev || rootImmediatelyBefore.ino !== heldRoot.ino
+        || linkedImmediatelyBefore.dev !== opened.dev || linkedImmediatelyBefore.ino !== opened.ino) return;
+      await rm(path);
+    } catch {
+      await this.warnCleanupFailure("windows_candidate", name);
+    } finally {
+      await candidate?.close().catch(() => {});
+    }
+  }
+
   private async warnCleanupFailure(
-    stage: "realpath" | "anchored_cleanup_unsupported" | "anchor_root" | "readdir" | "lstat" | "rm",
+    stage: "realpath" | "anchored_cleanup_unsupported" | "anchor_root" | "readdir" | "lstat" | "rm" | "windows_candidate",
     entryName?: string
   ): Promise<void> {
     await this.deps.logger.warn("upload startup cleanup failed", {

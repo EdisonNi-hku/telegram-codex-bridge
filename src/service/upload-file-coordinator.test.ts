@@ -576,6 +576,58 @@ test("startup cleanup remains anchored when the canonical root path is replaced"
   await rm(parent, { recursive: true, force: true });
 });
 
+test("Darwin descriptor cleanup uses verified dev-fd anchoring when available", async (t) => {
+  try { await stat("/dev/fd"); } catch { return t.skip("/dev/fd unavailable"); }
+  const f = await fixture();
+  const stale = ".ctb-upload-123e4567-e89b-42d3-a456-426614174012.tmp";
+  await writeFile(join(f.root, stale), "temp");
+  const old = new Date(Date.now() - UPLOAD_TEMP_ABANDONMENT_MS - 1_000);
+  await utimes(join(f.root, stale), old, old);
+  const coordinator = new UploadFileCoordinator({
+    getActiveSession: () => null, hasConflictingInput: () => false, getApi: () => null,
+    safeSendMessage: async () => true, logger: { warn: async () => {} }, cleanupPlatform: "darwin"
+  });
+  await coordinator.cleanupStartup([f.root]);
+  assert.equal((await readdir(f.root)).includes(stale), false);
+});
+
+test("Windows held-handle cleanup removes a stable candidate and fails safe after root replacement", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "ctb-upload-win-strategy-"));
+  const stable = join(parent, "stable");
+  const swapped = join(parent, "swapped");
+  const moved = join(parent, "moved");
+  const victim = join(parent, "victim");
+  await Promise.all([mkdir(stable), mkdir(swapped), mkdir(victim)]);
+  const name = ".ctb-upload-123e4567-e89b-42d3-a456-426614174013.tmp";
+  await Promise.all([
+    writeFile(join(stable, name), "stable"),
+    writeFile(join(swapped, name), "ours"),
+    writeFile(join(victim, name), "victim")
+  ]);
+  const old = new Date(Date.now() - UPLOAD_TEMP_ABANDONMENT_MS - 1_000);
+  await Promise.all([
+    utimes(join(stable, name), old, old),
+    utimes(join(swapped, name), old, old),
+    utimes(join(victim, name), old, old)
+  ]);
+  const stableCleanup = new UploadFileCoordinator({
+    getActiveSession: () => null, hasConflictingInput: () => false, getApi: () => null,
+    safeSendMessage: async () => true, logger: { warn: async () => {} }, cleanupPlatform: "win32"
+  });
+  await stableCleanup.cleanupStartup([stable]);
+  assert.equal((await readdir(stable)).includes(name), false);
+
+  const swapCleanup = new UploadFileCoordinator({
+    getActiveSession: () => null, hasConflictingInput: () => false, getApi: () => null,
+    safeSendMessage: async () => true, logger: { warn: async () => {} }, cleanupPlatform: "win32",
+    afterCleanupRootAnchored: async () => { await rename(swapped, moved); await symlink(victim, swapped); }
+  });
+  await swapCleanup.cleanupStartup([swapped]);
+  assert.equal(await readFile(join(moved, name), "utf8"), "ours");
+  assert.equal(await readFile(join(victim, name), "utf8"), "victim");
+  await rm(parent, { recursive: true, force: true });
+});
+
 async function readFileNames(root: string): Promise<string[]> {
   return await readdir(root);
 }

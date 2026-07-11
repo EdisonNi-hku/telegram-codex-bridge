@@ -1343,7 +1343,11 @@ export class BridgeService {
     }
 
     if (earlyCommand?.name === "cancel" && this.uploadFileCoordinator.isWaiting(chatId)) {
-      this.uploadFileCoordinator.cancel(chatId);
+      if (this.uploadFileCoordinator.cancel(chatId)) {
+        await this.safeSendMessage(chatId, this.getUiLanguage() === "en"
+          ? "File upload canceled."
+          : "已取消文件上传。");
+      }
       return;
     }
 
@@ -2390,6 +2394,9 @@ export class BridgeService {
 
   private async handleCancelCommand(chatId: string): Promise<void> {
     if (this.uploadFileCoordinator.cancel(chatId)) {
+      await this.safeSendMessage(chatId, this.getUiLanguage() === "en"
+        ? "File upload canceled."
+        : "已取消文件上传。");
       return;
     }
     if (await this.sessionProjectCoordinator.cancelPendingProjectInput(chatId)) {

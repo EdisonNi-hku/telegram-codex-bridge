@@ -1959,9 +1959,15 @@ test("upload cancellation, repeated command, and unrelated commands preserve rou
     assert.match(sent.at(-1) ?? "", /Already waiting/u);
     await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2122, "/cancel"));
     assert.equal((service as any).uploadFileCoordinator.isWaiting("1"), false);
+    assert.equal(sent.at(-1), "已取消文件上传。");
 
+    store.setUiLanguage("en");
     await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2123, "/upload"));
-    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2124, "/help"));
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2124, "/cancel"));
+    assert.equal(sent.at(-1), "File upload canceled.");
+
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2125, "/upload"));
+    await (service as any).handleMessage(createIncomingUserMessage(1, 1, 2126, "/help"));
     assert.equal((service as any).uploadFileCoordinator.isWaiting("1"), false);
     assert.match(sent.at(-1) ?? "", /\/help/u);
   } finally {
