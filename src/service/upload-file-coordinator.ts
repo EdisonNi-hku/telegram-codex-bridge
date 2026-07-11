@@ -32,6 +32,7 @@ export interface UploadFileCoordinatorDeps {
   createUuid?: () => string;
   canonicalizeProjectRoot?: (path: string) => Promise<string>;
   afterTempValidated?: (path: string) => Promise<void>;
+  afterDestinationLinked?: (path: string) => Promise<void>;
 }
 
 interface PendingUpload {
@@ -154,9 +155,8 @@ export class UploadFileCoordinator {
     }
 
     let tempPath: string | null = null;
+    let stagingPath: string | null = null;
     let tempHandle: FileHandle | null = null;
-    let linkedDestination: string | null = null;
-    let publicationVerified = false;
     let savedSize: number | null = null;
     const startedAt = this.now();
     try {
@@ -191,20 +191,20 @@ export class UploadFileCoordinator {
       const destination = join(pending.projectRoot, filename);
       if (basename(destination) !== filename) throw new Error("invalid_destination");
       await assertDestinationAbsent(destination);
-      await link(tempPath, destination);
-      linkedDestination = destination;
+      stagingPath = join(pending.projectRoot, `.ctb-upload-${this.createUuid()}.tmp`);
+      await link(tempPath, stagingPath);
+      const staging = await lstat(stagingPath);
+      if (!staging.isFile() || staging.dev !== tempStats.dev || staging.ino !== tempStats.ino) {
+        throw new Error("staging_inode_mismatch");
+      }
+      await link(stagingPath, destination);
+      await this.deps.afterDestinationLinked?.(destination);
       const saved = await lstat(destination);
       if (!saved.isFile() || saved.dev !== tempStats.dev || saved.ino !== tempStats.ino) {
-        await rm(destination, { force: true });
-        linkedDestination = null;
         throw new Error("published_inode_mismatch");
       }
-      publicationVerified = true;
       savedSize = saved.size;
     } catch (error) {
-      if (linkedDestination && !publicationVerified) {
-        await rm(linkedDestination, { force: true }).catch(() => {});
-      }
       await this.deps.logger.warn("telegram document upload failed", {
         chatId,
         sessionId: pending.sessionId,
@@ -217,6 +217,7 @@ export class UploadFileCoordinator {
       return true;
     } finally {
       await tempHandle?.close().catch(() => {});
+      if (stagingPath) await rm(stagingPath, { force: true }).catch(() => {});
       if (tempPath) await rm(tempPath, { force: true }).catch(() => {});
     }
 

@@ -276,6 +276,32 @@ test("descriptor verification removes a destination linked from a swapped inode"
   await assert.rejects(lstat(join(f.root, "destination")), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
 });
 
+test("post-link destination replacement is reported without deleting or overwriting the racer's winner", async () => {
+  const f = await fixture();
+  const messages: string[] = [];
+  const destination = join(f.root, "destination");
+  const coordinator = new UploadFileCoordinator({
+    getActiveSession: () => session(f.root),
+    hasConflictingInput: () => false,
+    getApi: () => ({
+      getFile: async (fileId) => ({ file_id: fileId, file_path: "opaque" }),
+      downloadFile: async (_fileId, path) => { await writeFile(path, "upload"); return path; }
+    }),
+    safeSendMessage: async (_chatId, text) => { messages.push(text); return true; },
+    logger: { warn: async () => {} },
+    afterDestinationLinked: async (path) => {
+      await rm(path);
+      await writeFile(path, "racer-wins", { flag: "wx" });
+    }
+  });
+  await coordinator.begin("chat-1");
+  assert.equal(await coordinator.handleDocument("chat-1", doc("destination")), true);
+  assert.equal(destination, join(f.root, "destination"));
+  assert.equal(await readFile(destination, "utf8"), "racer-wins");
+  assert.match(messages.at(-1) ?? "", /could not be saved/i);
+  assert.equal((await readFileNames(f.root)).some((name) => name.startsWith(".ctb-upload-")), false);
+});
+
 test("rejects declared and actual unsupported sizes without leaving state or temp files", async () => {
   const declared = await fixture();
   let downloaded = false;
