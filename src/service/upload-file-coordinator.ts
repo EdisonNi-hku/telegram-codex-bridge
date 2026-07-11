@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, chmod, link, lstat, readdir, realpath, rm, stat } from "node:fs/promises";
+import { access, link, lstat, open, readdir, realpath, rm, stat, type FileHandle } from "node:fs/promises";
 import { basename, isAbsolute, join, win32 } from "node:path";
 
 import type { TelegramDocument, TelegramFile } from "../telegram/api.js";
@@ -8,6 +8,7 @@ import type { SessionRow } from "../types.js";
 
 const UPLOAD_TTL_MS = 5 * 60 * 1000;
 export const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
+export const UPLOAD_TEMP_ABANDONMENT_MS = UPLOAD_TTL_MS;
 const WAITING_TEXT = "Waiting for one Telegram Document. Send /cancel to stop.";
 const TEMP_FILE_PATTERN = /^\.ctb-upload-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/iu;
 const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu;
@@ -30,6 +31,7 @@ export interface UploadFileCoordinatorDeps {
   now?: () => number;
   createUuid?: () => string;
   canonicalizeProjectRoot?: (path: string) => Promise<string>;
+  afterTempValidated?: (path: string) => Promise<void>;
 }
 
 interface PendingUpload {
@@ -152,6 +154,10 @@ export class UploadFileCoordinator {
     }
 
     let tempPath: string | null = null;
+    let tempHandle: FileHandle | null = null;
+    let linkedDestination: string | null = null;
+    let publicationVerified = false;
+    let savedSize: number | null = null;
     const startedAt = this.now();
     try {
       if (!await this.bindingMatches(pending)) {
@@ -169,9 +175,13 @@ export class UploadFileCoordinator {
       const downloaded = await api.downloadFile(document.file_id, tempPath, file);
       if (!downloaded) throw new Error("download_unavailable");
       if (downloaded !== tempPath) throw new Error("unexpected_download_path");
-      if (!(await lstat(tempPath)).isFile()) throw new Error("invalid_download_entry");
-      await chmod(tempPath, 0o600);
-      if ((await stat(tempPath)).size > MAX_UPLOAD_FILE_BYTES) throw uploadTooLargeError();
+      tempHandle = await open(tempPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      let tempStats = await tempHandle.stat();
+      if (!tempStats.isFile()) throw new Error("invalid_download_entry");
+      await tempHandle.chmod(0o600);
+      tempStats = await tempHandle.stat();
+      if (tempStats.size > MAX_UPLOAD_FILE_BYTES) throw uploadTooLargeError();
+      await this.deps.afterTempValidated?.(tempPath);
 
       if (!await this.bindingMatches(pending)) {
         await this.deps.safeSendMessage(chatId, "The active project or session changed; nothing was saved.");
@@ -182,12 +192,19 @@ export class UploadFileCoordinator {
       if (basename(destination) !== filename) throw new Error("invalid_destination");
       await assertDestinationAbsent(destination);
       await link(tempPath, destination);
+      linkedDestination = destination;
       const saved = await lstat(destination);
-      await rm(tempPath, { force: true });
-      tempPath = null;
-      await this.deps.safeSendMessage(chatId, `Saved ${safeFilename(filename)} (${saved.size} bytes) as ./${safeFilename(filename)}.`);
-      return true;
+      if (!saved.isFile() || saved.dev !== tempStats.dev || saved.ino !== tempStats.ino) {
+        await rm(destination, { force: true });
+        linkedDestination = null;
+        throw new Error("published_inode_mismatch");
+      }
+      publicationVerified = true;
+      savedSize = saved.size;
     } catch (error) {
+      if (linkedDestination && !publicationVerified) {
+        await rm(linkedDestination, { force: true }).catch(() => {});
+      }
       await this.deps.logger.warn("telegram document upload failed", {
         chatId,
         sessionId: pending.sessionId,
@@ -199,8 +216,29 @@ export class UploadFileCoordinator {
       await this.deps.safeSendMessage(chatId, failureMessage(error));
       return true;
     } finally {
+      await tempHandle?.close().catch(() => {});
       if (tempPath) await rm(tempPath, { force: true }).catch(() => {});
     }
+
+    let notificationDelivered = false;
+    try {
+      notificationDelivered = await this.deps.safeSendMessage(
+        chatId,
+        `Saved ${safeFilename(filename)} (${savedSize ?? 0} bytes) as ./${safeFilename(filename)}.`
+      );
+    } catch {
+      // The filesystem commit is already complete; notification is best effort.
+    }
+    if (!notificationDelivered) {
+      await this.deps.logger.warn("telegram upload success notification failed", {
+        chatId,
+        sessionId: pending.sessionId,
+        filename: safeFilename(filename),
+        actualBytes: savedSize,
+        outcome: "saved_notification_failed"
+      }).catch(() => {});
+    }
+    return true;
   }
 
   async cleanupStartup(projectRoots: Iterable<string>): Promise<void> {
@@ -214,7 +252,11 @@ export class UploadFileCoordinator {
         const path = join(canonical, name);
         try {
           const entry = await lstat(path);
-          if (entry.isFile()) await rm(path);
+          // This high-entropy namespace is bridge-reserved. Fresh entries may
+          // belong to an in-flight upload and are never startup-cleaned.
+          if (entry.isFile() && this.now() - entry.mtimeMs >= UPLOAD_TEMP_ABANDONMENT_MS) {
+            await rm(path);
+          }
         } catch {
           // Best-effort recovery must not prevent startup.
         }
@@ -276,6 +318,7 @@ function validateFilename(raw: string | undefined): string | null {
   if (isAbsolute(raw) || win32.isAbsolute(raw) || win32.parse(raw).root || /^[a-z]:/iu.test(raw)) return null;
   if (basename(raw) !== raw || raw.endsWith(".") || raw.endsWith(" ")) return null;
   if (WINDOWS_RESERVED_NAME.test(raw)) return null;
+  if (/[:<>"|?*]/u.test(raw)) return null;
   return raw;
 }
 

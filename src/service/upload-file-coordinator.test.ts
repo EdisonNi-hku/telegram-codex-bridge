@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
-import { chmod, lstat, mkdtemp, mkdir, open, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, mkdir, open, readFile, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import type { TelegramDocument } from "../telegram/api.js";
 import type { SessionRow } from "../types.js";
-import { MAX_UPLOAD_FILE_BYTES, UploadFileCoordinator } from "./upload-file-coordinator.js";
+import {
+  MAX_UPLOAD_FILE_BYTES,
+  UPLOAD_TEMP_ABANDONMENT_MS,
+  UploadFileCoordinator
+} from "./upload-file-coordinator.js";
 
 function session(projectPath: string, overrides: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -221,12 +225,55 @@ test("validates raw Telegram filenames, including safe dotfiles", async () => {
   assert.equal(await valid.coordinator.handleDocument("chat-1", doc(".env")), true);
   assert.deepEqual(await readFile(join(valid.root, ".env")), Buffer.from([0, 1, 2, 255]));
 
-  for (const name of [undefined, "", ".", "..", "a/b", "a\\b", "a\0b", "a\rb", "a\nb", "/abs", "C:\\x", "\\\\server\\share", "../x"]) {
+  for (const name of [
+    undefined, "", ".", "..", "a/b", "a\\b", "a\0b", "a\rb", "a\nb", "/abs",
+    "C:\\x", "\\\\server\\share", "../x", "a:b", "a<b", "a>b", "a\"b", "a|b", "a?b", "a*b"
+  ]) {
     const f = await fixture();
     await f.coordinator.begin("chat-1");
     assert.equal(await f.coordinator.handleDocument("chat-1", doc(name)), true, String(name));
     assert.equal(f.coordinator.isWaiting("chat-1"), false);
   }
+});
+
+test("descriptor verification rejects a symlink swap without touching its external target", async () => {
+  const f = await fixture();
+  const external = join(f.root, "external-secret");
+  await writeFile(external, "untouched", { mode: 0o644 });
+  const coordinator = new UploadFileCoordinator({
+    getActiveSession: () => session(f.root),
+    hasConflictingInput: () => false,
+    getApi: () => ({
+      getFile: async (fileId) => ({ file_id: fileId, file_path: "opaque" }),
+      downloadFile: async (_fileId, path) => { await writeFile(path, "download"); return path; }
+    }),
+    safeSendMessage: async () => true,
+    logger: { warn: async () => {} },
+    afterTempValidated: async (path) => { await rm(path); await symlink(external, path); }
+  });
+  await coordinator.begin("chat-1");
+  assert.equal(await coordinator.handleDocument("chat-1", doc("destination")), true);
+  assert.equal(await readFile(external, "utf8"), "untouched");
+  if (process.platform !== "win32") assert.equal((await stat(external)).mode & 0o777, 0o644);
+  await assert.rejects(lstat(join(f.root, "destination")), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+});
+
+test("descriptor verification removes a destination linked from a swapped inode", async () => {
+  const f = await fixture();
+  const coordinator = new UploadFileCoordinator({
+    getActiveSession: () => session(f.root),
+    hasConflictingInput: () => false,
+    getApi: () => ({
+      getFile: async (fileId) => ({ file_id: fileId, file_path: "opaque" }),
+      downloadFile: async (_fileId, path) => { await writeFile(path, "original"); return path; }
+    }),
+    safeSendMessage: async () => true,
+    logger: { warn: async () => {} },
+    afterTempValidated: async (path) => { await rm(path); await writeFile(path, "replacement"); }
+  });
+  await coordinator.begin("chat-1");
+  assert.equal(await coordinator.handleDocument("chat-1", doc("destination")), true);
+  await assert.rejects(lstat(join(f.root, "destination")), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
 });
 
 test("rejects declared and actual unsupported sizes without leaving state or temp files", async () => {
@@ -333,6 +380,30 @@ test("download contract receives an absent UUID destination and publishes its re
   assert.equal(await readFile(join(f.root, "contract"), "utf8"), "contract bytes");
 });
 
+test("success notification rejection leaves the verified destination committed", async () => {
+  const f = await fixture();
+  let sends = 0;
+  const logs: Array<Record<string, unknown> | undefined> = [];
+  const coordinator = new UploadFileCoordinator({
+    getActiveSession: () => session(f.root),
+    hasConflictingInput: () => false,
+    getApi: () => ({
+      getFile: async (fileId) => ({ file_id: fileId, file_path: "opaque" }),
+      downloadFile: async (_fileId, path) => { await writeFile(path, "committed"); return path; }
+    }),
+    safeSendMessage: async () => {
+      sends += 1;
+      if (sends === 2) throw new Error("notification contains secret URL");
+      return true;
+    },
+    logger: { warn: async (_message, meta) => { logs.push(meta); } }
+  });
+  await coordinator.begin("chat-1");
+  assert.equal(await coordinator.handleDocument("chat-1", doc("committed")), true);
+  assert.equal(await readFile(join(f.root, "committed"), "utf8"), "committed");
+  assert.doesNotMatch(JSON.stringify(logs), /secret URL/);
+});
+
 test("one document atomically claims pending state; queues isolate rejection and different chats", async () => {
   const f = await fixture();
   let release!: () => void;
@@ -359,8 +430,12 @@ test("one document atomically claims pending state; queues isolate rejection and
 
 test("startup cleanup removes only exact UUID temp regular files", async () => {
   const f = await fixture();
-  const exact = ".ctb-upload-123e4567-e89b-42d3-a456-426614174000.tmp";
-  await writeFile(join(f.root, exact), "temp");
+  const stale = ".ctb-upload-123e4567-e89b-42d3-a456-426614174000.tmp";
+  const fresh = ".ctb-upload-123e4567-e89b-42d3-a456-426614174003.tmp";
+  await writeFile(join(f.root, stale), "temp");
+  await writeFile(join(f.root, fresh), "live");
+  const staleTime = new Date(Date.now() - UPLOAD_TEMP_ABANDONMENT_MS - 1_000);
+  await utimes(join(f.root, stale), staleTime, staleTime);
   await writeFile(join(f.root, ".ctb-upload-not-a-uuid.tmp"), "keep");
   await mkdir(join(f.root, ".ctb-upload-123e4567-e89b-42d3-a456-426614174001.tmp"));
   await symlink(join(f.root, "missing"), join(f.root, ".ctb-upload-123e4567-e89b-42d3-a456-426614174002.tmp"));
@@ -368,6 +443,7 @@ test("startup cleanup removes only exact UUID temp regular files", async () => {
   assert.deepEqual((await readFileNames(f.root)).sort(), [
     ".ctb-upload-123e4567-e89b-42d3-a456-426614174001.tmp",
     ".ctb-upload-123e4567-e89b-42d3-a456-426614174002.tmp",
+    fresh,
     ".ctb-upload-not-a-uuid.tmp"
   ]);
 });
