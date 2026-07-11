@@ -1042,6 +1042,20 @@ test("listVisibleProjectPaths returns every distinct visible regular-session pat
   }
 });
 
+test("open installs the visible-session project cleanup index", async () => {
+  const { paths, cleanup } = await openStore();
+  try {
+    const raw = new DatabaseSync(paths.dbPath);
+    const row = raw.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_session_kind_archived_project_path'"
+    ).get() as { sql: string } | undefined;
+    raw.close();
+    assert.match(row?.sql ?? "", /session_kind\s*,\s*archived\s*,\s*project_path/iu);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("unarchiveSession restores a session and makes it active when no active session remains", async () => {
   const { store, cleanup } = await openStore();
 

@@ -25,7 +25,7 @@ const LEGACY_RUNTIME_STATUS_FIELD_MIGRATIONS: ReadonlyMap<string, RuntimeStatusF
   ["thread_id", "session-id"]
 ]);
 const RUNTIME_STATUS_FIELD_V4_MIGRATION_CUTOFF = "2026-03-17T00:00:00.000Z";
-const CURRENT_SCHEMA_VERSION = 23;
+const CURRENT_SCHEMA_VERSION = 24;
 
 export function parseRuntimeStatusFields(fieldsJson: string): RuntimeStatusField[] {
   try {
@@ -1610,6 +1610,15 @@ function applyMigrations(db: DatabaseSync): void {
       }
       db.exec("CREATE INDEX IF NOT EXISTS idx_session_kind_parent ON session(session_kind, parent_session_id)");
       recordMigration(db, 23);
+    });
+  }
+
+  if (!applied.has(24)) {
+    runMigrationStep(db, () => {
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_session_kind_archived_project_path ON session(session_kind, archived, project_path)"
+      );
+      recordMigration(db, 24);
     });
   }
 }

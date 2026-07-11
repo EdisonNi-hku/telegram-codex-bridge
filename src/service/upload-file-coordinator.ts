@@ -3,12 +3,23 @@ import { constants } from "node:fs";
 import { access, link, lstat, open, readdir, realpath, rm, stat, type FileHandle } from "node:fs/promises";
 import { basename, isAbsolute, join, win32 } from "node:path";
 
-import type { TelegramDocument, TelegramFile } from "../telegram/api.js";
+import {
+  TELEGRAM_FILE_DOWNLOAD_MAX_ATTEMPTS,
+  TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS,
+  type TelegramDocument,
+  type TelegramFile
+} from "../telegram/api.js";
 import type { SessionRow } from "../types.js";
 
 const UPLOAD_TTL_MS = 5 * 60 * 1000;
 export const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
-export const UPLOAD_TEMP_ABANDONMENT_MS = UPLOAD_TTL_MS;
+// Other processes cannot share the in-memory active set, so abandonment must
+// remain far beyond the hard upper bound of fetch plus curl download attempts.
+export const UPLOAD_TEMP_ABANDONMENT_MS = Math.max(
+  UPLOAD_TTL_MS,
+  TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS * TELEGRAM_FILE_DOWNLOAD_MAX_ATTEMPTS * 4
+);
+const ACTIVE_UPLOAD_TEMP_PATHS = new Set<string>();
 const WAITING_TEXT = "Waiting for one Telegram Document. Send /cancel to stop.";
 const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
 const TEMP_FILE_PATTERN = new RegExp(
@@ -37,6 +48,7 @@ export interface UploadFileCoordinatorDeps {
   canonicalizeProjectRoot?: (path: string) => Promise<string>;
   afterTempValidated?: (path: string) => Promise<void>;
   afterDestinationLinked?: (path: string) => Promise<void>;
+  afterCleanupRootAnchored?: () => Promise<void>;
 }
 
 interface PendingUpload {
@@ -175,6 +187,7 @@ export class UploadFileCoordinator {
       }
 
       tempPath = join(pending.projectRoot, `.ctb-upload-${this.createUuid()}.tmp`);
+      ACTIVE_UPLOAD_TEMP_PATHS.add(tempPath);
       const file = await api.getFile(document.file_id);
       const downloaded = await api.downloadFile(document.file_id, tempPath, file);
       if (!downloaded) throw new Error("download_unavailable");
@@ -196,6 +209,7 @@ export class UploadFileCoordinator {
       if (basename(destination) !== filename) throw new Error("invalid_destination");
       await assertDestinationAbsent(destination);
       stagingPath = join(pending.projectRoot, `.ctb-upload-${this.createUuid()}.tmp`);
+      ACTIVE_UPLOAD_TEMP_PATHS.add(stagingPath);
       await link(tempPath, stagingPath);
       const staging = await lstat(stagingPath);
       if (!staging.isFile() || staging.dev !== tempStats.dev || staging.ino !== tempStats.ino) {
@@ -223,6 +237,8 @@ export class UploadFileCoordinator {
       await tempHandle?.close().catch(() => {});
       if (stagingPath) await rm(stagingPath, { force: true }).catch(() => {});
       if (tempPath) await rm(tempPath, { force: true }).catch(() => {});
+      if (stagingPath) ACTIVE_UPLOAD_TEMP_PATHS.delete(stagingPath);
+      if (tempPath) ACTIVE_UPLOAD_TEMP_PATHS.delete(tempPath);
     }
 
     let notificationDelivered = false;
@@ -256,14 +272,39 @@ export class UploadFileCoordinator {
       }
       if (visited.has(canonical)) continue;
       visited.add(canonical);
+      if (process.platform !== "linux") {
+        await this.warnCleanupFailure("anchored_cleanup_unsupported");
+        continue;
+      }
+      let rootHandle: FileHandle | null = null;
+      let anchoredRoot: string;
+      try {
+        const before = await stat(canonical);
+        rootHandle = await open(canonical, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0));
+        const opened = await rootHandle.stat();
+        anchoredRoot = `/proc/self/fd/${rootHandle.fd}`;
+        const anchored = await stat(anchoredRoot);
+        if (!opened.isDirectory() || opened.dev !== before.dev || opened.ino !== before.ino
+          || anchored.dev !== opened.dev || anchored.ino !== opened.ino) {
+          throw new Error("root_inode_mismatch");
+        }
+        await this.deps.afterCleanupRootAnchored?.();
+      } catch {
+        await rootHandle?.close().catch(() => {});
+        await this.warnCleanupFailure("anchor_root");
+        continue;
+      }
       let names: string[];
-      try { names = await readdir(canonical); } catch {
+      try { names = await readdir(anchoredRoot); } catch {
+        await rootHandle.close().catch(() => {});
         await this.warnCleanupFailure("readdir");
         continue;
       }
       for (const name of names) {
         if (!TEMP_FILE_PATTERN.test(name)) continue;
-        const path = join(canonical, name);
+        const activePath = join(canonical, name);
+        if (ACTIVE_UPLOAD_TEMP_PATHS.has(activePath)) continue;
+        const path = join(anchoredRoot, name);
         let entry;
         try {
           entry = await lstat(path);
@@ -281,10 +322,14 @@ export class UploadFileCoordinator {
           }
         }
       }
+      await rootHandle.close().catch(() => {});
     }
   }
 
-  private async warnCleanupFailure(stage: "realpath" | "readdir" | "lstat" | "rm", entryName?: string): Promise<void> {
+  private async warnCleanupFailure(
+    stage: "realpath" | "anchored_cleanup_unsupported" | "anchor_root" | "readdir" | "lstat" | "rm",
+    entryName?: string
+  ): Promise<void> {
     await this.deps.logger.warn("upload startup cleanup failed", {
       stage,
       ...(entryName ? { entryName: safeFilename(entryName) } : {})

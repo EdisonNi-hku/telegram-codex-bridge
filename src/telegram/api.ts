@@ -12,6 +12,9 @@ import type { PerformanceTransport } from "../perf/types.js";
 import { commandExists, runCommand, type CommandResult } from "../process.js";
 import type { BridgeInboundMedia } from "../service/media-ingress.js";
 
+export const TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS = 20_000;
+export const TELEGRAM_FILE_DOWNLOAD_MAX_ATTEMPTS = 2;
+
 export interface TelegramUser {
   id: number;
   is_bot: boolean;
@@ -295,7 +298,7 @@ export class TelegramApi {
       try {
         await (await open(tempPath, "wx", 0o600)).close();
         ownsTempFile = true;
-        await this.downloadWithCurl(url, tempPath, 20_000, "proxy-environment");
+        await this.downloadWithCurl(url, tempPath, TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS, "proxy-environment");
         await chmod(tempPath, 0o600);
         await rename(tempPath, destinationPath);
         return destinationPath;
@@ -309,7 +312,7 @@ export class TelegramApi {
 
     try {
       const response = await fetch(url, {
-        signal: AbortSignal.timeout(20_000)
+        signal: AbortSignal.timeout(TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS)
       });
       if (!response.ok) {
         throw new Error(`Telegram file download failed: ${response.status} ${response.statusText}`);
@@ -335,7 +338,7 @@ export class TelegramApi {
       try {
         await (await open(tempPath, "wx", 0o600)).close();
         ownsTempFile = true;
-        await this.downloadWithCurl(url, tempPath, 20_000, error);
+        await this.downloadWithCurl(url, tempPath, TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS, error);
         await chmod(tempPath, 0o600);
         await rename(tempPath, destinationPath);
         return destinationPath;

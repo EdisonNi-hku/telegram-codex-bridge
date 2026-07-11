@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { chmod, lstat, mkdtemp, mkdir, open, readFile, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, mkdir, open, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import type { TelegramDocument } from "../telegram/api.js";
+import { TELEGRAM_FILE_DOWNLOAD_MAX_ATTEMPTS, TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS } from "../telegram/api.js";
 import type { SessionRow } from "../types.js";
 import {
   MAX_UPLOAD_FILE_BYTES,
@@ -55,6 +56,38 @@ async function fixture(options: { conflict?: boolean; now?: () => number } = {})
 
 const doc = (file_name: string | undefined = "secret.bin"): TelegramDocument => ({
   file_id: "telegram-file-id", file_name, file_size: 4
+});
+
+test("abandonment TTL exceeds every bounded Telegram download attempt", () => {
+  assert.ok(
+    UPLOAD_TEMP_ABANDONMENT_MS
+      > TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS * TELEGRAM_FILE_DOWNLOAD_MAX_ATTEMPTS * 3
+  );
+});
+
+test("startup cleanup skips a same-process active upload temp even past the abandonment clock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-upload-active-cleanup-"));
+  let now = Date.now();
+  let coordinator!: UploadFileCoordinator;
+  coordinator = new UploadFileCoordinator({
+    getActiveSession: () => session(root), hasConflictingInput: () => false,
+    getApi: () => ({
+      getFile: async (fileId) => ({ file_id: fileId, file_path: "payload.bin" }),
+      downloadFile: async (_fileId, path) => { await writeFile(path, "live"); return path; }
+    }),
+    safeSendMessage: async () => true, logger: { warn: async () => {} }, now: () => now,
+    afterTempValidated: async (path) => {
+      const old = new Date(Date.now() - UPLOAD_TEMP_ABANDONMENT_MS - 1_000);
+      await utimes(path, old, old);
+      now += UPLOAD_TEMP_ABANDONMENT_MS + 1_000;
+      await coordinator.cleanupStartup([root]);
+      assert.equal(await readFile(path, "utf8"), "live");
+    }
+  });
+  await coordinator.begin("chat-1");
+  assert.equal(await coordinator.handleDocument("chat-1", doc("saved.bin")), true);
+  assert.equal(await readFile(join(root, "saved.bin"), "utf8"), "live");
+  await rm(root, { recursive: true, force: true });
 });
 
 test("begin accepts regular and side sessions, while rejecting missing, archived, conflicting, and unwritable sessions", async () => {
@@ -514,6 +547,33 @@ test("startup cleanup warns safely for an inaccessible root and continues with c
   assert.equal(f.logs[0]?.message, "upload startup cleanup failed");
   assert.deepEqual(f.logs[0]?.meta, { stage: "realpath" });
   await rm(alias);
+});
+
+test("startup cleanup remains anchored when the canonical root path is replaced", async (t) => {
+  if (process.platform !== "linux") return t.skip("Linux descriptor anchoring");
+  const parent = await mkdtemp(join(tmpdir(), "ctb-upload-root-swap-"));
+  const root = join(parent, "project");
+  const moved = join(parent, "moved");
+  const victim = join(parent, "victim");
+  await Promise.all([mkdir(root), mkdir(victim)]);
+  const name = ".ctb-upload-123e4567-e89b-42d3-a456-426614174011.tmp";
+  await Promise.all([writeFile(join(root, name), "ours"), writeFile(join(victim, name), "victim")]);
+  const old = new Date(Date.now() - UPLOAD_TEMP_ABANDONMENT_MS - 1_000);
+  await Promise.all([utimes(join(root, name), old, old), utimes(join(victim, name), old, old)]);
+  const coordinator = new UploadFileCoordinator({
+    getActiveSession: () => null, hasConflictingInput: () => false, getApi: () => null,
+    safeSendMessage: async () => true, logger: { warn: async () => {} },
+    afterCleanupRootAnchored: async () => {
+      await rename(root, moved);
+      await symlink(victim, root);
+    }
+  });
+
+  await coordinator.cleanupStartup([root]);
+
+  assert.equal((await readdir(moved)).includes(name), false);
+  assert.equal(await readFile(join(victim, name), "utf8"), "victim");
+  await rm(parent, { recursive: true, force: true });
 });
 
 async function readFileNames(root: string): Promise<string[]> {
