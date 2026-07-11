@@ -41,15 +41,19 @@ async function writeCurlStub(binDir: string): Promise<void> {
   }
 }
 
-async function waitForFileIn(directory: string): Promise<string> {
+async function waitForFileContent(directory: string, expectedContent: string): Promise<string> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const entries = await readdir(directory);
     if (entries.length > 0) {
-      return join(directory, entries[0]!);
+      const filePath = join(directory, entries[0]!);
+      const content = await readFile(filePath, "utf8").catch(() => null);
+      if (content === expectedContent) {
+        return filePath;
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error(`Timed out waiting for a file in ${directory}`);
+  throw new Error(`Timed out waiting for expected file content in ${directory}`);
 }
 
 test("TelegramApi streams fetch downloads before the response completes", async () => {
@@ -89,7 +93,7 @@ test("TelegramApi streams fetch downloads before the response completes", async 
     }, async () => {
       const api = new TelegramApi("test-token", "https://api.telegram.org");
       const download = api.downloadFile("file-1", destinationPath, { file_id: "file-1", file_path: "payload.bin" });
-      const tempPath = await waitForFileIn(root);
+      const tempPath = await waitForFileContent(root, "first-chunk");
 
       assert.notEqual(tempPath, destinationPath);
       assert.equal(await readFile(tempPath, "utf8"), "first-chunk");
