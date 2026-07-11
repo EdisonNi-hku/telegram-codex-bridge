@@ -42,14 +42,36 @@ test("syncTelegramCommands syncs default and language-specific command scopes", 
 test("telegram-only commands are omitted outside the Telegram pack", async () => {
   assert.equal(buildTelegramCommands("zh", "telegram").some(({ command }) => command === "side"), true);
   assert.equal(buildTelegramCommands("zh", "telegram").some(({ command }) => command === "retrieve"), true);
+  assert.equal(buildTelegramCommands("zh", "telegram").some(({ command }) => command === "upload"), true);
   assert.equal(buildTelegramCommands("zh", "feishu").some(({ command }) => command === "side"), false);
   assert.equal(buildTelegramCommands("zh", "feishu").some(({ command }) => command === "retrieve"), false);
+  assert.equal(buildTelegramCommands("zh", "feishu").some(({ command }) => command === "upload"), false);
 
   const synced: string[][] = [];
   await syncTelegramCommands({
     setMyCommands: async (commands: TelegramBotCommand[]) => { synced.push(commands.map(({ command }) => command)); }
   } as any, "zh", "feishu");
-  assert.equal(synced.every((commands) => !commands.includes("side") && !commands.includes("retrieve")), true);
+  assert.equal(synced.every((commands) => !commands.includes("side") && !commands.includes("retrieve") && !commands.includes("upload")), true);
+});
+
+test("upload is localized across Telegram command, help, and sync surfaces", async () => {
+  assert.deepEqual(buildTelegramCommands("zh", "telegram").find(({ command }) => command === "upload"), {
+    command: "upload", description: "上传文件到项目根目录"
+  });
+  assert.deepEqual(buildTelegramCommands("en", "telegram").find(({ command }) => command === "upload"), {
+    command: "upload", description: "Upload a file to the project root"
+  });
+  assert.match(buildHelpText("zh", "telegram"), /\/upload 保存下一份文件到项目根目录，不发送给 Codex/u);
+  assert.match(buildHelpText("en", "telegram"), /\/upload Save the next file to the project root without sending it to Codex/u);
+  assert.doesNotMatch(buildHelpText("zh", "feishu"), /\/upload/u);
+  assert.doesNotMatch(buildHelpText("en", "feishu"), /\/upload/u);
+
+  const synced: TelegramBotCommand[][] = [];
+  await syncTelegramCommands({
+    setMyCommands: async (commands: TelegramBotCommand[]) => { synced.push(commands); }
+  } as any, "en", "telegram");
+  assert.equal(synced.length, 6);
+  assert.equal(synced.every((commands) => commands.some(({ command }) => command === "upload")), true);
 });
 
 test("buildHelpText stays aligned with the command registry", () => {
@@ -81,6 +103,7 @@ test("resolveTelegramCommandHandler keeps aliases and synced commands aligned", 
   assert.equal(resolveTelegramCommandHandler("start"), "sendHelp");
   assert.equal(resolveTelegramCommandHandler("commands"), "handleCommands");
   assert.equal(resolveTelegramCommandHandler("clear"), "handleClear");
+  assert.equal(resolveTelegramCommandHandler("upload"), "handleUpload");
 
   for (const entry of TELEGRAM_COMMANDS) {
     assert.notEqual(resolveTelegramCommandHandler(entry.command), null);

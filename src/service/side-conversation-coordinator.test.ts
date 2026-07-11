@@ -497,6 +497,8 @@ test("different chat queues progress independently", async () => {
 
 test("allowlist, parent hold, and stable validated card view", async () => {
   const h = harness(); await h.coordinator.handleCommand("chat", "");
+  assert.equal(h.coordinator.isCommandAllowed("upload"), true);
+  assert.deepEqual([...SIDE_ALLOWED_COMMANDS].sort(), ["inspect", "interrupt", "retrieve", "side", "status", "upload", "where"]);
   for (const command of SIDE_ALLOWED_COMMANDS) assert.equal(h.coordinator.isCommandAllowed(command), true);
   assert.equal(h.coordinator.isCommandAllowed("Status"), false); assert.equal(h.coordinator.isCommandAllowed("help"), false);
   assert.equal(h.coordinator.isParentSurfaceHeld("parent"), true);

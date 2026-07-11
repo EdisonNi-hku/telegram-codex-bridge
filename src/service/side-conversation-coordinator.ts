@@ -5,7 +5,7 @@ import { buildSideParentStatusMessage, buildSideReturnConfirmationMessage } from
 import type { SideCardViewModel, SideParentStatus } from "../telegram/ui-side.js";
 
 export const SIDE_MIN_CODEX_VERSION = [0, 144, 1] as const;
-export const SIDE_ALLOWED_COMMANDS = new Set(["status", "where", "inspect", "retrieve", "interrupt", "side"]);
+export const SIDE_ALLOWED_COMMANDS = new Set(["status", "where", "inspect", "retrieve", "interrupt", "side", "upload"]);
 
 export const SIDE_BOUNDARY_PROMPT = [
   "This message is the Side conversation boundary.",

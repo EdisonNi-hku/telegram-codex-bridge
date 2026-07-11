@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { routeBridgeCommand } from "./command-router.js";
+import { routeBridgeCommand, type BridgeCommandRouterActions } from "./command-router.js";
 import { buildHelpText, buildTelegramCommands, TELEGRAM_COMMANDS } from "../telegram/commands.js";
 
-function createHandlers(calls: string[]) {
+function createHandlers(calls: string[]): BridgeCommandRouterActions {
   return {
     sendHelp: async () => { calls.push("sendHelp"); },
     handleCommands: async () => { calls.push("handleCommands"); },
@@ -44,10 +44,17 @@ function createHandlers(calls: string[]) {
     handleLocalImage: async () => { calls.push("handleLocalImage"); },
     handleMention: async () => { calls.push("handleMention"); },
     handleAttach: async () => { calls.push("handleAttach"); },
+    handleUpload: async () => { calls.push("handleUpload"); },
     handleThread: async () => { calls.push("handleThread"); },
     sendUnsupported: async () => { calls.push("sendUnsupported"); }
   };
 }
+
+test("upload delegates exactly once and never falls back as unsupported", async () => {
+  const calls: string[] = [];
+  await routeBridgeCommand("upload", createHandlers(calls));
+  assert.deepEqual(calls, ["handleUpload"]);
+});
 
 test("routeBridgeCommand routes every synced command through the registry", async () => {
   for (const entry of TELEGRAM_COMMANDS) {
