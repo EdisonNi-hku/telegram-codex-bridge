@@ -2295,6 +2295,10 @@ export class BridgeService {
           await this.handleAttach(chatId, args);
         });
       },
+      // Task 4 replaces this sequencing adapter with the real upload coordinator wiring.
+      handleUpload: async () => {
+        await this.safeSendMessage(chatId, "文件上传暂未开放，请稍后再试。");
+      },
       handleThread: async () => {
         await this.runGuardedCommand(chatId, "当前无法更新线程设置，请稍后重试。", async () => {
           await this.handleThreadCommand(chatId, args);
