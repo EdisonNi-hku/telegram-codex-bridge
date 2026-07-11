@@ -591,7 +591,7 @@ test("Darwin descriptor cleanup uses verified dev-fd anchoring when available", 
   assert.equal((await readdir(f.root)).includes(stale), false);
 });
 
-test("Windows held-handle cleanup removes a stable candidate and fails safe after root replacement", async () => {
+test("Windows startup cleanup fails closed without pathname deletion", async () => {
   const parent = await mkdtemp(join(tmpdir(), "ctb-upload-win-strategy-"));
   const stable = join(parent, "stable");
   const swapped = join(parent, "swapped");
@@ -610,12 +610,19 @@ test("Windows held-handle cleanup removes a stable candidate and fails safe afte
     utimes(join(swapped, name), old, old),
     utimes(join(victim, name), old, old)
   ]);
+  const warnings: Array<{ message: string; meta?: Record<string, unknown> }> = [];
   const stableCleanup = new UploadFileCoordinator({
     getActiveSession: () => null, hasConflictingInput: () => false, getApi: () => null,
-    safeSendMessage: async () => true, logger: { warn: async () => {} }, cleanupPlatform: "win32"
+    safeSendMessage: async () => true,
+    logger: { warn: async (message, meta) => { warnings.push({ message, ...(meta ? { meta } : {}) }); } },
+    cleanupPlatform: "win32"
   });
   await stableCleanup.cleanupStartup([stable]);
-  assert.equal((await readdir(stable)).includes(name), false);
+  assert.equal(await readFile(join(stable, name), "utf8"), "stable");
+  assert.deepEqual(warnings, [{
+    message: "upload startup cleanup failed",
+    meta: { stage: "anchored_cleanup_unsupported" }
+  }]);
 
   const swapCleanup = new UploadFileCoordinator({
     getActiveSession: () => null, hasConflictingInput: () => false, getApi: () => null,
@@ -623,7 +630,7 @@ test("Windows held-handle cleanup removes a stable candidate and fails safe afte
     afterCleanupRootAnchored: async () => { await rename(swapped, moved); await symlink(victim, swapped); }
   });
   await swapCleanup.cleanupStartup([swapped]);
-  assert.equal(await readFile(join(moved, name), "utf8"), "ours");
+  assert.equal(await readFile(join(swapped, name), "utf8"), "ours");
   assert.equal(await readFile(join(victim, name), "utf8"), "victim");
   await rm(parent, { recursive: true, force: true });
 });

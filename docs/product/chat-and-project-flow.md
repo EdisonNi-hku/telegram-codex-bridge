@@ -49,6 +49,7 @@ Use for:
 - `/review`, `/fork`, `/rollback`, `/compact`
 - `/thread`, `/side`, `/upload`, `/retrieve`, `/local_image`, `/mention`, and `/attach`
 - Telegram-only `/upload`: one Document within five minutes, saved at the active project root without overwrite; `/cancel` stops the wait, and the bridge does not send the file to Codex/app-server, auto-attach it, inspect or log its contents, encrypt it, or malware-scan it
+- abandoned upload-temp startup cleanup is descriptor-anchored on Linux and macOS; Windows fails closed with an operator warning and requires manual cleanup
 - persistent Telegram Side conversations, their restricted command set, safe return confirmation, parent-output holding, and non-resumable restart behavior
 
 ### Runtime surfaces, inspect, status, and final-answer delivery

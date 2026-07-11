@@ -251,6 +251,7 @@ Behavior and safety:
 - saves only to the active project's canonical root, using the Document filename as a single path component; nested paths and traversal are rejected
 - refuses to overwrite any existing destination, including a file, directory, or symbolic link
 - downloads through private temporary regular files, verifies the session and canonical project binding again before publication, and removes temporary files after success or failure
+- after a crash, startup removes abandoned upload temps through descriptor-anchored directory access on Linux and macOS; Windows fails closed with an operator warning and requires manual cleanup of matching abandoned upload-temp files
 - does not submit the file to Codex or app-server, auto-attach it to a prompt, inspect or log its contents, encrypt it, or malware-scan it
 - logs only bounded operational metadata such as filename, byte count, duration, and outcome; file contents and Telegram download URLs are not logged
 
