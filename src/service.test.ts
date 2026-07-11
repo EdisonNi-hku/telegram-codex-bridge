@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +16,7 @@ import { FEISHU_BOT_MENU_EVENT_KEYS } from "./feishu/ui.js";
 import { FEISHU_PACK } from "./packs/feishu/index.js";
 import { TELEGRAM_PACK } from "./packs/telegram/index.js";
 import { BridgeService } from "./service.js";
+import { UPLOAD_TEMP_ABANDONMENT_MS } from "./service/upload-file-coordinator.js";
 import { BridgeStateStore } from "./state/store.js";
 import { buildTurnStatusCard, encodeModelPickCallback, parseCallbackData } from "./telegram/ui.js";
 import type { ReadinessSnapshot } from "./types.js";
@@ -686,6 +687,72 @@ test("flushRuntimeNotices clears notices after a successful Telegram delivery", 
     assert.equal(store.listRuntimeNotices("chat-1").length, 0);
     assert.equal(store.countRuntimeNotices(), 0);
   } finally {
+    await cleanup();
+  }
+});
+
+test("service startup cleans abandoned upload temps from stored session roots before polling and is restart-idempotent", async () => {
+  const events: string[] = [];
+  const deps: ConstructorParameters<typeof BridgeService>[2] = {
+    probeReadiness: async () => ({ snapshot: createReadinessSnapshot(), appServer: null }),
+    createTelegramApi: () => ({
+      setMyCommands: async () => {},
+      sendMessage: async (_chatId: string, text: string) => createFakeTelegramMessage(1800, text),
+      pinChatMessage: async () => true
+    }) as any,
+    createPoller: () => ({
+      run: async () => { events.push("poll"); },
+      stop: () => {}
+    }) as any
+  };
+  const { service, store, cleanup } = await createServiceContext(deps);
+  const projectRoot = join((service as any).paths.homeDir, "project");
+  const stale = ".ctb-upload-123e4567-e89b-42d3-a456-426614174000.tmp";
+  const nested = "..ctb-upload-123e4567-e89b-42d3-a456-426614174001.tmp.123e4567-e89b-42d3-a456-426614174002.tmp";
+  const fresh = ".ctb-upload-123e4567-e89b-42d3-a456-426614174003.tmp";
+  const directory = ".ctb-upload-123e4567-e89b-42d3-a456-426614174004.tmp";
+  const link = ".ctb-upload-123e4567-e89b-42d3-a456-426614174005.tmp";
+  const unrelated = ".ctb-upload-not-a-uuid.tmp";
+  let runtimeStore: BridgeStateStore | null = null;
+  let restartedStore: BridgeStateStore | null = null;
+  try {
+    await mkdir(projectRoot);
+    await Promise.all([
+      writeFile(join(projectRoot, stale), "stale"),
+      writeFile(join(projectRoot, nested), "nested"),
+      writeFile(join(projectRoot, fresh), "fresh"),
+      writeFile(join(projectRoot, unrelated), "unrelated"),
+      mkdir(join(projectRoot, directory)),
+      symlink(join(projectRoot, "missing"), join(projectRoot, link))
+    ]);
+    const old = new Date(Date.now() - UPLOAD_TEMP_ABANDONMENT_MS - 1_000);
+    await Promise.all([
+      utimes(join(projectRoot, stale), old, old),
+      utimes(join(projectRoot, nested), old, old),
+      utimes(join(projectRoot, unrelated), old, old),
+      utimes(join(projectRoot, directory), old, old)
+    ]);
+    authorizeChat(store, "chat-1");
+    const visible = store.createSession({ chatId: "chat-1", projectName: "project", projectPath: projectRoot });
+    store.setActiveSession("chat-1", visible.sessionId);
+    store.createSession({ chatId: "chat-1", projectName: "missing", projectPath: join(projectRoot, "inaccessible") });
+
+    await service.run();
+    runtimeStore = (service as any).store;
+    assert.deepEqual(events, ["poll"]);
+    assert.deepEqual((await readdir(projectRoot)).sort(), [directory, fresh, link, unrelated].sort());
+    assert.equal((await lstat(join(projectRoot, link))).isSymbolicLink(), true);
+
+    await service.stop();
+    runtimeStore = null;
+    const restarted = new BridgeService((service as any).paths, testConfig, deps);
+    await restarted.run();
+    restartedStore = (restarted as any).store;
+    assert.deepEqual(events, ["poll", "poll"]);
+    assert.deepEqual((await readdir(projectRoot)).sort(), [directory, fresh, link, unrelated].sort());
+  } finally {
+    restartedStore?.close();
+    runtimeStore?.close();
     await cleanup();
   }
 });

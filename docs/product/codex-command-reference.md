@@ -23,7 +23,7 @@ Current intended behavior for Telegram commands that adapt stable Codex control-
 This file covers:
 - model, skills, plugins, apps, MCP, and account commands
 - review, fork, rollback, compact, and thread metadata commands
-- Telegram file retrieval
+- Telegram file upload and retrieval
 - Telegram Side conversations
 - structured rich inputs such as skill, local image, mention, and attach
 
@@ -235,10 +235,24 @@ Behavior:
 - `/side [question]` forks the active regular Codex thread into a separate ephemeral Side conversation; an inline question starts its first turn, while bare `/side` opens it idle
 - Side stays active across multiple messages until `/side back` or the persistent Side card's return action is used; nested Side conversations are rejected
 - the persistent card identifies Side and shows parent status, held results, and the currently valid status, return, or interrupt actions
-- ordinary text and rich inputs, leading-`!` shell commands, `/status`, `/where`, `/inspect`, `/retrieve`, `/interrupt`, and `/side back` are allowed in Side; other slash commands are refused until returning to the parent
+- ordinary text and rich inputs, leading-`!` shell commands, `/status`, `/where`, `/inspect`, `/upload`, `/retrieve`, `/interrupt`, and `/side back` are allowed in Side; other slash commands are refused until returning to the parent
 - `/side back` returns immediately when Side is idle; when a Side turn is running, the bridge requires a single-use two-minute confirmation before interrupting that exact turn and returning
 - pending parent approvals are not surfaced inside Side, and parent terminal results are held; after return, the bridge restores the parent card, surfaces its pending interaction, and releases held results once
 - Side threads are intentionally non-resumable: a bridge restart deletes the ephemeral Side, restores its regular parent or fallback, sends `Side 已因服务重启关闭。` once, applies normal bridge-restart failure handling to stale parent interactions, and releases held parent results once
+
+### `/upload`
+
+Availability:
+- Telegram only; the command is not advertised or supported on Feishu
+- works in regular and Side sessions when the active project root is writable
+
+Behavior and safety:
+- starts a one-shot five-minute wait for exactly one Telegram Document; `/cancel` stops the wait, and another command clears it before that command runs
+- saves only to the active project's canonical root, using the Document filename as a single path component; nested paths and traversal are rejected
+- refuses to overwrite any existing destination, including a file, directory, or symbolic link
+- downloads through private temporary regular files, verifies the session and canonical project binding again before publication, and removes temporary files after success or failure
+- does not submit the file to Codex or app-server, auto-attach it to a prompt, inspect or log its contents, encrypt it, or malware-scan it
+- logs only bounded operational metadata such as filename, byte count, duration, and outcome; file contents and Telegram download URLs are not logged
 
 ### `/retrieve <file path>`
 

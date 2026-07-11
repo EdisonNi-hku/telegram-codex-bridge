@@ -971,6 +971,15 @@ export class BridgeService {
     }
     const recovered = this.store.recoveredFromCorruption;
     this.store.recoverSideSessionsAfterRestart();
+    const uploadCleanupRoots = new Set<string>();
+    for (const binding of this.store.listChatBindings()) {
+      for (const session of this.store.listSessions(binding.chatId)) {
+        uploadCleanupRoots.add(session.projectPath);
+      }
+      const current = this.store.getActiveSession(binding.chatId);
+      if (current) uploadCleanupRoots.add(current.projectPath);
+    }
+    await this.uploadFileCoordinator.cleanupStartup(uploadCleanupRoots);
     const recoverySessions = this.store.listRunningSessions();
     const recoveryInteractions = this.store.listPendingInteractionsForRunningSessions();
     const recoveryNotices = this.store.markRunningSessionsFailedWithNotices("bridge_restart");

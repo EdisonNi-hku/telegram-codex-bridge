@@ -47,7 +47,8 @@ Use for:
 - `/plan`, `/model`, `/skills`, `/skill`
 - `/plugins`, `/plugin`, `/apps`, `/mcp`, `/account`
 - `/review`, `/fork`, `/rollback`, `/compact`
-- `/thread`, `/side`, `/retrieve`, `/local_image`, `/mention`, and `/attach`
+- `/thread`, `/side`, `/upload`, `/retrieve`, `/local_image`, `/mention`, and `/attach`
+- Telegram-only `/upload`: one Document within five minutes, saved at the active project root without overwrite; `/cancel` stops the wait, and the bridge does not send the file to Codex/app-server, auto-attach it, inspect or log its contents, encrypt it, or malware-scan it
 - persistent Telegram Side conversations, their restricted command set, safe return confirmation, parent-output holding, and non-resumable restart behavior
 
 ### Runtime surfaces, inspect, status, and final-answer delivery

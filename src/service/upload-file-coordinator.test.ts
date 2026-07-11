@@ -474,6 +474,30 @@ test("startup cleanup removes only exact UUID temp regular files", async () => {
   ]);
 });
 
+test("startup cleanup removes stale nested Telegram transport temp files only", async () => {
+  const f = await fixture();
+  const stale = "..ctb-upload-123e4567-e89b-42d3-a456-426614174000.tmp.123e4567-e89b-42d3-a456-426614174001.tmp";
+  const fresh = "..ctb-upload-123e4567-e89b-42d3-a456-426614174002.tmp.123e4567-e89b-42d3-a456-426614174003.tmp";
+  const unrelated = "prefix..ctb-upload-123e4567-e89b-42d3-a456-426614174004.tmp.123e4567-e89b-42d3-a456-426614174005.tmp";
+  const directory = "..ctb-upload-123e4567-e89b-42d3-a456-426614174006.tmp.123e4567-e89b-42d3-a456-426614174007.tmp";
+  const link = "..ctb-upload-123e4567-e89b-42d3-a456-426614174008.tmp.123e4567-e89b-42d3-a456-426614174009.tmp";
+  await writeFile(join(f.root, stale), "temp");
+  await writeFile(join(f.root, fresh), "live");
+  await writeFile(join(f.root, unrelated), "keep");
+  await mkdir(join(f.root, directory));
+  await symlink(join(f.root, "missing"), join(f.root, link));
+  const staleTime = new Date(Date.now() - UPLOAD_TEMP_ABANDONMENT_MS - 1_000);
+  await Promise.all([
+    utimes(join(f.root, stale), staleTime, staleTime),
+    utimes(join(f.root, unrelated), staleTime, staleTime),
+    utimes(join(f.root, directory), staleTime, staleTime)
+  ]);
+
+  await f.coordinator.cleanupStartup([f.root]);
+
+  assert.deepEqual((await readFileNames(f.root)).sort(), [directory, fresh, link, unrelated].sort());
+});
+
 async function readFileNames(root: string): Promise<string[]> {
   return await readdir(root);
 }

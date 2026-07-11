@@ -10,7 +10,11 @@ const UPLOAD_TTL_MS = 5 * 60 * 1000;
 export const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
 export const UPLOAD_TEMP_ABANDONMENT_MS = UPLOAD_TTL_MS;
 const WAITING_TEXT = "Waiting for one Telegram Document. Send /cancel to stop.";
-const TEMP_FILE_PATTERN = /^\.ctb-upload-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/iu;
+const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+const TEMP_FILE_PATTERN = new RegExp(
+  `^(?:\\.ctb-upload-${UUID_PATTERN}\\.tmp|\\.\\.ctb-upload-${UUID_PATTERN}\\.tmp\\.${UUID_PATTERN}\\.tmp)$`,
+  "iu"
+);
 const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu;
 
 interface UploadApi {
@@ -243,9 +247,12 @@ export class UploadFileCoordinator {
   }
 
   async cleanupStartup(projectRoots: Iterable<string>): Promise<void> {
+    const visited = new Set<string>();
     for (const root of projectRoots) {
       let canonical: string;
       try { canonical = await realpath(root); } catch { continue; }
+      if (visited.has(canonical)) continue;
+      visited.add(canonical);
       let names: string[];
       try { names = await readdir(canonical); } catch { continue; }
       for (const name of names) {
