@@ -1587,6 +1587,39 @@ test("retrieve remains unsupported on Feishu and never delivers a document", asy
   }
 });
 
+test("manual Feishu upload stays unsupported without entering upload or Codex paths", async () => {
+  const { service, store, cleanup } = await createServiceContext({}, feishuTestConfig);
+  const sent: string[] = [];
+  let downstreamCalls = 0;
+
+  try {
+    authorizeFeishuChat(store, "feishu-chat", "feishu-user");
+    const session = createSession(store, "feishu-chat");
+    store.setActiveSession("feishu-chat", session.sessionId);
+    (service as any).api = {
+      sendMessage: async (_chatId: string, text: string) => {
+        sent.push(text);
+        return createFakeTelegramMessage(22, text);
+      }
+    };
+    (service as any).uploadFileCoordinator = { handleCommand: async () => { downstreamCalls += 1; } };
+    (service as any).startTextTurn = async () => { downstreamCalls += 1; };
+
+    await (service as any).handleMessage({
+      message_id: 2005,
+      from: { id: "feishu-user", is_bot: false, first_name: "Tester" },
+      chat: { id: "feishu-chat", type: "private" },
+      date: 0,
+      text: "/upload"
+    });
+
+    assert.deepEqual(sent, ["这个命令还没开放。"]);
+    assert.equal(downstreamCalls, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("retrieve help is advertised on Telegram but hidden from Feishu", async () => {
   const telegram = await createServiceContext();
   const feishu = await createServiceContext({}, feishuTestConfig);

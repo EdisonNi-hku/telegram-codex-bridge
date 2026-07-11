@@ -2297,6 +2297,10 @@ export class BridgeService {
       },
       // Task 4 replaces this sequencing adapter with the real upload coordinator wiring.
       handleUpload: async () => {
+        if (this.config.activePack !== "telegram") {
+          await this.safeSendMessage(chatId, buildUnsupportedCommandText());
+          return;
+        }
         await this.safeSendMessage(chatId, "文件上传暂未开放，请稍后再试。");
       },
       handleThread: async () => {
