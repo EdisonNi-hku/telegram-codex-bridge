@@ -8,6 +8,7 @@ import type { SessionRow } from "../types.js";
 
 const UPLOAD_TTL_MS = 5 * 60 * 1000;
 export const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
+const WAITING_TEXT = "Waiting for one Telegram Document. Send /cancel to stop.";
 const TEMP_FILE_PATTERN = /^\.ctb-upload-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/iu;
 const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu;
 
@@ -61,7 +62,7 @@ export class UploadFileCoordinator {
 
   private async beginQueued(chatId: string): Promise<boolean> {
     if (this.getPending(chatId)) {
-      await this.deps.safeSendMessage(chatId, `Already waiting. ${this.waitingText(chatId)}`);
+      await this.deps.safeSendMessage(chatId, `Already waiting. ${WAITING_TEXT}`);
       return false;
     }
     if (this.deps.hasConflictingInput(chatId)) {
@@ -115,8 +116,12 @@ export class UploadFileCoordinator {
     return this.getPending(chatId) !== null;
   }
 
-  waitingText(_chatId: string): string {
-    return "Waiting for one Telegram Document. Send /cancel to stop.";
+  async handleWaitingText(chatId: string): Promise<boolean> {
+    return await this.enqueue(chatId, async () => {
+      if (!this.getPending(chatId)) return false;
+      await this.deps.safeSendMessage(chatId, WAITING_TEXT);
+      return true;
+    });
   }
 
   clearForCommand(chatId: string, command: string): boolean {

@@ -81,7 +81,6 @@ test("duplicate begin preserves pending state; cancel, commands, reminders, and 
   f.setActive(session(f.root, { sessionId: "replacement" }));
   assert.equal(await f.coordinator.begin("chat-1"), false);
   assert.equal(f.coordinator.isWaiting("chat-1"), true);
-  assert.match(f.coordinator.waitingText("chat-1"), /Document.*\/cancel/i);
   assert.equal(f.coordinator.clearForCommand("chat-1", "/upload"), false);
   assert.equal(f.coordinator.isWaiting("chat-1"), true);
   assert.equal(f.coordinator.clearForCommand("chat-1", "/status"), true);
@@ -91,6 +90,56 @@ test("duplicate begin preserves pending state; cancel, commands, reminders, and 
   now += 300_000;
   assert.equal(f.coordinator.isWaiting("chat-1"), false);
   assert.equal(f.coordinator.cancel("chat-1"), false);
+});
+
+test("waiting text is suppressed with a reminder and does not consume pending state", async () => {
+  const f = await fixture();
+  await f.coordinator.begin("chat-1");
+  const before = f.messages.length;
+  assert.equal(await f.coordinator.handleWaitingText("chat-1"), true);
+  assert.equal(f.messages.length, before + 1);
+  assert.match(f.messages.at(-1) ?? "", /Document.*\/cancel/i);
+  assert.equal(f.coordinator.isWaiting("chat-1"), true);
+});
+
+test("waiting text returns false without messaging when pending is absent or exactly expired", async () => {
+  let now = 100;
+  const f = await fixture({ now: () => now });
+  assert.equal(await f.coordinator.handleWaitingText("chat-1"), false);
+  assert.deepEqual(f.messages, []);
+  await f.coordinator.begin("chat-1");
+  const before = f.messages.length;
+  now += 300_000;
+  assert.equal(await f.coordinator.handleWaitingText("chat-1"), false);
+  assert.equal(f.messages.length, before);
+  assert.equal(f.coordinator.isWaiting("chat-1"), false);
+});
+
+test("waiting reminder send rejection leaves state intact and does not poison the chat queue", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ctb-upload-waiting-reject-"));
+  let rejectReminder = false;
+  let reminders = 0;
+  const coordinator = new UploadFileCoordinator({
+    getActiveSession: () => session(root),
+    hasConflictingInput: () => false,
+    getApi: () => null,
+    safeSendMessage: async (_chatId, text) => {
+      if (/Waiting for one Telegram Document/u.test(text)) {
+        reminders += 1;
+        if (rejectReminder) throw new Error("send rejected");
+      }
+      return true;
+    },
+    logger: { warn: async () => {} }
+  });
+  await coordinator.begin("chat-1");
+  rejectReminder = true;
+  await assert.rejects(coordinator.handleWaitingText("chat-1"), /send rejected/);
+  assert.equal(coordinator.isWaiting("chat-1"), true);
+  rejectReminder = false;
+  assert.equal(await coordinator.handleWaitingText("chat-1"), true);
+  assert.equal(reminders, 2);
+  assert.equal(coordinator.isWaiting("chat-1"), true);
 });
 
 test("concurrent begin calls serialize and preserve the original session binding", async () => {
